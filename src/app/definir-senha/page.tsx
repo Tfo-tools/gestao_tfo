@@ -1,18 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
 import { DefinirSenhaForm } from "./definir-senha-form";
 
-export default async function DefinirSenhaPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ code?: string }>;
-}) {
-  const { code } = await searchParams;
-
-  if (code) {
-    const supabase = await createClient();
-    await supabase.auth.exchangeCodeForSession(code);
-  }
-
+export default function DefinirSenhaPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#fbfaf8] px-6">
       <div className="w-full max-w-[340px]">

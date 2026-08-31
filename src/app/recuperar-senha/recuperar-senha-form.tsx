@@ -23,7 +23,7 @@ export function RecuperarSenhaForm() {
         setPending(true);
         const supabase = createClient();
         await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/definir-senha`,
+          redirectTo: `${window.location.origin}/auth/confirm?next=/definir-senha`,
         });
         setPending(false);
         setEnviado(true);
