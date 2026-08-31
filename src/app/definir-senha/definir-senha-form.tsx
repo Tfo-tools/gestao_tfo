@@ -1,44 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export function DefinirSenhaForm() {
+export function DefinirSenhaForm({
+  tokenHash,
+  type,
+}: {
+  tokenHash?: string;
+  type?: string;
+}) {
   const router = useRouter();
-  const [checking, setChecking] = useState(true);
-  const [sessionOk, setSessionOk] = useState(false);
   const [senha, setSenha] = useState("");
   const [confirmar, setConfirmar] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const supabase = createClient();
-
-      // Links with ?code=... (PKCE) need an explicit exchange. Links with
-      // #access_token=... (the format this project's e-mails use) are
-      // picked up automatically when the client initializes below.
-      const code = new URLSearchParams(window.location.search).get("code");
-      if (code) {
-        await supabase.auth.exchangeCodeForSession(code);
-      }
-
-      const { data } = await supabase.auth.getSession();
-      setSessionOk(Boolean(data.session));
-      setChecking(false);
-    })();
-  }, []);
-
-  if (checking) {
-    return <p className="text-sm text-text-muted">Verificando link…</p>;
-  }
-
-  if (!sessionOk) {
+  if (!tokenHash || !type) {
     return (
       <p className="rounded-lg bg-danger-soft px-3.5 py-3 text-[13px] text-danger">
-        Esse link expirou ou já foi usado. Peça um novo em{" "}
+        Link inválido. Peça um novo em{" "}
         <a href="/recuperar-senha" className="font-medium underline">
           Recuperar senha
         </a>
@@ -64,11 +46,27 @@ export function DefinirSenhaForm() {
 
         setPending(true);
         const supabase = createClient();
-        const { error } = await supabase.auth.updateUser({ password: senha });
+
+        // The one-time token is only consumed here, on real form submission —
+        // never on a bare page load — so email link-preview prefetching can't
+        // burn it before the person actually sets their password.
+        const { error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          type: type as any,
+        });
+
+        if (verifyError) {
+          setPending(false);
+          setError("Esse link expirou ou já foi usado. Peça um novo em Recuperar senha.");
+          return;
+        }
+
+        const { error: updateError } = await supabase.auth.updateUser({ password: senha });
         setPending(false);
 
-        if (error) {
-          setError("Não foi possível salvar a senha. Peça um novo link.");
+        if (updateError) {
+          setError("Não foi possível salvar a senha. Tente novamente.");
           return;
         }
 

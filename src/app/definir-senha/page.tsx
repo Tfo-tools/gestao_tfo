@@ -1,6 +1,12 @@
 import { DefinirSenhaForm } from "./definir-senha-form";
 
-export default function DefinirSenhaPage() {
+export default async function DefinirSenhaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ token_hash?: string; type?: string }>;
+}) {
+  const { token_hash, type } = await searchParams;
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#fbfaf8] px-6">
       <div className="w-full max-w-[340px]">
@@ -8,7 +14,7 @@ export default function DefinirSenhaPage() {
         <p className="mt-1.5 mb-7 text-[13px] text-text-muted">
           Escolha a senha que você vai usar para acessar o TFO-Gestão
         </p>
-        <DefinirSenhaForm />
+        <DefinirSenhaForm tokenHash={token_hash} type={type} />
       </div>
     </div>
   );
