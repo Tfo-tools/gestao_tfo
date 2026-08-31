@@ -11,6 +11,7 @@ type Plano = {
   preco: number;
   desconto_pct: number | null;
   is_annual_only: boolean;
+  mix_percentual: number | null;
 };
 
 const initialState: ActionState = { error: null };
@@ -23,6 +24,8 @@ export function PlanosPrecificacao({ produtoId, planos }: { produtoId: string; p
   const [state, formAction, pending] = useActionState(criarPlano, initialState);
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
+
+  const somaMix = planos.reduce((acc, p) => acc + Number(p.mix_percentual ?? 0), 0);
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
@@ -44,6 +47,11 @@ export function PlanosPrecificacao({ produtoId, planos }: { produtoId: string; p
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {p.mix_percentual != null && (
+                <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-primary-deep">
+                  {p.mix_percentual}%
+                </span>
+              )}
               <span className="font-mono text-[13px] font-semibold">{formatBRL(Number(p.preco))}</span>
               <button
                 type="button"
@@ -56,6 +64,15 @@ export function PlanosPrecificacao({ produtoId, planos }: { produtoId: string; p
             </div>
           </div>
         ))}
+        {planos.length > 0 && (
+          <div
+            className={`text-right text-[11px] font-medium ${
+              somaMix === 100 ? "text-success" : "text-danger"
+            }`}
+          >
+            Mix total: {somaMix}% {somaMix !== 100 && "(precisa somar 100%)"}
+          </div>
+        )}
       </div>
 
       <form
@@ -85,6 +102,20 @@ export function PlanosPrecificacao({ produtoId, planos }: { produtoId: string; p
         <div className="grid grid-cols-2 gap-2">
           <input name="preco" type="number" step="0.01" placeholder="Preço (R$)" className="input" required />
           <input name="desconto_pct" type="number" step="0.01" placeholder="Desconto (%)" className="input" />
+        </div>
+        <div>
+          <input
+            name="mix_percentual"
+            type="number"
+            step="0.01"
+            min="0"
+            max="100"
+            placeholder="% dos clientes nesse plano (ex: 60)"
+            className="input"
+          />
+          <p className="mt-1 text-[10px] text-text-faint">
+            Usado pra calcular a receita média por cliente — a soma de todos os planos deve dar 100%
+          </p>
         </div>
         <label className="flex items-center gap-2 text-[11.5px]">
           <input type="checkbox" name="is_annual_only" className="h-4 w-4 rounded border-border" />

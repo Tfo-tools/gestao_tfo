@@ -94,6 +94,7 @@ export async function criarPlano(
   const preco = Number(formData.get("preco") || 0);
   const desconto_pct = formData.get("desconto_pct") ? Number(formData.get("desconto_pct")) : 0;
   const is_annual_only = formData.get("is_annual_only") === "on";
+  const mix_percentual = formData.get("mix_percentual") ? Number(formData.get("mix_percentual")) : null;
 
   if (!produto_id || !nome_plano || !tipo_cobranca || !preco) {
     return { error: "Preencha nome do plano, cobrança e preço." };
@@ -108,6 +109,7 @@ export async function criarPlano(
     preco,
     desconto_pct,
     is_annual_only,
+    mix_percentual,
   });
 
   if (error) {
