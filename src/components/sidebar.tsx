@@ -7,6 +7,7 @@ import {
   IconHome,
   IconBox,
   IconFunnel,
+  IconUsers,
   IconSliders,
   IconLayers,
   IconTrendingUp,
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Visão Geral", icon: IconHome },
   { href: "/produtos", label: "Produtos", icon: IconBox },
   { href: "/funil", label: "Funil & Metas", icon: IconFunnel },
+  { href: "/contratacoes", label: "Contratações", icon: IconUsers },
   { href: "/plano-de-custos", label: "Plano de Custos", icon: IconSliders },
   { href: "/cenarios", label: "Cenários", icon: IconLayers },
   { href: "/fomento", label: "Fomento & Investimento", icon: IconTrendingUp },
@@ -49,10 +51,10 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
               key={href}
               href={href}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] transition-colors ${
-                active ? "bg-cream/15 font-medium text-cream" : "text-white/70 hover:bg-white/5"
+                active ? "bg-cream/20 font-semibold text-cream" : "text-white/70 hover:bg-white/5"
               }`}
             >
-              <Icon width={18} height={18} className={active ? "text-cream" : "text-white/55"} />
+              <Icon width={18} height={18} strokeWidth={active ? 2.1 : 1.8} className={active ? "text-cream" : "text-white/55"} />
               {label}
             </Link>
           );

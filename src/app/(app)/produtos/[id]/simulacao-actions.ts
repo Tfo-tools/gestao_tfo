@@ -38,11 +38,15 @@ export async function recalcularSimulacao(
   const faseIdByValue = new Map(fases.map((f) => [f.fase as FaseValue, f.id as string]));
   const faseIds = fases.map((f) => f.id);
 
-  const [{ data: betas }, { data: funis }, { data: equipeRows }, { data: regimes }, { data: custosFixosRaw }, { data: custosVariaveisRaw }] =
+  const [{ data: betas }, { data: funis }, { data: contratacoesRaw }, { data: regimes }, { data: custosFixosRaw }, { data: custosVariaveisRaw }] =
     await Promise.all([
       supabase.from("beta_testers_config").select("fase_produto_id, quantidade, duracao_dias, bonificacao_meses").in("fase_produto_id", faseIds),
       supabase.from("premissas_funil").select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control").in("fase_produto_id", faseIds),
-      supabase.from("equipe_custos").select("fase_produto_id, cargo, salario_bruto, regime_id").in("fase_produto_id", faseIds),
+      supabase
+        .from("contratacoes")
+        .select("cargo, tipo_contratacao, salario_bruto, regime_id, valor_mensal, data_inicio, data_fim")
+        .eq("cenario_id", cenarioId)
+        .eq("produto_id", produtoId),
       supabase.from("encargos_regimes").select("id, aliquota_total_efetiva"),
       supabase
         .from("plano_custos_fixos")
@@ -80,11 +84,15 @@ export async function recalcularSimulacao(
       capacidade_vendedor_mes: f.capacidade_vendedor_mes,
       span_of_control: f.span_of_control,
     })),
-    equipe: (equipeRows ?? []).map((e) => ({
-      fase: faseValueById.get(e.fase_produto_id)!,
+    contratacoes: (contratacoesRaw ?? []).map((c) => ({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cargo: e.cargo as any,
-      custo_total_mensal: Number(e.salario_bruto) * (1 + (regimeAliquota.get(e.regime_id) ?? 0)),
+      cargo: c.cargo as any,
+      data_inicio: c.data_inicio,
+      data_fim: c.data_fim,
+      custo_mensal:
+        c.tipo_contratacao === "clt"
+          ? Number(c.salario_bruto ?? 0) * (1 + (regimeAliquota.get(c.regime_id ?? "") ?? 0))
+          : Number(c.valor_mensal ?? 0),
     })),
     planos: (planos ?? []).map((p) => ({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

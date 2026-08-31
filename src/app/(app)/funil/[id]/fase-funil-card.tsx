@@ -9,11 +9,7 @@ type Funil = {
   span_of_control: number | null;
 } | null;
 
-type EquipeItem = { cargo: string; salario_bruto: number; regime_id: string } | undefined;
-type Regime = { id: string; nome: string; aliquota_total_efetiva: number };
-
 const initialState: ActionState = { error: null };
-const CARGO_LABEL: Record<string, string> = { sdr: "SDR", vendedor: "Vendedor / AE", coordenador: "Coordenador" };
 
 export function FaseFunilCard({
   produtoId,
@@ -22,8 +18,6 @@ export function FaseFunilCard({
   label,
   ordem,
   funil,
-  equipe,
-  regimes,
   defaultOpen = false,
 }: {
   produtoId: string;
@@ -32,8 +26,6 @@ export function FaseFunilCard({
   label: string;
   ordem: number;
   funil: Funil;
-  equipe: Record<string, EquipeItem>;
-  regimes: Regime[];
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -112,12 +104,6 @@ export function FaseFunilCard({
           </Field>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          {(["sdr", "vendedor", "coordenador"] as const).map((cargo) => (
-            <CargoFields key={cargo} cargo={cargo} item={equipe[cargo]} regimes={regimes} />
-          ))}
-        </div>
-
         {state.error && (
           <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>
         )}
@@ -133,57 +119,6 @@ export function FaseFunilCard({
           {pending ? "Salvando…" : "Salvar fase"}
         </button>
       </form>
-    </div>
-  );
-}
-
-function CargoFields({
-  cargo,
-  item,
-  regimes,
-}: {
-  cargo: "sdr" | "vendedor" | "coordenador";
-  item: EquipeItem;
-  regimes: Regime[];
-}) {
-  const [salario, setSalario] = useState(item?.salario_bruto ?? 0);
-  const [regimeId, setRegimeId] = useState(item?.regime_id ?? "");
-
-  const regime = regimes.find((r) => r.id === regimeId);
-  const custoTotal = regime ? salario * (1 + Number(regime.aliquota_total_efetiva)) : null;
-
-  return (
-    <div className="rounded-lg bg-bg px-3.5 py-3.5">
-      <div className="mb-2.5 text-[11.5px] font-semibold text-text-muted">{CARGO_LABEL[cargo]}</div>
-      <label className="mb-1 block text-[10.5px] text-text-faint">Salário bruto CTPS</label>
-      <input
-        type="number"
-        step="0.01"
-        name={`salario_${cargo}`}
-        value={salario || ""}
-        onChange={(e) => setSalario(Number(e.target.value) || 0)}
-        className="input mb-2"
-        placeholder="0,00"
-      />
-      <label className="mb-1 block text-[10.5px] text-text-faint">Regime</label>
-      <select
-        name={`regime_${cargo}`}
-        value={regimeId}
-        onChange={(e) => setRegimeId(e.target.value)}
-        className="input"
-      >
-        <option value="">Selecione…</option>
-        {regimes.map((r) => (
-          <option key={r.id} value={r.id}>
-            {r.nome}
-          </option>
-        ))}
-      </select>
-      {custoTotal !== null && (
-        <div className="mt-2 rounded bg-primary-soft px-2 py-1.5 text-[11px] font-semibold text-primary-deep">
-          Custo total: R$ {custoTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </div>
-      )}
     </div>
   );
 }

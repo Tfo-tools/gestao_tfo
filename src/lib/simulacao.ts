@@ -23,10 +23,11 @@ export type FunilInput = {
   span_of_control: number | null;
 };
 
-export type EquipeInput = {
-  fase: FaseValue;
+export type ContratacaoInput = {
   cargo: "sdr" | "vendedor" | "coordenador";
-  custo_total_mensal: number;
+  data_inicio: string | null;
+  data_fim: string | null;
+  custo_mensal: number;
 };
 
 export type PlanoInput = {
@@ -56,7 +57,7 @@ export type SimulacaoInput = {
   fases: FaseInput[];
   betas: BetaInput[];
   funis: FunilInput[];
-  equipe: EquipeInput[];
+  contratacoes: ContratacaoInput[];
   planos: PlanoInput[];
   custosFixos: CustoFixoInput[];
   custosVariaveis: CustoVariavelInput[];
@@ -123,8 +124,15 @@ function calcularArpu(planos: PlanoInput[]): number {
   }, 0);
 }
 
-function custoEquipe(equipe: EquipeInput[], fase: FaseValue, cargo: EquipeInput["cargo"]): number {
-  return equipe.find((e) => e.fase === fase && e.cargo === cargo)?.custo_total_mensal ?? 0;
+/** Soma o custo de todas as contratações ativas (por data) num determinado mês. */
+function custoContratacoesNoMes(contratacoes: ContratacaoInput[], mes: Date): number {
+  return contratacoes.reduce((acc, c) => {
+    const inicio = c.data_inicio ? new Date(c.data_inicio + "T00:00:00") : null;
+    const fim = c.data_fim ? new Date(c.data_fim + "T00:00:00") : null;
+    const iniciouAntes = !inicio || new Date(inicio.getFullYear(), inicio.getMonth(), 1) <= mes;
+    const aindaAtiva = !fim || fim >= mes;
+    return iniciouAntes && aindaAtiva ? acc + c.custo_mensal : acc;
+  }, 0);
 }
 
 export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
@@ -197,20 +205,10 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
 
     const receitaBruta = arpu * clientesAtivos * fatorProRata;
 
-    // Funil comercial e CAC.
-    const funil = input.funis.find((f) => f.fase === fase.fase);
-    let custoEquipeVendas = 0;
-    let cacAllIn: number | null = null;
-    if (funil?.taxa_conversao && funil.capacidade_vendedor_mes && novosClientes > 0) {
-      const contatos = novosClientes / funil.taxa_conversao;
-      const vendedores = Math.ceil(contatos / funil.capacidade_vendedor_mes);
-      const coordenadores = Math.floor(vendedores / (funil.span_of_control ?? 8));
-      custoEquipeVendas =
-        vendedores * custoEquipe(input.equipe, fase.fase, "vendedor") +
-        vendedores * custoEquipe(input.equipe, fase.fase, "sdr") +
-        coordenadores * custoEquipe(input.equipe, fase.fase, "coordenador");
-      cacAllIn = (custoEquipeVendas + (fase.investimento_ms_mensal ?? 0)) / novosClientes;
-    }
+    // Custo real da equipe comercial contratada (CLT + PJ) ativa neste mês.
+    const custoEquipeVendas = custoContratacoesNoMes(input.contratacoes, mes);
+    const cacAllIn =
+      novosClientes > 0 ? (custoEquipeVendas + (fase.investimento_ms_mensal ?? 0)) / novosClientes : null;
 
     const ltv = taxaChurn > 0 ? arpu / taxaChurn : null;
 

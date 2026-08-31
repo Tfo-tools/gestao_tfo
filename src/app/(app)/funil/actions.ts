@@ -5,8 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 
 export type ActionState = { error: string | null; success?: boolean };
 
-const CARGOS = ["sdr", "vendedor", "coordenador"] as const;
-
 export async function salvarFunil(
   _prevState: ActionState,
   formData: FormData,
@@ -57,23 +55,6 @@ export async function salvarFunil(
       { onConflict: "fase_produto_id" },
     );
     if (error) return { error: "Não foi possível salvar as premissas do funil." };
-  }
-
-  for (const cargo of CARGOS) {
-    const salario = formData.get(`salario_${cargo}`);
-    const regime = formData.get(`regime_${cargo}`);
-    if (salario && regime) {
-      await supabase.from("equipe_custos").upsert(
-        {
-          fase_produto_id: faseProdutoId,
-          cargo,
-          salario_bruto: Number(salario),
-          regime_id: String(regime),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "fase_produto_id,cargo" },
-      );
-    }
   }
 
   revalidatePath(`/funil/${produto_id}`);
