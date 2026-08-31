@@ -120,6 +120,41 @@ export async function criarPlano(
   return { error: null, success: true };
 }
 
+export async function criarProduto(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const nome = String(formData.get("nome") || "").trim();
+  const descricao = String(formData.get("descricao") || "").trim() || null;
+  const data_inicio_desenvolvimento = String(formData.get("data_inicio_desenvolvimento") || "") || null;
+  const data_lancamento_estimada = String(formData.get("data_lancamento_estimada") || "") || null;
+
+  if (!nome) {
+    return { error: "Dê um nome para o produto." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("produtos").insert({
+    nome,
+    descricao,
+    data_inicio_desenvolvimento,
+    data_lancamento_estimada,
+  });
+
+  if (error) {
+    return {
+      error: error.message.includes("duplicate")
+        ? "Já existe um produto com esse nome."
+        : "Não foi possível criar o produto.",
+    };
+  }
+
+  revalidatePath("/produtos");
+  revalidatePath("/funil");
+  revalidatePath("/");
+  return { error: null, success: true };
+}
+
 export async function excluirPlano(planoId: string, produtoId: string) {
   const supabase = await createClient();
   await supabase.from("planos_precificacao").delete().eq("id", planoId);

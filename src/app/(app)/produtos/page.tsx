@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { NovoProdutoForm } from "./novo-produto-form";
 
 export default async function ProdutosPage({
   searchParams,
@@ -29,11 +30,17 @@ export default async function ProdutosPage({
             Ciclo de vida, precificação e premissas de crescimento por produto
           </p>
         </div>
-        {cenarioNome && (
-          <span className="rounded-lg border border-[#e6d3d9] bg-wine-soft px-3 py-2 text-[12.5px] font-medium text-wine">
-            Cenário: {cenarioNome}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {cenarioNome && (
+            <span className="rounded-lg border border-[#e6d3d9] bg-wine-soft px-3 py-2 text-[12.5px] font-medium text-wine">
+              Cenário: {cenarioNome}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <NovoProdutoForm />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
