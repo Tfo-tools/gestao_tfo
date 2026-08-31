@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { signIn, type AuthState } from "./actions";
 
@@ -38,6 +39,10 @@ export function LoginForm() {
           placeholder="••••••••••••"
         />
       </div>
+
+      <Link href="/recuperar-senha" className="-mt-2 self-end text-[12px] text-primary-deep">
+        Esqueci minha senha
+      </Link>
 
       {state.error && (
         <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>
