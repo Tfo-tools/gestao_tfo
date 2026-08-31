@@ -49,10 +49,10 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
               key={href}
               href={href}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] transition-colors ${
-                active ? "bg-primary-fill/15 font-medium text-white" : "text-white/70 hover:bg-white/5"
+                active ? "bg-cream/15 font-medium text-cream" : "text-white/70 hover:bg-white/5"
               }`}
             >
-              <Icon width={18} height={18} className={active ? "text-primary-fill" : "text-white/55"} />
+              <Icon width={18} height={18} className={active ? "text-cream" : "text-white/55"} />
               {label}
             </Link>
           );

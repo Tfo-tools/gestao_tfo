@@ -5,6 +5,8 @@ import { FASES } from "@/lib/fases";
 import { CenarioSelector } from "./cenario-selector";
 import { FaseCard } from "./fase-card";
 import { PlanosPrecificacao } from "./planos-precificacao";
+import { RecalcularButton } from "./recalcular-button";
+import { SimulacaoResultado } from "./simulacao-resultado";
 
 export default async function ProdutoDetailPage({
   params,
@@ -47,6 +49,13 @@ export default async function ProdutoDetailPage({
 
   const primeiraVazia = FASES.findIndex((f) => !faseByValue.get(f.value)?.data_inicio);
 
+  const { data: simulacao } = await supabase
+    .from("simulacao_mensal")
+    .select("mes_referencia, clientes_ativos, receita_bruta, ebitda, cac_all_in, ltv")
+    .eq("produto_id", id)
+    .eq("cenario_id", cenarioAtual)
+    .order("mes_referencia");
+
   return (
     <div>
       <div className="mb-2">
@@ -60,7 +69,14 @@ export default async function ProdutoDetailPage({
           <h1 className="font-heading text-[22px] font-semibold">{produto.nome}</h1>
           <p className="mt-1 text-[13px] text-text-muted">{produto.descricao ?? "Sem descrição."}</p>
         </div>
-        {cenarioAtual && <CenarioSelector cenarios={cenarios ?? []} cenarioAtual={cenarioAtual} />}
+        <div className="flex items-center gap-3">
+          {cenarioAtual && <CenarioSelector cenarios={cenarios ?? []} cenarioAtual={cenarioAtual} />}
+          {cenarioAtual && <RecalcularButton produtoId={id} cenarioId={cenarioAtual} />}
+        </div>
+      </div>
+
+      <div className="mb-5">
+        <SimulacaoResultado linhas={simulacao ?? []} />
       </div>
 
       <div className="grid grid-cols-[1fr_340px] items-start gap-5">
