@@ -21,7 +21,7 @@ export async function convidarUsuario(
 
   const { error } = await admin.auth.admin.inviteUserByEmail(email, {
     data: nome ? { nome } : undefined,
-    redirectTo: `${siteUrl}/auth/confirm?next=/definir-senha`,
+    redirectTo: `${siteUrl}/definir-senha`,
   });
 
   if (error) {

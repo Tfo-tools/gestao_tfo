@@ -1,15 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export function DefinirSenhaForm() {
   const router = useRouter();
+  const [checking, setChecking] = useState(true);
+  const [sessionOk, setSessionOk] = useState(false);
   const [senha, setSenha] = useState("");
   const [confirmar, setConfirmar] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const supabase = createClient();
+
+      // Links with ?code=... (PKCE) need an explicit exchange. Links with
+      // #access_token=... (the format this project's e-mails use) are
+      // picked up automatically when the client initializes below.
+      const code = new URLSearchParams(window.location.search).get("code");
+      if (code) {
+        await supabase.auth.exchangeCodeForSession(code);
+      }
+
+      const { data } = await supabase.auth.getSession();
+      setSessionOk(Boolean(data.session));
+      setChecking(false);
+    })();
+  }, []);
+
+  if (checking) {
+    return <p className="text-sm text-text-muted">Verificando link…</p>;
+  }
+
+  if (!sessionOk) {
+    return (
+      <p className="rounded-lg bg-danger-soft px-3.5 py-3 text-[13px] text-danger">
+        Esse link expirou ou já foi usado. Peça um novo em{" "}
+        <a href="/recuperar-senha" className="font-medium underline">
+          Recuperar senha
+        </a>
+        .
+      </p>
+    );
+  }
 
   return (
     <form
@@ -32,7 +68,7 @@ export function DefinirSenhaForm() {
         setPending(false);
 
         if (error) {
-          setError("Não foi possível salvar a senha. Peça um novo convite ou link.");
+          setError("Não foi possível salvar a senha. Peça um novo link.");
           return;
         }
 
