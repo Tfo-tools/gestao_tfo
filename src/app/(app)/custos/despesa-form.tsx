@@ -11,9 +11,11 @@ const initialState: DespesaFormState = { error: null };
 export function DespesaForm({
   planoContas,
   produtos,
+  pagadores,
 }: {
   planoContas: PlanoContas[];
   produtos: Produto[];
+  pagadores: string[];
 }) {
   const [state, formAction, pending] = useActionState(criarDespesa, initialState);
   const formRef = useRef<HTMLFormElement>(null);
@@ -58,6 +60,18 @@ export function DespesaForm({
                 {p.nome}
               </option>
             ))}
+          </select>
+        </Field>
+
+        <Field label="Pagador">
+          <select name="pagador" required className="input">
+            <option value="">Quem pagou?</option>
+            {pagadores.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+            <option value="Empresa">Empresa (conta/cartão PJ)</option>
           </select>
         </Field>
 

@@ -17,6 +17,7 @@ export async function criarDespesa(
   const valor_total = Number(formData.get("valor_total") || 0);
   const descricao = String(formData.get("descricao") || "") || null;
   const comprovado = formData.get("comprovado") === "on";
+  const pagador = String(formData.get("pagador") || "").trim() || null;
   const file = formData.get("comprovante") as File | null;
 
   if (!data_gasto || !plano_contas_id || !valor_total) {
@@ -36,6 +37,7 @@ export async function criarDespesa(
       valor_total,
       descricao,
       comprovado,
+      pagador,
       criado_por: user?.id ?? null,
     })
     .select("id")

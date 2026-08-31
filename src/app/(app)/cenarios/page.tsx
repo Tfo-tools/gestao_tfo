@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { NovoCenarioForm } from "./novo-cenario-form";
 
 export default async function CenariosPage() {
   const supabase = await createClient();
@@ -18,9 +20,17 @@ export default async function CenariosPage() {
         </div>
       </div>
 
+      <div className="mb-6">
+        <NovoCenarioForm cenarios={(cenarios ?? []).map((c) => ({ id: c.id, nome: c.nome }))} />
+      </div>
+
       <div className="grid grid-cols-3 gap-4">
         {(cenarios ?? []).map((c) => (
-          <div key={c.id} className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
+          <Link
+            key={c.id}
+            href={`/produtos?cenario=${c.id}`}
+            className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 transition-colors hover:border-primary-fill"
+          >
             <span
               className={`w-fit rounded px-2 py-0.5 text-[10.5px] font-semibold ${
                 c.is_base ? "bg-success-soft text-success" : "bg-[#eef0f4] text-[#4a5064]"
@@ -30,14 +40,8 @@ export default async function CenariosPage() {
             </span>
             <div className="font-heading text-[15px] font-semibold">{c.nome}</div>
             <p className="text-[12px] text-text-muted">{c.descricao ?? "Sem descrição."}</p>
-          </div>
+          </Link>
         ))}
-      </div>
-
-      <div className="mt-6 rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
-        <p className="text-sm text-text-muted">
-          Criação de novos cenários e comparação lado a lado entram na próxima etapa.
-        </p>
       </div>
     </div>
   );

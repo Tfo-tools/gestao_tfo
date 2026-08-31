@@ -12,11 +12,12 @@ export async function GET(request: NextRequest) {
   const mes = searchParams.get("mes");
   const produto = searchParams.get("produto");
   const comprovado = searchParams.get("comprovado");
+  const pagador = searchParams.get("pagador");
 
   let query = supabase
     .from("despesas")
     .select(
-      "data_gasto, valor_total, comprovado, descricao, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome)",
+      "data_gasto, valor_total, comprovado, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome)",
     )
     .order("data_gasto", { ascending: false });
 
@@ -30,10 +31,11 @@ export async function GET(request: NextRequest) {
   if (produto) query = query.eq("produto_id", produto);
   if (comprovado === "sim") query = query.eq("comprovado", true);
   if (comprovado === "nao") query = query.eq("comprovado", false);
+  if (pagador) query = query.eq("pagador", pagador);
 
   const { data: despesas } = await query;
 
-  const header = ["Data", "Código conta", "Conta", "Produto", "Descrição", "Valor (R$)", "Comprovado"];
+  const header = ["Data", "Código conta", "Conta", "Produto", "Pagador", "Descrição", "Valor (R$)", "Comprovado"];
   const rows = (despesas ?? []).map((d) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conta = d.plano_contas as any;
@@ -44,6 +46,7 @@ export async function GET(request: NextRequest) {
       conta?.codigo ?? "",
       conta?.conta ?? "",
       produtoRow?.nome ?? "",
+      d.pagador ?? "",
       d.descricao ?? "",
       String(d.valor_total).replace(".", ","),
       d.comprovado ? "Sim" : "Não",
