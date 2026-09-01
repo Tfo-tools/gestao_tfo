@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { InfoTooltip } from "@/components/info-tooltip";
 
@@ -61,22 +62,31 @@ export function ComboSimulador({ produtos, planos, tiers }: { produtos: Produto[
         {produtos.map((produto) => {
           const ativo = selecionados[produto.id] != null;
           const planosDoProduto = planosPorProduto.get(produto.id) ?? [];
+          const semPlano = planosDoProduto.length === 0;
           return (
             <div
               key={produto.id}
-              className={`rounded-lg border px-3 py-2.5 ${ativo ? "border-primary-fill bg-primary-soft/40" : "border-border-soft"}`}
+              className={`rounded-lg border px-3 py-2.5 ${
+                ativo ? "border-primary-fill bg-primary-soft/40" : semPlano ? "border-border-soft bg-bg opacity-70" : "border-border-soft"
+              }`}
             >
-              <label className="flex items-center gap-2 text-[12.5px] font-semibold">
-                <input
-                  type="checkbox"
-                  checked={ativo}
-                  onChange={() => toggleProduto(produto.id)}
-                  disabled={planosDoProduto.length === 0}
-                  className="h-4 w-4 rounded border-border"
-                />
-                {produto.nome}
-                {planosDoProduto.length === 0 && <span className="text-[10.5px] font-normal text-text-faint">(sem plano cadastrado)</span>}
-              </label>
+              <div className="flex items-center justify-between gap-2">
+                <label className={`flex items-center gap-2 text-[12.5px] font-semibold ${semPlano ? "cursor-not-allowed text-text-faint" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={ativo}
+                    onChange={() => toggleProduto(produto.id)}
+                    disabled={semPlano}
+                    className="h-4 w-4 rounded border-border disabled:cursor-not-allowed"
+                  />
+                  {produto.nome}
+                </label>
+                {semPlano && (
+                  <Link href={`/produtos/${produto.id}`} className="text-[10.5px] font-medium text-danger underline">
+                    Sem plano cadastrado — cadastrar agora →
+                  </Link>
+                )}
+              </div>
               {ativo && planosDoProduto.length > 0 && (
                 <select
                   value={selecionados[produto.id]}

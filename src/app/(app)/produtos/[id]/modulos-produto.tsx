@@ -86,7 +86,13 @@ export function ModulosProduto({ produtoId, modulos }: { produtoId: string; modu
       >
         <input type="hidden" name="produto_id" value={produtoId} />
         <input name="nome" placeholder="Nome do módulo (ex: Melhoria 1 — planejamento de campanhas)" className="input" required />
-        <input name="preco" type="number" step="0.01" placeholder="Quanto aumenta o preço (R$/mês)" className="input" required />
+        <div>
+          <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
+            Acréscimo no preço (R$/mês)
+            <InfoTooltip texto="Digite só o QUANTO A MAIS o módulo cobra — não o preço total do produto com o módulo. Ex: se o plano base custa R$489 e com o módulo passa a custar R$550, digite 61 aqui. O sistema soma esse valor ao preço do plano automaticamente para quem aderir." />
+          </label>
+          <input name="preco" type="number" step="0.01" placeholder="Ex: 61 (não o preço total com o módulo)" className="input" required />
+        </div>
 
         <div className="flex gap-2 rounded-lg bg-bg p-1">
           <button
