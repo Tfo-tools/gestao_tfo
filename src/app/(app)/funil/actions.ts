@@ -51,6 +51,9 @@ export async function salvarFunil(
         taxa_conversao: Number(taxaConversaoRaw) / 100,
         capacidade_vendedor_mes: Number(capacidadeRaw),
         span_of_control: formData.get("span_of_control") ? Number(formData.get("span_of_control")) : 8,
+        horas_suporte_por_cliente_mes: formData.get("horas_suporte_por_cliente_mes")
+          ? Number(formData.get("horas_suporte_por_cliente_mes"))
+          : null,
       },
       { onConflict: "fase_produto_id" },
     );

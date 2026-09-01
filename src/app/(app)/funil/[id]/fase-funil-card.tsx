@@ -8,6 +8,7 @@ type Funil = {
   taxa_conversao: number | null;
   capacidade_vendedor_mes: number | null;
   span_of_control: number | null;
+  horas_suporte_por_cliente_mes: number | null;
 } | null;
 
 const initialState: ActionState = { error: null };
@@ -110,6 +111,19 @@ export function FaseFunilCard({
               name="span_of_control"
               defaultValue={funil?.span_of_control ?? 8}
               className="input"
+            />
+          </Field>
+          <Field
+            label="Horas de suporte / cliente / mês"
+            tooltip="Quantas horas de suporte um cliente ativo demanda por mês, nessa fase. Multiplicado pelos clientes ativos, dá as horas de suporte necessárias — usado em Necessidade de Contratação pra calcular quantas pessoas de suporte são precisas."
+          >
+            <input
+              type="number"
+              step="0.01"
+              name="horas_suporte_por_cliente_mes"
+              defaultValue={funil?.horas_suporte_por_cliente_mes ?? ""}
+              className="input"
+              placeholder="0.5"
             />
           </Field>
         </div>

@@ -1,97 +1,243 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useMemo, useRef, useState, useTransition } from "react";
+import { criarAlocacaoModelo, excluirAlocacaoModelo, type ActionState } from "./actions";
+import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
+import type { MesDemandaCargo } from "@/lib/necessidade-contratacao";
 import { InfoTooltip } from "@/components/info-tooltip";
-import { HORAS_MES_PADRAO, type MesNecessidadeCargo } from "@/lib/necessidade-contratacao";
 
+type Modelo = { id: string; cargo: string; tipo_modelo: string; nome: string; parametros: ParametrosModelo };
+type Alocacao = { id: string; cargo: string; modelo_id: string; quantidade: number; data_inicio: string | null; data_fim: string | null };
+
+const initialState: ActionState = { error: null };
+
+function formatBRL(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+}
 function formatMes(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
+function normalizar(s: string) {
+  return s.trim().toLowerCase();
+}
+function ativaNoMes(a: Alocacao, mesIso: string): boolean {
+  const mes = new Date(mesIso + "T00:00:00");
+  const inicio = a.data_inicio ? new Date(a.data_inicio + "T00:00:00") : null;
+  const fim = a.data_fim ? new Date(a.data_fim + "T00:00:00") : null;
+  const iniciouAntes = !inicio || new Date(inicio.getFullYear(), inicio.getMonth(), 1) <= mes;
+  const aindaAtiva = !fim || fim >= mes;
+  return iniciouAntes && aindaAtiva;
+}
 
-export function NecessidadeTabelas({ dados }: { dados: { cargo: string; linhas: MesNecessidadeCargo[] }[] }) {
-  const [ativo, setAtivo] = useState(dados[0]?.cargo ?? "");
-  const atual = dados.find((d) => d.cargo === ativo) ?? dados[0];
+const CARGOS: { chave: "sdr" | "coordenador" | "suporte"; label: string; unidade: string }[] = [
+  { chave: "sdr", label: "SDR", unidade: "contatos/mês" },
+  { chave: "coordenador", label: "Coordenador", unidade: "vendedores supervisionados" },
+  { chave: "suporte", label: "Suporte", unidade: "horas/mês" },
+];
 
-  // Só mostra a partir do primeiro mês com demanda, até o último mês com demanda ou gap.
-  const linhasRelevantes = atual
-    ? (() => {
-        const primeiro = atual.linhas.findIndex((l) => l.horas_demandadas > 0);
-        if (primeiro === -1) return [];
-        let ultimo = atual.linhas.length - 1;
-        while (ultimo > primeiro && atual.linhas[ultimo].horas_demandadas === 0 && atual.linhas[ultimo].gap <= 0) ultimo--;
-        return atual.linhas.slice(primeiro, ultimo + 1);
-      })()
-    : [];
+export function NecessidadeTabelas({
+  cenarioId,
+  demanda,
+  modelos,
+  alocacoes,
+}: {
+  cenarioId: string;
+  demanda: { sdr: MesDemandaCargo[]; coordenador: MesDemandaCargo[]; suporte: MesDemandaCargo[] };
+  modelos: Modelo[];
+  alocacoes: Alocacao[];
+}) {
+  const [ativo, setAtivo] = useState<"sdr" | "coordenador" | "suporte">("sdr");
+  const cargoAtual = CARGOS.find((c) => c.chave === ativo)!;
+  const linhas = demanda[ativo];
 
-  const proximoAlerta = linhasRelevantes.find((l) => l.gap > 0);
+  const modelosDoCargo = useMemo(
+    () => modelos.filter((m) => normalizar(m.cargo) === normalizar(cargoAtual.label)),
+    [modelos, cargoAtual],
+  );
+  const alocacoesDoCargo = useMemo(
+    () => alocacoes.filter((a) => normalizar(a.cargo) === normalizar(cargoAtual.label)),
+    [alocacoes, cargoAtual],
+  );
+
+  const linhasRelevantes = useMemo(() => {
+    const primeiro = linhas.findIndex((l) => l.demanda > 0.001);
+    if (primeiro === -1) return [];
+    return linhas.slice(primeiro);
+  }, [linhas]);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex gap-2">
+        {CARGOS.map((c) => (
+          <button
+            key={c.chave}
+            type="button"
+            onClick={() => setAtivo(c.chave)}
+            className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium ${
+              ativo === c.chave ? "border-primary-fill bg-primary-soft text-primary-deep" : "border-border text-text-muted"
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="rounded-xl border border-border bg-surface p-6">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="flex items-center font-heading text-sm font-semibold">
+            Demanda de {cargoAtual.label}
+            <InfoTooltip texto={`Demanda mensal em ${cargoAtual.unidade}, calculada a partir do crescimento de clientes e das premissas de Funil. As colunas seguintes mostram quanto custaria cobrir essa demanda com cada modelo cadastrado para este cargo.`} />
+          </h2>
+        </div>
+        {linhasRelevantes.length === 0 ? (
+          <p className="mt-3 text-[12px] text-text-faint">
+            Sem demanda calculada — confira as premissas de {cargoAtual.label} em Funil.
+          </p>
+        ) : modelosDoCargo.length === 0 ? (
+          <div className="mt-3">
+            <p className="text-[12px] text-text-faint">
+              Nenhum modelo cadastrado pra {cargoAtual.label} ainda —{" "}
+              <a href="/contratacoes/modelos" className="text-primary-deep underline">
+                cadastre um modelo
+              </a>{" "}
+              pra ver o custo comparado.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4 max-h-[420px] overflow-y-auto overflow-x-auto">
+            <table className="w-full border-collapse text-[12px]">
+              <thead className="sticky top-0 bg-surface">
+                <tr className="text-left text-text-muted">
+                  <td className="px-2 py-1.5 font-medium">Mês</td>
+                  <td className="px-2 py-1.5 text-right font-medium">Demanda</td>
+                  {modelosDoCargo.map((m) => (
+                    <td key={m.id} className="px-2 py-1.5 text-right font-medium">
+                      {m.nome}
+                    </td>
+                  ))}
+                  <td className="px-2 py-1.5 text-right font-medium">Alocado</td>
+                </tr>
+              </thead>
+              <tbody>
+                {linhasRelevantes.map((l) => {
+                  const alocado = alocacoesDoCargo
+                    .filter((a) => ativaNoMes(a, l.mes_referencia))
+                    .reduce((acc, a) => acc + a.quantidade, 0);
+                  return (
+                    <tr key={l.mes_referencia} className="border-t border-border-soft">
+                      <td className="px-2 py-1.5 capitalize">{formatMes(l.mes_referencia)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono">{l.demanda.toFixed(1)}</td>
+                      {modelosDoCargo.map((m) => {
+                        const { custoMensal } = custoMensalModelo(m.tipo_modelo as TipoModelo, m.parametros, l.demanda);
+                        return (
+                          <td key={m.id} className="px-2 py-1.5 text-right font-mono">
+                            {formatBRL(custoMensal)}
+                          </td>
+                        );
+                      })}
+                      <td className={`px-2 py-1.5 text-right font-mono ${alocado > 0 ? "text-success" : "text-text-faint"}`}>
+                        {alocado || "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <AlocacaoModelo cenarioId={cenarioId} cargo={cargoAtual.label} modelos={modelosDoCargo} alocacoes={alocacoesDoCargo} />
+    </div>
+  );
+}
+
+function AlocacaoModelo({
+  cenarioId,
+  cargo,
+  modelos,
+  alocacoes,
+}: {
+  cenarioId: string;
+  cargo: string;
+  modelos: Modelo[];
+  alocacoes: Alocacao[];
+}) {
+  const [state, formAction, pending] = useActionState(criarAlocacaoModelo, initialState);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isPending, startTransition] = useTransition();
+  const modeloById = new Map(modelos.map((m) => [m.id, m]));
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
-      <div className="mb-4 flex flex-wrap gap-2">
-        {dados.map((d) => {
-          const temAlerta = d.linhas.some((l) => l.gap > 0);
-          return (
+      <h2 className="mb-1 flex items-center font-heading text-sm font-semibold">
+        Alocação escolhida — {cargo}
+        <InfoTooltip texto="Registre aqui qual modelo você decidiu usar de fato, quantas unidades e por quanto tempo — isso alimenta a coluna 'Alocado' acima e entra no custo real da projeção (EBITDA/CAC)." />
+      </h2>
+      <p className="mb-4 text-[11px] text-text-muted">O que você realmente vai usar em cada período, depois de comparar os modelos</p>
+
+      <div className="mb-4 flex flex-col gap-1.5">
+        {alocacoes.length === 0 && <p className="text-[12px] text-text-faint">Nenhuma alocação registrada pra {cargo} ainda.</p>}
+        {alocacoes.map((a) => (
+          <div key={a.id} className="flex items-center justify-between rounded-md border border-border-soft px-2.5 py-2">
+            <span className="text-[12px]">
+              {a.quantidade}× {modeloById.get(a.modelo_id)?.nome ?? "modelo removido"} · {a.data_inicio ?? "início aberto"} →{" "}
+              {a.data_fim ?? "sem fim"}
+            </span>
             <button
-              key={d.cargo}
               type="button"
-              onClick={() => setAtivo(d.cargo)}
-              className={`rounded-full border px-3 py-1.5 text-[12px] font-medium capitalize ${
-                ativo === d.cargo ? "border-primary-fill bg-primary-soft text-primary-deep" : "border-border text-text-muted"
-              }`}
+              disabled={isPending}
+              onClick={() => startTransition(() => excluirAlocacaoModelo(a.id))}
+              className="text-[11px] text-danger"
             >
-              {d.cargo}
-              {temAlerta && <span className="ml-1.5 text-danger">●</span>}
+              ×
             </button>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
-      {atual && (
-        <>
-          <div className="mb-4 flex items-center gap-4 text-[11px] text-text-muted">
-            <span className="flex items-center">
-              Capacidade por pessoa: {HORAS_MES_PADRAO.toFixed(0)}h/mês
-              <InfoTooltip texto="Baseado em 44 horas semanais (carga máxima CLT no Brasil), convertidas em média mensal (44 × 52 semanas ÷ 12 meses)." />
-            </span>
-            {proximoAlerta && (
-              <span className="flex items-center gap-1 rounded bg-danger-soft px-2 py-1 font-medium text-danger">
-                Faltam {proximoAlerta.gap} pessoa(s) a partir de {formatMes(proximoAlerta.mes_referencia)}
-              </span>
-            )}
+      {modelos.length === 0 ? (
+        <p className="text-[12px] text-text-faint">Cadastre um modelo pra {cargo} antes de alocar.</p>
+      ) : (
+        <form
+          ref={formRef}
+          action={async (fd) => {
+            await formAction(fd);
+            formRef.current?.reset();
+          }}
+          className="flex flex-wrap items-end gap-2"
+        >
+          <input type="hidden" name="cenario_id" value={cenarioId} />
+          <input type="hidden" name="cargo" value={cargo} />
+          <select name="modelo_id" className="input min-w-[160px] flex-1" defaultValue="" required>
+            <option value="" disabled>
+              Modelo…
+            </option>
+            {modelos.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.nome}
+              </option>
+            ))}
+          </select>
+          <input name="quantidade" type="number" min="1" defaultValue={1} placeholder="Qtd." className="input w-[70px]" required />
+          <div>
+            <label className="mb-0.5 block text-[9.5px] text-text-faint">Início</label>
+            <input name="data_inicio" type="date" className="input w-[130px]" />
           </div>
-
-          {linhasRelevantes.length === 0 ? (
-            <p className="text-[12px] text-text-faint">Sem horas alocadas para este cargo em nenhum produto.</p>
-          ) : (
-            <div className="max-h-[420px] overflow-y-auto overflow-x-auto">
-              <table className="w-full border-collapse text-[12px]">
-                <thead className="sticky top-0 bg-surface">
-                  <tr className="text-left text-text-muted">
-                    <td className="px-2 py-1.5 font-medium">Mês</td>
-                    <td className="px-2 py-1.5 text-right font-medium">Horas demandadas</td>
-                    <td className="px-2 py-1.5 text-right font-medium">Pessoas necessárias</td>
-                    <td className="px-2 py-1.5 text-right font-medium">Contratadas</td>
-                    <td className="px-2 py-1.5 text-right font-medium">Situação</td>
-                  </tr>
-                </thead>
-                <tbody>
-                  {linhasRelevantes.map((l) => (
-                    <tr key={l.mes_referencia} className="border-t border-border-soft">
-                      <td className="px-2 py-1.5 capitalize">{formatMes(l.mes_referencia)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{l.horas_demandadas.toFixed(0)}h</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{l.pessoas_necessarias}</td>
-                      <td className="px-2 py-1.5 text-right font-mono">{l.pessoas_contratadas}</td>
-                      <td className={`px-2 py-1.5 text-right font-mono ${l.gap > 0 ? "text-danger" : "text-success"}`}>
-                        {l.gap > 0 ? `contratar +${l.gap}` : "ok"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
+          <div>
+            <label className="mb-0.5 block text-[9.5px] text-text-faint">Fim (opcional)</label>
+            <input name="data_fim" type="date" className="input w-[130px]" />
+          </div>
+          <button
+            type="submit"
+            disabled={pending}
+            className="rounded-lg border border-border px-3 py-2 text-[12px] font-medium text-primary-deep disabled:opacity-60"
+          >
+            {pending ? "…" : "+ Alocar"}
+          </button>
+        </form>
       )}
+      {state.error && <p className="mt-2 text-[11px] text-danger">{state.error}</p>}
     </div>
   );
 }

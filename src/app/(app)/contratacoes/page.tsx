@@ -51,12 +51,20 @@ export default async function ContratacoesPage({
             Equipe (CLT ou PJ) por cenário — vincule a um produto ou deixe como custo geral/compartilhado
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <Link
+          href="/contratacoes/modelos"
+          className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
+        >
+          Modelos de Contratação
+        </Link>
         <Link
           href="/contratacoes/necessidade"
           className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
         >
           Necessidade de Contratação
         </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-[420px_1fr] items-start gap-5">
