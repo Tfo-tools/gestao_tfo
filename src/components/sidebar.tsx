@@ -78,7 +78,7 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
           Configurações
         </Link>
         <div className="mt-2 flex items-center gap-2.5 px-3 py-2">
-          <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary-fill font-heading text-[11px] font-bold text-wine-deep">
+          <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-cream font-heading text-[11px] font-bold text-wine-deep">
             {nome
               .split(" ")
               .slice(0, 2)
