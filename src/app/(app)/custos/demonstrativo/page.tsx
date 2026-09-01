@@ -1,4 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
+import { InfoTooltip } from "@/components/info-tooltip";
+
+const GRUPO_TOOLTIP: Record<string, string> = {
+  COGS: "Cost of Goods Sold (Custo dos Produtos/Serviços Vendidos): custos diretos para entregar o produto — ex: infraestrutura, hospedagem, APIs de terceiros.",
+  "S&M": "Sales & Marketing (Vendas e Marketing): custos para atrair e converter clientes — ex: anúncios, comissões, equipe comercial.",
+  "P&D": "Pesquisa e Desenvolvimento: custos da equipe e ferramentas que constroem e evoluem o produto.",
+  "G&A": "General & Administrative (Geral e Administrativo): custos de gestão da empresa — ex: contabilidade, jurídico, administrativo.",
+};
 
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -63,14 +71,20 @@ export default async function DemonstrativoPage() {
             const v = porGrupo.get(g)!;
             return (
               <tr key={g} className="border-t border-border-soft">
-                <td className="px-2 py-2.5">(–) {g}</td>
+                <td className="flex items-center px-2 py-2.5">
+                  (–) {g}
+                  {GRUPO_TOOLTIP[g] && <InfoTooltip texto={GRUPO_TOOLTIP[g]} />}
+                </td>
                 <td className="px-2 py-2.5 text-right font-mono">{formatBRL(v.mes)}</td>
                 <td className="px-2 py-2.5 text-right font-mono">{formatBRL(v.acumulado)}</td>
               </tr>
             );
           })}
           <tr className="border-t-2 border-text bg-wine-soft">
-            <td className="px-2 py-2.5 font-bold">(=) EBITDA real</td>
+            <td className="flex items-center px-2 py-2.5 font-bold">
+              (=) EBITDA real
+              <InfoTooltip texto="EBITDA = lucro antes de juros, impostos, depreciação e amortização. Aqui é negativo porque ainda não há receita lançada (período pré-operacional) — representa o quanto já foi gasto." />
+            </td>
             <td className="px-2 py-2.5 text-right font-mono font-bold text-danger">
               – {formatBRL(totalMes)}
             </td>

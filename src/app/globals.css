@@ -54,28 +54,43 @@
   --font-mono: var(--font-plex-mono);
 }
 
-body {
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-plex-sans), system-ui, sans-serif;
+@layer base {
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-plex-sans), system-ui, sans-serif;
+  }
+
+  a {
+    color: var(--color-primary-deep);
+  }
+  a:hover {
+    color: var(--color-wine);
+  }
+
+  /* Remove os spinners de incremento/decremento dos campos numéricos —
+     o usuário digita o valor livremente, sem essa UI de setinhas. */
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
 }
 
-a {
-  color: var(--color-primary-deep);
-}
-a:hover {
-  color: var(--color-wine);
-}
-
-.input {
-  width: 100%;
-  border-radius: 0.5rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  padding: 0.55rem 0.75rem;
-  font-size: 13px;
-}
-.input:focus {
-  outline: none;
-  border-color: var(--color-primary-fill);
+@layer components {
+  .input {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    padding: 0.55rem 0.75rem;
+    font-size: 13px;
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--color-primary-fill);
+  }
 }

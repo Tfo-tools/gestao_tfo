@@ -5,6 +5,7 @@ import { FASES } from "@/lib/fases";
 import { CenarioSelector } from "./cenario-selector";
 import { FaseCard } from "./fase-card";
 import { PlanosPrecificacao } from "./planos-precificacao";
+import { ModulosProduto } from "./modulos-produto";
 import { RecalcularButton } from "./recalcular-button";
 import { SimulacaoResultado } from "./simulacao-resultado";
 
@@ -19,13 +20,20 @@ export default async function ProdutoDetailPage({
   const { cenario } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: produto }, { data: cenarios }, { data: planos }] = await Promise.all([
+  const [{ data: produto }, { data: cenarios }, { data: planos }, { data: modulos }] = await Promise.all([
     supabase.from("produtos").select("id, nome, descricao").eq("id", id).single(),
     supabase.from("cenarios").select("id, nome, is_base").order("created_at"),
     supabase.from("planos_precificacao").select("*").eq("produto_id", id).order("preco"),
+    supabase.from("modulos_produto").select("*").eq("produto_id", id).order("created_at"),
   ]);
 
   if (!produto) notFound();
+
+  const planoIds = (planos ?? []).map((p) => p.id);
+  const { data: precosFase } =
+    planoIds.length > 0
+      ? await supabase.from("planos_precificacao_fases").select("*").in("plano_id", planoIds)
+      : { data: [] };
 
   const cenarioAtual =
     cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
@@ -121,7 +129,10 @@ export default async function ProdutoDetailPage({
           })}
         </div>
 
-        <PlanosPrecificacao produtoId={id} planos={planos ?? []} />
+        <div className="flex flex-col gap-5">
+          <PlanosPrecificacao produtoId={id} planos={planos ?? []} precosFase={precosFase ?? []} />
+          <ModulosProduto produtoId={id} modulos={modulos ?? []} />
+        </div>
       </div>
     </div>
   );

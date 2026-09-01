@@ -34,6 +34,18 @@ export type PlanoInput = {
   tipo_cobranca: "mensal" | "semestral" | "anual";
   preco: number;
   mix_percentual: number | null;
+  /** % de reajuste aplicado anualmente, a partir de 1 ano do lançamento do produto (produtos simples). */
+  reajuste_anual_pct: number | null;
+  /** Preço específico por fase — sobrepõe `preco` a partir da fase em que for definido (produtos complexos). */
+  precos_por_fase: Partial<Record<FaseValue, number>>;
+};
+
+export type ModuloInput = {
+  nome: string;
+  preco: number;
+  fase_lancamento: FaseValue;
+  adesao_inicial_pct: number;
+  crescimento_adesao_mensal_pct: number;
 };
 
 export type CustoFixoInput = {
@@ -68,6 +80,7 @@ export type SimulacaoInput = {
   contratacoes: ContratacaoInput[];
   alocacoes: AlocacaoInput[];
   planos: PlanoInput[];
+  modulos: ModuloInput[];
   custosFixos: CustoFixoInput[];
   custosVariaveis: CustoVariavelInput[];
   meses?: number;
@@ -83,6 +96,7 @@ export type MesResultado = {
   cac_all_in: number | null;
   ltv: number | null;
   receita_bruta: number;
+  receita_modulos: number;
   cogs: number;
   opex_sm: number;
   opex_pd: number;
@@ -119,8 +133,30 @@ function faseParaMes(fases: FaseInput[], mes: Date): FaseInput | null {
   return passadas[0] ?? null;
 }
 
-/** ARPU mensal equivalente, ponderado pelo mix percentual de cada plano. */
-function calcularArpu(planos: PlanoInput[]): number {
+const FASE_ORDEM: FaseValue[] = FASES.map((f) => f.value);
+
+/** Preço efetivo do plano na fase/mês atual: aplica override por fase e reajuste anual. */
+function precoEfetivo(plano: PlanoInput, fase: FaseValue, mes: Date, dataLancamento: string | null): number {
+  let preco = plano.preco;
+
+  const idxAtual = FASE_ORDEM.indexOf(fase);
+  const entradasFase = (Object.entries(plano.precos_por_fase) as [FaseValue, number][])
+    .filter(([f]) => FASE_ORDEM.indexOf(f) <= idxAtual)
+    .sort((a, b) => FASE_ORDEM.indexOf(b[0]) - FASE_ORDEM.indexOf(a[0]));
+  if (entradasFase.length > 0) preco = entradasFase[0][1];
+
+  if (plano.reajuste_anual_pct && dataLancamento) {
+    const lanc = new Date(dataLancamento + "T00:00:00");
+    const mesesDesdeLancamento = (mes.getFullYear() - lanc.getFullYear()) * 12 + (mes.getMonth() - lanc.getMonth());
+    const anos = Math.floor(mesesDesdeLancamento / 12);
+    if (anos >= 1) preco *= Math.pow(1 + plano.reajuste_anual_pct, anos);
+  }
+
+  return preco;
+}
+
+/** ARPU mensal equivalente, ponderado pelo mix percentual de cada plano, na fase/mês atual. */
+function calcularArpu(planos: PlanoInput[], fase: FaseValue, mes: Date, dataLancamento: string | null): number {
   const comMix = planos.filter((p) => p.mix_percentual != null);
   if (comMix.length === 0) return 0;
 
@@ -128,7 +164,8 @@ function calcularArpu(planos: PlanoInput[]): number {
   if (somaMix <= 0) return 0;
 
   return comMix.reduce((acc, p) => {
-    const mensal = p.tipo_cobranca === "mensal" ? p.preco : p.tipo_cobranca === "semestral" ? p.preco / 6 : p.preco / 12;
+    const precoBase = precoEfetivo(p, fase, mes, dataLancamento);
+    const mensal = p.tipo_cobranca === "mensal" ? precoBase : p.tipo_cobranca === "semestral" ? precoBase / 6 : precoBase / 12;
     return acc + mensal * (Number(p.mix_percentual) / somaMix);
   }, 0);
 }
@@ -149,10 +186,10 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
   if (!dataBase) return [];
 
   const totalMeses = input.meses ?? 60;
-  const arpu = calcularArpu(input.planos);
 
   let clientesAtivos = 0;
   let betaAtivos = 0;
+  const adocaoModulos = new Map<number, number>();
   const resultados: MesResultado[] = [];
 
   for (let i = 0; i < totalMeses; i++) {
@@ -170,6 +207,7 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         cac_all_in: null,
         ltv: null,
         receita_bruta: 0,
+        receita_modulos: 0,
         cogs: 0,
         opex_sm: 0,
         opex_pd: 0,
@@ -212,7 +250,26 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     const perdidos = Math.round(clientesAtivos * taxaChurn);
     clientesAtivos = Math.max(0, clientesAtivos + novosClientes - perdidos);
 
-    const receitaBruta = arpu * clientesAtivos * fatorProRata;
+    const arpu = calcularArpu(input.planos, fase.fase, mes, input.dataLancamentoEstimada);
+    const receitaPlanos = arpu * clientesAtivos * fatorProRata;
+
+    // Receita de módulos add-on: ativa a partir da fase de lançamento do módulo,
+    // com adesão inicial sobre a base de clientes e crescimento mensal composto até 100%.
+    const faseIdxAtual = FASE_ORDEM.indexOf(fase.fase);
+    let receitaModulos = 0;
+    input.modulos.forEach((modulo, mi) => {
+      const faseIdxLancamento = FASE_ORDEM.indexOf(modulo.fase_lancamento);
+      if (faseIdxAtual < faseIdxLancamento) return;
+
+      let adocaoPct = adocaoModulos.get(mi);
+      adocaoPct = adocaoPct === undefined ? modulo.adesao_inicial_pct : Math.min(1, adocaoPct * (1 + modulo.crescimento_adesao_mensal_pct));
+      adocaoModulos.set(mi, adocaoPct);
+
+      receitaModulos += adocaoPct * clientesAtivos * modulo.preco;
+    });
+    receitaModulos *= fatorProRata;
+
+    const receitaBruta = receitaPlanos + receitaModulos;
 
     // Custo real da equipe comercial contratada (CLT + PJ) ativa neste mês.
     const custoEquipeVendas = custoContratacoesNoMes(input.contratacoes, mes);
@@ -260,6 +317,7 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       cac_all_in: cacAllIn,
       ltv,
       receita_bruta: receitaBruta,
+      receita_modulos: receitaModulos,
       cogs,
       opex_sm: opexSm,
       opex_pd: opexPd,

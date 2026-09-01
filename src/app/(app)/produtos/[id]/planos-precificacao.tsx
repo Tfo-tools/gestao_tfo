@@ -1,7 +1,9 @@
 "use client";
 
-import { useActionState, useRef, useTransition } from "react";
-import { criarPlano, excluirPlano, type ActionState } from "../actions";
+import { useActionState, useRef, useState, useTransition } from "react";
+import { criarPlano, criarPrecoFase, excluirPlano, excluirPrecoFase, type ActionState } from "../actions";
+import { FASES } from "@/lib/fases";
+import { InfoTooltip } from "@/components/info-tooltip";
 
 type Plano = {
   id: string;
@@ -12,7 +14,10 @@ type Plano = {
   desconto_pct: number | null;
   is_annual_only: boolean;
   mix_percentual: number | null;
+  reajuste_anual_pct: number | null;
 };
+
+type PrecoFase = { id: string; plano_id: string; fase: string; preco: number };
 
 const initialState: ActionState = { error: null };
 
@@ -20,12 +25,28 @@ function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export function PlanosPrecificacao({ produtoId, planos }: { produtoId: string; planos: Plano[] }) {
+const FASE_LABEL: Record<string, string> = Object.fromEntries(FASES.map((f) => [f.value, f.label]));
+
+export function PlanosPrecificacao({
+  produtoId,
+  planos,
+  precosFase,
+}: {
+  produtoId: string;
+  planos: Plano[];
+  precosFase: PrecoFase[];
+}) {
   const [state, formAction, pending] = useActionState(criarPlano, initialState);
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
 
   const somaMix = planos.reduce((acc, p) => acc + Number(p.mix_percentual ?? 0), 0);
+  const precosFasePorPlano = new Map<string, PrecoFase[]>();
+  for (const pf of precosFase) {
+    const atual = precosFasePorPlano.get(pf.plano_id) ?? [];
+    atual.push(pf);
+    precosFasePorPlano.set(pf.plano_id, atual);
+  }
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
@@ -37,31 +58,40 @@ export function PlanosPrecificacao({ produtoId, planos }: { produtoId: string; p
           <p className="text-[12px] text-text-faint">Nenhum plano cadastrado ainda.</p>
         )}
         {planos.map((p) => (
-          <div key={p.id} className="flex items-center justify-between rounded-lg border border-border-soft px-3 py-2.5">
-            <div>
-              <div className="text-[12.5px] font-semibold">{p.nome_plano}</div>
-              <div className="text-[10.5px] text-text-faint">
-                {p.tipo_cobranca} · {p.tipo_venda}
-                {p.is_annual_only ? " · annual-only" : ""}
-                {p.desconto_pct ? ` · -${p.desconto_pct}%` : ""}
+          <div key={p.id} className="rounded-lg border border-border-soft px-3 py-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[12.5px] font-semibold">{p.nome_plano}</div>
+                <div className="text-[10.5px] text-text-faint">
+                  {p.tipo_cobranca} · {p.tipo_venda}
+                  {p.is_annual_only ? " · annual-only" : ""}
+                  {p.desconto_pct ? ` · -${p.desconto_pct}%` : ""}
+                  {p.reajuste_anual_pct ? ` · reajuste +${(p.reajuste_anual_pct * 100).toFixed(1)}%/ano` : ""}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {p.mix_percentual != null && (
+                  <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-primary-deep">
+                    {p.mix_percentual}%
+                  </span>
+                )}
+                <span className="font-mono text-[13px] font-semibold">{formatBRL(Number(p.preco))}</span>
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => startTransition(() => excluirPlano(p.id, produtoId))}
+                  className="text-[11px] text-danger"
+                >
+                  Remover
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              {p.mix_percentual != null && (
-                <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-primary-deep">
-                  {p.mix_percentual}%
-                </span>
-              )}
-              <span className="font-mono text-[13px] font-semibold">{formatBRL(Number(p.preco))}</span>
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={() => startTransition(() => excluirPlano(p.id, produtoId))}
-                className="text-[11px] text-danger"
-              >
-                Remover
-              </button>
-            </div>
+            <PrecosPorFase
+              produtoId={produtoId}
+              planoId={p.id}
+              precoBase={Number(p.preco)}
+              itens={precosFasePorPlano.get(p.id) ?? []}
+            />
           </div>
         ))}
         {planos.length > 0 && (
@@ -104,6 +134,19 @@ export function PlanosPrecificacao({ produtoId, planos }: { produtoId: string; p
           <input name="desconto_pct" type="number" step="0.01" placeholder="Desconto (%)" className="input" />
         </div>
         <div>
+          <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
+            Reajuste anual (%)
+            <InfoTooltip texto="Percentual de aumento de preço aplicado uma vez por ano, começando 1 ano após a data de lançamento do produto. Use para produtos mais simples, cujo preço não muda por fase — apenas acompanha a inflação/reajuste anual." />
+          </label>
+          <input
+            name="reajuste_anual_pct"
+            type="number"
+            step="0.01"
+            placeholder="Ex: 6 (= 6% ao ano, a partir de 1 ano do lançamento)"
+            className="input"
+          />
+        </div>
+        <div>
           <input
             name="mix_percentual"
             type="number"
@@ -134,6 +177,91 @@ export function PlanosPrecificacao({ produtoId, planos }: { produtoId: string; p
           {pending ? "Adicionando…" : "+ Adicionar plano"}
         </button>
       </form>
+    </div>
+  );
+}
+
+function PrecosPorFase({
+  produtoId,
+  planoId,
+  precoBase,
+  itens,
+}: {
+  produtoId: string;
+  planoId: string;
+  precoBase: number;
+  itens: PrecoFase[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [state, formAction, pending] = useActionState(criarPrecoFase, initialState);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <div className="mt-2 border-t border-border-soft pt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center text-[10.5px] font-medium text-primary-deep"
+      >
+        Preço por fase {itens.length > 0 ? `(${itens.length})` : ""} {open ? "▲" : "▼"}
+        <InfoTooltip texto="Para produtos mais complexos (ex: Fashion Mind), o preço do plano pode mudar conforme a fase do ciclo de vida (Ideação, Validação, PMF, Tração, Escala, Maturidade). Defina aqui o preço a partir de cada fase — ele vale até a próxima fase com preço definido." />
+      </button>
+      {open && (
+        <div className="mt-2 flex flex-col gap-1.5">
+          {itens.length === 0 && (
+            <p className="text-[10.5px] text-text-faint">
+              Sem override — usa o preço base ({formatBRL(precoBase)}) em todas as fases.
+            </p>
+          )}
+          {itens.map((pf) => (
+            <div key={pf.id} className="flex items-center justify-between rounded-md bg-bg px-2.5 py-1.5">
+              <span className="text-[11px]">{FASE_LABEL[pf.fase] ?? pf.fase}</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] font-semibold">{formatBRL(Number(pf.preco))}</span>
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => startTransition(() => excluirPrecoFase(pf.id, produtoId))}
+                  className="text-[10.5px] text-danger"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          ))}
+          <form
+            ref={formRef}
+            action={async (fd) => {
+              await formAction(fd);
+              formRef.current?.reset();
+            }}
+            className="flex items-end gap-1.5"
+          >
+            <input type="hidden" name="produto_id" value={produtoId} />
+            <input type="hidden" name="plano_id" value={planoId} />
+            <select name="fase" className="input w-[130px]" defaultValue="" required>
+              <option value="" disabled>
+                Fase…
+              </option>
+              {FASES.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <input name="preco" type="number" step="0.01" placeholder="Preço (R$)" className="input w-[100px]" required />
+            <button
+              type="submit"
+              disabled={pending}
+              className="rounded-lg border border-border px-2.5 py-2 text-[11px] font-medium text-primary-deep disabled:opacity-60"
+            >
+              {pending ? "…" : "+ Definir"}
+            </button>
+          </form>
+          {state.error && <p className="text-[10.5px] text-danger">{state.error}</p>}
+        </div>
+      )}
     </div>
   );
 }

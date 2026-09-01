@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { salvarFunil, type ActionState } from "../actions";
+import { InfoTooltip } from "@/components/info-tooltip";
 
 type Funil = {
   taxa_conversao: number | null;
@@ -75,7 +76,10 @@ export function FaseFunilCard({
         <input type="hidden" name="fase" value={fase} />
 
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Taxa de conversão (%)">
+          <Field
+            label="Taxa de conversão (%)"
+            tooltip="De cada 100 leads (contatos/oportunidades) que entram no funil nessa fase, quantos % viram clientes pagantes."
+          >
             <input
               type="number"
               step="0.01"
@@ -85,7 +89,10 @@ export function FaseFunilCard({
               placeholder="20"
             />
           </Field>
-          <Field label="Capacidade / vendedor / mês">
+          <Field
+            label="Capacidade / vendedor / mês"
+            tooltip="Quantos leads (oportunidades) um vendedor consegue trabalhar por mês nessa fase — usado para calcular quantos vendedores são necessários."
+          >
             <input
               type="number"
               name="capacidade_vendedor_mes"
@@ -94,7 +101,10 @@ export function FaseFunilCard({
               placeholder="88"
             />
           </Field>
-          <Field label="Span of control">
+          <Field
+            label="Span of control"
+            tooltip="Quantos vendedores um único coordenador consegue supervisionar. Usado para calcular quando é preciso contratar mais coordenação."
+          >
             <input
               type="number"
               name="span_of_control"
@@ -123,10 +133,21 @@ export function FaseFunilCard({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  tooltip,
+  children,
+}: {
+  label: string;
+  tooltip?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="mb-1.5 block text-[11px] font-medium text-text-muted">{label}</label>
+      <label className="mb-1.5 flex items-center text-[11px] font-medium text-text-muted">
+        {label}
+        {tooltip && <InfoTooltip texto={tooltip} />}
+      </label>
       {children}
     </div>
   );

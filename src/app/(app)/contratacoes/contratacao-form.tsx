@@ -2,6 +2,7 @@
 
 import { useActionState, useRef, useState } from "react";
 import { criarContratacao, type ActionState } from "./actions";
+import { InfoTooltip } from "@/components/info-tooltip";
 
 type Cenario = { id: string; nome: string };
 type Produto = { id: string; nome: string };
@@ -84,6 +85,7 @@ export function ContratacaoForm({
             className={`flex-1 rounded-md py-2 text-[12.5px] font-medium ${
               tipo === "clt" ? "bg-surface shadow-sm" : "text-text-muted"
             }`}
+            title="CLT: contratação por carteira assinada, com todos os encargos trabalhistas (férias, 13º, FGTS etc.)"
           >
             CLT
           </button>
@@ -93,6 +95,7 @@ export function ContratacaoForm({
             className={`flex-1 rounded-md py-2 text-[12.5px] font-medium ${
               tipo === "pj" ? "bg-surface shadow-sm" : "text-text-muted"
             }`}
+            title="PJ: contratação de uma pessoa jurídica (empresa ou MEI) que presta o serviço via nota fiscal, sem vínculo empregatício"
           >
             PJ (prestador)
           </button>
@@ -101,10 +104,13 @@ export function ContratacaoForm({
 
         {tipo === "clt" ? (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Salário bruto CTPS">
+            <Field label="Salário bruto CTPS" tooltip="CTPS = Carteira de Trabalho e Previdência Social. É o salário bruto registrado formalmente, antes de descontos — é sobre ele que incidem os encargos trabalhistas.">
               <input name="salario_bruto" type="number" step="0.01" className="input" placeholder="0,00" />
             </Field>
-            <Field label="Regime tributário">
+            <Field
+              label="Regime tributário"
+              tooltip="Define o percentual de encargos (impostos e obrigações) aplicado sobre o salário — varia conforme o regime da empresa (Simples Nacional, Lucro Presumido/Real, com ou sem desoneração da folha)."
+            >
               <select name="regime_id" className="input" defaultValue="">
                 <option value="" disabled>
                   Selecione…
@@ -169,10 +175,21 @@ export function ContratacaoForm({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  tooltip,
+  children,
+}: {
+  label: string;
+  tooltip?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">{label}</label>
+      <label className="mb-1.5 flex items-center text-[11.5px] font-medium text-text-muted">
+        {label}
+        {tooltip && <InfoTooltip texto={tooltip} />}
+      </label>
       {children}
     </div>
   );

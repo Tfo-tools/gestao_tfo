@@ -99,7 +99,12 @@ export function EquipeAlocada({
         <input type="hidden" name="fase" value={fase} />
 
         <input name="cargo" type="text" placeholder="Cargo (ex: Dev Backend)" className="input min-w-[130px] flex-1" required />
-        <select name="categoria" defaultValue="pd" className="input w-[90px]">
+        <select
+          name="categoria"
+          defaultValue="pd"
+          className="input w-[90px]"
+          title="P&D = Pesquisa e Desenvolvimento (equipe de produto/tech) · S&M = Vendas e Marketing · G&A = Geral e Administrativo"
+        >
           <option value="pd">P&amp;D</option>
           <option value="sm">S&amp;M</option>
           <option value="ga">G&amp;A</option>

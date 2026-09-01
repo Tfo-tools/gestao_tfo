@@ -1,3 +1,5 @@
+import { InfoTooltip } from "@/components/info-tooltip";
+
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 }
@@ -53,7 +55,10 @@ export function SimulacaoResultado({ linhas }: { linhas: Linha[] }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="font-heading text-sm font-semibold">Projeção — Receita &amp; EBITDA</h2>
+        <h2 className="flex items-center font-heading text-sm font-semibold">
+          Projeção — Receita &amp; EBITDA
+          <InfoTooltip texto="EBITDA = lucro antes de juros, impostos, depreciação e amortização. É o resultado operacional do produto: receita menos custos e despesas operacionais, sem contar efeitos financeiros e contábeis." />
+        </h2>
         <span className="text-[11px] text-text-faint">
           {primeiro} → {ultimo}
         </span>
@@ -73,8 +78,16 @@ export function SimulacaoResultado({ linhas }: { linhas: Linha[] }) {
       <div className="mt-5 grid grid-cols-4 gap-3">
         <Stat label="Clientes ativos (fim)" valor={clientesFinal.toLocaleString("pt-BR")} />
         <Stat label="Receita no último mês" valor={formatBRL(receitas[receitas.length - 1] ?? 0)} />
-        <Stat label="CAC all-in médio" valor={cacMedio != null ? formatBRL(cacMedio) : "—"} />
-        <Stat label="LTV médio" valor={ltvMedio != null ? formatBRL(ltvMedio) : "—"} />
+        <Stat
+          label="CAC all-in médio"
+          valor={cacMedio != null ? formatBRL(cacMedio) : "—"}
+          tooltip="CAC = Custo de Aquisição de Cliente. 'All-in' significa que inclui todos os custos envolvidos (marketing, vendas, comissões) — não só a mídia. É quanto custa, em média, conquistar um cliente novo."
+        />
+        <Stat
+          label="LTV médio"
+          valor={ltvMedio != null ? formatBRL(ltvMedio) : "—"}
+          tooltip="LTV = Lifetime Value (Valor do Ciclo de Vida). É quanto um cliente gera de receita, em média, durante todo o tempo que permanece pagando — quanto maior em relação ao CAC, mais saudável o negócio."
+        />
       </div>
     </div>
   );
@@ -89,10 +102,13 @@ function Legenda({ cor, texto }: { cor: string; texto: string }) {
   );
 }
 
-function Stat({ label, valor }: { label: string; valor: string }) {
+function Stat({ label, valor, tooltip }: { label: string; valor: string; tooltip?: string }) {
   return (
     <div className="rounded-lg bg-bg px-3.5 py-3">
-      <div className="text-[10.5px] text-text-faint">{label}</div>
+      <div className="flex items-center text-[10.5px] text-text-faint">
+        {label}
+        {tooltip && <InfoTooltip texto={tooltip} />}
+      </div>
       <div className="mt-1 font-mono text-[14px] font-semibold">{valor}</div>
     </div>
   );

@@ -95,6 +95,9 @@ export async function criarPlano(
   const desconto_pct = formData.get("desconto_pct") ? Number(formData.get("desconto_pct")) : 0;
   const is_annual_only = formData.get("is_annual_only") === "on";
   const mix_percentual = formData.get("mix_percentual") ? Number(formData.get("mix_percentual")) : null;
+  const reajuste_anual_pct = formData.get("reajuste_anual_pct")
+    ? Number(formData.get("reajuste_anual_pct")) / 100
+    : null;
 
   if (!produto_id || !nome_plano || !tipo_cobranca || !preco) {
     return { error: "Preencha nome do plano, cobrança e preço." };
@@ -110,6 +113,7 @@ export async function criarPlano(
     desconto_pct,
     is_annual_only,
     mix_percentual,
+    reajuste_anual_pct,
   });
 
   if (error) {
@@ -118,6 +122,81 @@ export async function criarPlano(
 
   revalidatePath(`/produtos/${produto_id}`);
   return { error: null, success: true };
+}
+
+export async function criarPrecoFase(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const plano_id = String(formData.get("plano_id") || "");
+  const produto_id = String(formData.get("produto_id") || "");
+  const fase = String(formData.get("fase") || "");
+  const preco = Number(formData.get("preco") || 0);
+
+  if (!plano_id || !fase || !preco) {
+    return { error: "Selecione o plano, a fase e o preço." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("planos_precificacao_fases")
+    .upsert({ plano_id, fase, preco }, { onConflict: "plano_id,fase" });
+
+  if (error) {
+    return { error: "Não foi possível salvar o preço da fase." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
+
+export async function excluirPrecoFase(precoFaseId: string, produtoId: string) {
+  const supabase = await createClient();
+  await supabase.from("planos_precificacao_fases").delete().eq("id", precoFaseId);
+  revalidatePath(`/produtos/${produtoId}`);
+}
+
+export async function criarModulo(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const produto_id = String(formData.get("produto_id") || "");
+  const nome = String(formData.get("nome") || "").trim();
+  const preco = Number(formData.get("preco") || 0);
+  const fase_lancamento = String(formData.get("fase_lancamento") || "");
+  const adesao_inicial_pct = formData.get("adesao_inicial_pct")
+    ? Number(formData.get("adesao_inicial_pct")) / 100
+    : 0;
+  const crescimento_adesao_mensal_pct = formData.get("crescimento_adesao_mensal_pct")
+    ? Number(formData.get("crescimento_adesao_mensal_pct")) / 100
+    : 0;
+
+  if (!produto_id || !nome || !preco || !fase_lancamento) {
+    return { error: "Preencha nome, preço e fase de lançamento do módulo." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("modulos_produto").insert({
+    produto_id,
+    nome,
+    preco,
+    fase_lancamento,
+    adesao_inicial_pct,
+    crescimento_adesao_mensal_pct,
+  });
+
+  if (error) {
+    return { error: "Não foi possível salvar o módulo." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
+
+export async function excluirModulo(moduloId: string, produtoId: string) {
+  const supabase = await createClient();
+  await supabase.from("modulos_produto").delete().eq("id", moduloId);
+  revalidatePath(`/produtos/${produtoId}`);
 }
 
 export async function criarProduto(

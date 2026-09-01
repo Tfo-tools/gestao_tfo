@@ -6,6 +6,9 @@ import { calcularSimulacao, type SimulacaoInput } from "@/lib/simulacao";
 import { grupoDeConta } from "@/lib/grupo-conta";
 import type { FaseValue } from "@/lib/fases";
 
+type PlanoRow = { id: string; tipo_cobranca: string; preco: number; mix_percentual: number | null; reajuste_anual_pct: number | null };
+type PlanoFaseRow = { plano_id: string; fase: string; preco: number };
+
 export type SimulacaoActionState = { error: string | null; success?: boolean };
 
 export async function recalcularSimulacao(
@@ -25,7 +28,10 @@ export async function recalcularSimulacao(
       .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, investimento_ms_mensal")
       .eq("produto_id", produtoId)
       .eq("cenario_id", cenarioId),
-    supabase.from("planos_precificacao").select("tipo_cobranca, preco, mix_percentual").eq("produto_id", produtoId),
+    supabase
+      .from("planos_precificacao")
+      .select("id, tipo_cobranca, preco, mix_percentual, reajuste_anual_pct")
+      .eq("produto_id", produtoId),
   ]);
 
   if (!produto) {
@@ -37,9 +43,19 @@ export async function recalcularSimulacao(
 
   const faseIdByValue = new Map(fases.map((f) => [f.fase as FaseValue, f.id as string]));
   const faseIds = fases.map((f) => f.id);
+  const planoIds = (planos ?? []).map((p) => p.id);
 
-  const [{ data: betas }, { data: funis }, { data: contratacoesRaw }, { data: regimes }, { data: custosFixosRaw }, { data: custosVariaveisRaw }, { data: alocacoesRaw }] =
-    await Promise.all([
+  const [
+    { data: betas },
+    { data: funis },
+    { data: contratacoesRaw },
+    { data: regimes },
+    { data: custosFixosRaw },
+    { data: custosVariaveisRaw },
+    { data: alocacoesRaw },
+    { data: planosFasesRaw },
+    { data: modulosRaw },
+  ] = await Promise.all([
       supabase.from("beta_testers_config").select("fase_produto_id, quantidade, duracao_dias, bonificacao_meses").in("fase_produto_id", faseIds),
       supabase.from("premissas_funil").select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control").in("fase_produto_id", faseIds),
       supabase
@@ -60,10 +76,24 @@ export async function recalcularSimulacao(
         .from("equipe_alocada")
         .select("fase_produto_id, categoria, quantidade_funcionarios, horas_mes, custo_hora")
         .in("fase_produto_id", faseIds),
+      planoIds.length > 0
+        ? supabase.from("planos_precificacao_fases").select("plano_id, fase, preco").in("plano_id", planoIds)
+        : Promise.resolve({ data: [] as PlanoFaseRow[] }),
+      supabase
+        .from("modulos_produto")
+        .select("nome, preco, fase_lancamento, adesao_inicial_pct, crescimento_adesao_mensal_pct")
+        .eq("produto_id", produtoId),
     ]);
 
   const faseValueById = new Map(fases.map((f) => [f.id as string, f.fase as FaseValue]));
   const regimeAliquota = new Map((regimes ?? []).map((r) => [r.id, Number(r.aliquota_total_efetiva)]));
+
+  const precosPorFaseByPlano = new Map<string, Partial<Record<FaseValue, number>>>();
+  for (const pf of (planosFasesRaw ?? []) as PlanoFaseRow[]) {
+    const atual = precosPorFaseByPlano.get(pf.plano_id) ?? {};
+    atual[pf.fase as FaseValue] = Number(pf.preco);
+    precosPorFaseByPlano.set(pf.plano_id, atual);
+  }
 
   const input: SimulacaoInput = {
     dataInicioProduto: produto.data_inicio_desenvolvimento,
@@ -106,11 +136,20 @@ export async function recalcularSimulacao(
       horas_mes: Number(a.horas_mes),
       custo_hora: Number(a.custo_hora),
     })),
-    planos: (planos ?? []).map((p) => ({
+    planos: ((planos ?? []) as PlanoRow[]).map((p) => ({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tipo_cobranca: p.tipo_cobranca as any,
       preco: Number(p.preco),
       mix_percentual: p.mix_percentual,
+      reajuste_anual_pct: p.reajuste_anual_pct,
+      precos_por_fase: precosPorFaseByPlano.get(p.id) ?? {},
+    })),
+    modulos: (modulosRaw ?? []).map((m) => ({
+      nome: m.nome,
+      preco: Number(m.preco),
+      fase_lancamento: m.fase_lancamento as FaseValue,
+      adesao_inicial_pct: Number(m.adesao_inicial_pct),
+      crescimento_adesao_mensal_pct: Number(m.crescimento_adesao_mensal_pct),
     })),
     custosFixos: (custosFixosRaw ?? []).map((c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

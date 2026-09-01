@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { salvarFase, type ActionState } from "../actions";
 import { EquipeAlocada } from "./equipe-alocada";
+import { InfoTooltip } from "@/components/info-tooltip";
 
 type Fase = {
   data_inicio: string | null;
@@ -113,7 +114,10 @@ export function FaseCard({
           <Field label="Fim da fase">
             <input type="date" name="data_fim" defaultValue={dados?.data_fim ?? ""} className="input" />
           </Field>
-          <Field label="Crescimento mensal (%)">
+          <Field
+            label="Crescimento mensal (%)"
+            tooltip="A cada mês, quantos % de clientes novos essa fase deve trazer em relação à base atual. Ex: 16,7% ao mês significa que a base cresce esse percentual todo mês."
+          >
             <input
               type="number"
               step="0.01"
@@ -123,7 +127,10 @@ export function FaseCard({
               placeholder="16.7"
             />
           </Field>
-          <Field label="Churn mensal (%)">
+          <Field
+            label="Churn mensal (%)"
+            tooltip="Percentual de clientes que cancelam por mês. Ex: 1,5% significa que, de cada 100 clientes, 1,5 cancela todo mês — isso reduz a base mesmo com crescimento."
+          >
             <input
               type="number"
               step="0.01"
@@ -136,7 +143,10 @@ export function FaseCard({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Investimento M&S no período (R$/mês)">
+          <Field
+            label="Investimento M&S no período (R$/mês)"
+            tooltip="M&S = Marketing & Sales (Marketing e Vendas). É o quanto se planeja investir por mês em ações para atrair e converter clientes nessa fase (anúncios, comissões, ferramentas de venda etc.)."
+          >
             <input
               type="number"
               step="0.01"
@@ -205,10 +215,21 @@ export function FaseCard({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  tooltip,
+  children,
+}: {
+  label: string;
+  tooltip?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="mb-1.5 block text-[11px] font-medium text-text-muted">{label}</label>
+      <label className="mb-1.5 flex items-center text-[11px] font-medium text-text-muted">
+        {label}
+        {tooltip && <InfoTooltip texto={tooltip} />}
+      </label>
       {children}
     </div>
   );
