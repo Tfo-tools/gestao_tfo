@@ -151,13 +151,18 @@ function isoMonth(d: Date): string {
 }
 
 function faseParaMes(fases: FaseInput[], mes: Date): FaseInput | null {
-  const dentro = fases.find((f) => {
-    if (!f.data_inicio || !f.data_fim) return false;
-    const inicio = new Date(f.data_inicio + "T00:00:00");
-    const fim = new Date(f.data_fim + "T00:00:00");
-    return mes >= new Date(inicio.getFullYear(), inicio.getMonth(), 1) && mes <= fim;
-  });
-  if (dentro) return dentro;
+  // Quando duas fases têm limite no mesmo mês civil (ex: validação termina dia 1 e PMF começa
+  // dia 2), a comparação abaixo trunca o início pro dia 1 do mês — as duas passam a "bater" com
+  // esse mês. Preferimos sempre a que começou por último, já que ela rege a maior parte do mês.
+  const dentro = fases
+    .filter((f) => {
+      if (!f.data_inicio || !f.data_fim) return false;
+      const inicio = new Date(f.data_inicio + "T00:00:00");
+      const fim = new Date(f.data_fim + "T00:00:00");
+      return mes >= new Date(inicio.getFullYear(), inicio.getMonth(), 1) && mes <= fim;
+    })
+    .sort((a, b) => (a.data_inicio! < b.data_inicio! ? 1 : -1));
+  if (dentro[0]) return dentro[0];
 
   // Fora de qualquer intervalo definido: usa a última fase cujo início já passou.
   const passadas = fases
@@ -329,9 +334,13 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       }
     }
 
-    const novosOrganicos = Math.round(clientesAtivos * taxaCrescimento * fatorProRata);
+    // Cresce/perde em ponto flutuante (sem arredondar a cada mês): com base pequena, arredondar
+    // o crescimento e o churn separadamente antes de somar faz eles se cancelarem (ex: base 5,
+    // crescimento 23% ~1.15→1 e churn 10% ~0.5→1, net zero todo mês) e a base trava artificialmente
+    // baixa por muitos meses. Só arredondamos pro valor exibido (abaixo, no push).
+    const novosOrganicos = clientesAtivos * taxaCrescimento * fatorProRata;
     const novosClientes = novosOrganicos + conversaoBeta;
-    const perdidos = Math.round(clientesAtivos * taxaChurn);
+    const perdidos = clientesAtivos * taxaChurn;
     clientesAtivos = Math.max(0, clientesAtivos + novosClientes - perdidos);
 
     const arpu = calcularArpu(input.planos, fase.fase, mes, input.dataLancamentoEstimada);
@@ -429,8 +438,8 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
 
     resultados.push({
       mes_referencia: isoMonth(mes),
-      novos_clientes: novosClientes,
-      clientes_ativos: clientesAtivos,
+      novos_clientes: Math.round(novosClientes),
+      clientes_ativos: Math.round(clientesAtivos),
       beta_testers_ativos: betaAtivos,
       mrr: receitaBruta,
       churn_pct: taxaChurn,

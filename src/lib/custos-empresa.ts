@@ -85,13 +85,17 @@ export function faseDoProdutoNoMes(
   fases: { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[],
   mes: Date,
 ): FaseValue | null {
-  const dentro = fases.find((f) => {
-    if (!f.data_inicio || !f.data_fim) return false;
-    const inicio = new Date(f.data_inicio + "T00:00:00");
-    const fim = new Date(f.data_fim + "T00:00:00");
-    return mes >= new Date(inicio.getFullYear(), inicio.getMonth(), 1) && mes <= fim;
-  });
-  if (dentro) return dentro.fase;
+  // Quando duas fases têm limite no mesmo mês civil, preferimos a que começou por último — ela
+  // rege a maior parte do mês (ver mesma correção em simulacao.ts::faseParaMes).
+  const dentro = fases
+    .filter((f) => {
+      if (!f.data_inicio || !f.data_fim) return false;
+      const inicio = new Date(f.data_inicio + "T00:00:00");
+      const fim = new Date(f.data_fim + "T00:00:00");
+      return mes >= new Date(inicio.getFullYear(), inicio.getMonth(), 1) && mes <= fim;
+    })
+    .sort((a, b) => (a.data_inicio! < b.data_inicio! ? 1 : -1));
+  if (dentro[0]) return dentro[0].fase;
 
   const passadas = fases
     .filter((f) => f.data_inicio && new Date(f.data_inicio + "T00:00:00") <= mes)

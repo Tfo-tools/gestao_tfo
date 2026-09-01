@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
 import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
 import { subgrupoDeConta, subgrupoDeCargo, type SubgrupoConta } from "@/lib/subgrupo-conta";
+import { calcularDemandaPorCargo, type FaseProdutoInput, type FunilPremissaInput, type SimulacaoMesInput } from "@/lib/necessidade-contratacao";
 import type { FaseValue } from "@/lib/fases";
 
 function formatBRL(v: number) {
@@ -67,7 +68,7 @@ export default async function RelatoriosMensalPage({
   let query = supabase
     .from("simulacao_mensal")
     .select(
-      "mes_referencia, novos_clientes, clientes_ativos, churn_pct, receita_bruta, cogs_suporte, cogs_infraestrutura, cogs_outros, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga",
+      "produto_id, mes_referencia, novos_clientes, clientes_ativos, churn_pct, receita_bruta, cogs_suporte, cogs_infraestrutura, cogs_outros, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga",
     )
     .eq("cenario_id", cenarioAtual)
     .order("mes_referencia");
@@ -111,7 +112,7 @@ export default async function RelatoriosMensalPage({
       supabase.from("custos_empresa").select("*, plano_contas:plano_contas_id(codigo, tipo)").eq("cenario_id", cenarioAtual),
       supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioAtual),
       supabase.from("modelos_contratacao").select("*"),
-      supabase.from("fases_produto").select("produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioAtual),
+      supabase.from("fases_produto").select("id, produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioAtual),
     ]);
     const fasesPorProduto = new Map<string, { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]>();
     for (const f of (fasesRaw ?? []) as { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]) {
@@ -119,6 +120,73 @@ export default async function RelatoriosMensalPage({
       atual.push(f);
       fasesPorProduto.set(f.produto_id, atual);
     }
+
+    // Demanda real de SDR/Coordenador/Suporte por mês — alimenta o custo dos modelos variáveis
+    // (PJ, agência créditos/híbrido) com a demanda de verdade; CLT e pacote fechado continuam
+    // usando a quantidade alocada (decisão discreta, não sensível à demanda flutuar).
+    const faseIds = (fasesRaw ?? []).map((f: { id: string }) => f.id);
+    const { data: funisRaw } =
+      faseIds.length > 0
+        ? await supabase
+            .from("premissas_funil")
+            .select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes")
+            .in("fase_produto_id", faseIds)
+        : { data: [] };
+    const faseById = new Map<string, { id: string; produto_id: string; fase: FaseValue }>(
+      (fasesRaw ?? []).map((f: { id: string; produto_id: string; fase: FaseValue }) => [f.id, f]),
+    );
+    const fasesPorProdutoInput: FaseProdutoInput[] = (fasesRaw ?? []).map(
+      (f: { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }) => ({
+        produtoId: f.produto_id,
+        fase: f.fase,
+        data_inicio: f.data_inicio,
+        data_fim: f.data_fim,
+      }),
+    );
+    const funisInput: FunilPremissaInput[] = (
+      (funisRaw ?? []) as {
+        fase_produto_id: string;
+        taxa_conversao: number | null;
+        capacidade_vendedor_mes: number | null;
+        span_of_control: number | null;
+        horas_suporte_por_cliente_mes: number | null;
+      }[]
+    )
+      .map((f) => {
+        const fase = faseById.get(f.fase_produto_id);
+        if (!fase) return null;
+        return {
+          produtoId: fase.produto_id,
+          fase: fase.fase,
+          taxa_conversao: f.taxa_conversao,
+          capacidade_vendedor_mes: f.capacidade_vendedor_mes,
+          span_of_control: f.span_of_control,
+          horas_suporte_por_cliente_mes: f.horas_suporte_por_cliente_mes,
+        };
+      })
+      .filter((f): f is FunilPremissaInput => f !== null);
+    const simulacaoInput: SimulacaoMesInput[] = (
+      (simRaw ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number }[]
+    ).map((s) => ({
+      produtoId: s.produto_id,
+      mes_referencia: s.mes_referencia,
+      novos_clientes: Number(s.novos_clientes),
+      clientes_ativos: Number(s.clientes_ativos),
+    }));
+    const demandaPorCargo = calcularDemandaPorCargo({ fasesPorProduto: fasesPorProdutoInput, funis: funisInput, simulacao: simulacaoInput });
+    const demandaPorCargoMes: Record<"sdr" | "coordenador" | "suporte", Map<string, number>> = {
+      sdr: new Map(demandaPorCargo.sdr.map((d) => [d.mes_referencia, d.demanda])),
+      coordenador: new Map(demandaPorCargo.coordenador.map((d) => [d.mes_referencia, d.demanda])),
+      suporte: new Map(demandaPorCargo.suporte.map((d) => [d.mes_referencia, d.demanda])),
+    };
+    function demandaCargoNoMes(cargo: string, mes: string): number {
+      const chave = cargo.trim().toLowerCase();
+      if (chave === "sdr") return demandaPorCargoMes.sdr.get(mes) ?? 0;
+      if (chave === "coordenador") return demandaPorCargoMes.coordenador.get(mes) ?? 0;
+      if (chave === "suporte") return demandaPorCargoMes.suporte.get(mes) ?? 0;
+      return 0;
+    }
+
     const modeloById = new Map(
       ((modelosRaw ?? []) as { id: string; cargo: string; tipo_modelo: string; categoria: "pd" | "sm" | "ga"; parametros: ParametrosModelo }[]).map((m) => [
         m.id,
@@ -153,9 +221,9 @@ export default async function RelatoriosMensalPage({
         const tipo = modelo.tipo_modelo as TipoModelo;
         const quantidade = Number(a.quantidade);
         const demanda =
-          tipo === "clt" || tipo === "pj" || tipo === "empresa_fixo_escopo"
+          tipo === "clt" || tipo === "empresa_fixo_escopo"
             ? quantidade * (modelo.parametros.capacidade_unidade_mes ?? 1)
-            : quantidade;
+            : demandaCargoNoMes(a.cargo, mes);
         const custo = custoMensalModelo(tipo, modelo.parametros, demanda).custoMensal;
         somarNaLinha(linha, subgrupoDeCargo(modelo.cargo, modelo.categoria), custo);
       }

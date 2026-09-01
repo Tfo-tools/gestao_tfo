@@ -5,6 +5,7 @@ import { AlocacaoInvestimento } from "./alocacao-investimento";
 import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
 import type { FaseValue } from "@/lib/fases";
 import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
+import { calcularDemandaPorCargo, type FaseProdutoInput, type FunilPremissaInput, type SimulacaoMesInput } from "@/lib/necessidade-contratacao";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -198,14 +199,14 @@ async function agregarPorCenario(
     await Promise.all([
       supabase
         .from("simulacao_mensal")
-        .select("mes_referencia, receita_bruta, ebitda, clientes_ativos, cac_all_in, novos_clientes")
+        .select("produto_id, mes_referencia, receita_bruta, ebitda, clientes_ativos, cac_all_in, novos_clientes")
         .eq("cenario_id", cenarioId)
         .order("mes_referencia"),
       supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId),
       supabase.from("custos_empresa").select("*").eq("cenario_id", cenarioId),
       supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioId),
       supabase.from("modelos_contratacao").select("*"),
-      supabase.from("fases_produto").select("produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioId),
+      supabase.from("fases_produto").select("id, produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioId),
     ]);
 
   const fasesPorProduto = new Map<string, { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]>();
@@ -213,6 +214,63 @@ async function agregarPorCenario(
     const atual = fasesPorProduto.get(f.produto_id) ?? [];
     atual.push(f);
     fasesPorProduto.set(f.produto_id, atual);
+  }
+
+  // Demanda real de SDR/Coordenador/Suporte por mês, pra alimentar o custo de modelos de
+  // contratação variáveis (agência créditos/híbrido) com a demanda de verdade, não uma
+  // quantidade fixa — modelos discretos (CLT/PJ/pacote fechado) continuam usando a quantidade
+  // alocada, já que ali a decisão é "quantas unidades eu contratei", não "quanto eu precisei".
+  const faseIds = (fasesRaw ?? []).map((f: { id: string }) => f.id);
+  const { data: funisRaw } =
+    faseIds.length > 0
+      ? await supabase
+          .from("premissas_funil")
+          .select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes")
+          .in("fase_produto_id", faseIds)
+      : { data: [] };
+  const faseById = new Map<string, { id: string; produto_id: string; fase: FaseValue }>(
+    (fasesRaw ?? []).map((f: { id: string; produto_id: string; fase: FaseValue }) => [f.id, f]),
+  );
+  const fasesPorProdutoInput: FaseProdutoInput[] = (fasesRaw ?? []).map(
+    (f: { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }) => ({
+      produtoId: f.produto_id,
+      fase: f.fase,
+      data_inicio: f.data_inicio,
+      data_fim: f.data_fim,
+    }),
+  );
+  const funisInput: FunilPremissaInput[] = ((funisRaw ?? []) as { fase_produto_id: string; taxa_conversao: number | null; capacidade_vendedor_mes: number | null; span_of_control: number | null; horas_suporte_por_cliente_mes: number | null }[])
+    .map((f) => {
+      const fase = faseById.get(f.fase_produto_id);
+      if (!fase) return null;
+      return {
+        produtoId: fase.produto_id,
+        fase: fase.fase,
+        taxa_conversao: f.taxa_conversao,
+        capacidade_vendedor_mes: f.capacidade_vendedor_mes,
+        span_of_control: f.span_of_control,
+        horas_suporte_por_cliente_mes: f.horas_suporte_por_cliente_mes,
+      };
+    })
+    .filter((f): f is FunilPremissaInput => f !== null);
+  const simulacaoInput: SimulacaoMesInput[] = ((simRows ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number }[]).map((s) => ({
+    produtoId: s.produto_id,
+    mes_referencia: s.mes_referencia,
+    novos_clientes: Number(s.novos_clientes),
+    clientes_ativos: Number(s.clientes_ativos),
+  }));
+  const demandaPorCargo = calcularDemandaPorCargo({ fasesPorProduto: fasesPorProdutoInput, funis: funisInput, simulacao: simulacaoInput });
+  const demandaPorCargoMes: Record<"sdr" | "coordenador" | "suporte", Map<string, number>> = {
+    sdr: new Map(demandaPorCargo.sdr.map((d) => [d.mes_referencia, d.demanda])),
+    coordenador: new Map(demandaPorCargo.coordenador.map((d) => [d.mes_referencia, d.demanda])),
+    suporte: new Map(demandaPorCargo.suporte.map((d) => [d.mes_referencia, d.demanda])),
+  };
+  function demandaCargoNoMes(cargo: string, mes: string): number {
+    const chave = cargo.trim().toLowerCase();
+    if (chave === "sdr") return demandaPorCargoMes.sdr.get(mes) ?? 0;
+    if (chave === "coordenador") return demandaPorCargoMes.coordenador.get(mes) ?? 0;
+    if (chave === "suporte") return demandaPorCargoMes.suporte.get(mes) ?? 0;
+    return 0;
   }
 
   const porMes = new Map<string, Agregado>();
@@ -253,10 +311,13 @@ async function agregarPorCenario(
       if (!modelo) continue;
       const tipo = modelo.tipo_modelo as TipoModelo;
       const quantidade = Number(a.quantidade);
+      // CLT e pacote fechado (empresa_fixo_escopo) são decisões discretas — você contratou N
+      // unidades, o custo é esse independente da demanda real flutuar. PJ e os modelos pay-per-use
+      // (créditos/híbrido) são cobrados pela demanda real do mês (PJ só entra pelas horas usadas).
       const demandaEquivalente =
-        tipo === "clt" || tipo === "pj" || tipo === "empresa_fixo_escopo"
+        tipo === "clt" || tipo === "empresa_fixo_escopo"
           ? quantidade * (modelo.parametros.capacidade_unidade_mes ?? 1)
-          : quantidade;
+          : demandaCargoNoMes(a.cargo, atual.mes_referencia);
       custosEmpresa += custoMensalModelo(tipo, modelo.parametros, demandaEquivalente).custoMensal;
     }
 
