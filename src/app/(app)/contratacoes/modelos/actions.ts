@@ -68,6 +68,8 @@ export async function criarModeloContratacao(
 
   revalidatePath("/contratacoes/modelos");
   revalidatePath("/contratacoes/necessidade");
+  revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
   return { error: null, success: true };
 }
 
@@ -98,6 +100,8 @@ export async function atualizarModeloContratacao(
 
   revalidatePath("/contratacoes/modelos");
   revalidatePath("/contratacoes/necessidade");
+  revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
   return { error: null, success: true };
 }
 
@@ -106,4 +110,6 @@ export async function excluirModeloContratacao(id: string) {
   await supabase.from("modelos_contratacao").delete().eq("id", id);
   revalidatePath("/contratacoes/modelos");
   revalidatePath("/contratacoes/necessidade");
+  revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
 }

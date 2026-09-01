@@ -35,6 +35,8 @@ export async function criarAlocacaoModelo(
   }
 
   revalidatePath("/contratacoes/necessidade");
+  revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
   return { error: null, success: true };
 }
 
@@ -42,4 +44,6 @@ export async function excluirAlocacaoModelo(id: string) {
   const supabase = await createClient();
   await supabase.from("alocacao_modelo_contratacao").delete().eq("id", id);
   revalidatePath("/contratacoes/necessidade");
+  revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
 }

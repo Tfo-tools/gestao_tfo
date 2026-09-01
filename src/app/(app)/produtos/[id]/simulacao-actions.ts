@@ -229,5 +229,8 @@ export async function recalcularSimulacao(
 
   revalidatePath(`/produtos/${produtoId}`);
   revalidatePath("/");
+  revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
+  revalidatePath("/contratacoes/necessidade");
   return { error: null, success: true };
 }

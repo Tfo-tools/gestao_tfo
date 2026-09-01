@@ -107,6 +107,7 @@ export async function criarCustoEmpresa(
 
   revalidatePath("/plano-de-custos/empresa");
   revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
   return { error: null, success: true };
 }
 
@@ -148,6 +149,7 @@ export async function atualizarCustoEmpresa(
 
   revalidatePath("/plano-de-custos/empresa");
   revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
   return { error: null, success: true };
 }
 
@@ -156,4 +158,5 @@ export async function excluirCustoEmpresa(id: string) {
   await supabase.from("custos_empresa").delete().eq("id", id);
   revalidatePath("/plano-de-custos/empresa");
   revalidatePath("/relatorios");
+  revalidatePath("/relatorios/mensal");
 }
