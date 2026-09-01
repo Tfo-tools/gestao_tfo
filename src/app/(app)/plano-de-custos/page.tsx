@@ -26,11 +26,19 @@ export default async function PlanoDeCustosPage({
             Estrutura, ferramentas e custos que escalam com clientes, por produto e fase
           </p>
         </div>
-        {cenarioNome && (
-          <span className="rounded-lg border border-[#e6d3d9] bg-wine-soft px-3 py-2 text-[12.5px] font-medium text-wine">
-            Cenário: {cenarioNome}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {cenarioNome && (
+            <span className="rounded-lg border border-[#e6d3d9] bg-wine-soft px-3 py-2 text-[12.5px] font-medium text-wine">
+              Cenário: {cenarioNome}
+            </span>
+          )}
+          <Link
+            href={cenarioAtual ? `/plano-de-custos/empresa?cenario=${cenarioAtual}` : "/plano-de-custos/empresa"}
+            className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
+          >
+            Custos da Empresa
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4">

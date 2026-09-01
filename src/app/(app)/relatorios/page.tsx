@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { AlocacaoInvestimento } from "./alocacao-investimento";
+import { custoEmpresaNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
+import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -18,7 +20,7 @@ function buildPath(values: number[], width: number, height: number, min: number,
     .join(" ");
 }
 
-type Agregado = { mes_referencia: string; receita: number; ebitda: number; clientes: number };
+type Agregado = { mes_referencia: string; receita: number; ebitdaProdutos: number; clientes: number; custosEmpresa: number; ebitda: number };
 
 type ResumoCenario = {
   linhas: Agregado[];
@@ -28,6 +30,15 @@ type ResumoCenario = {
   ebitdaAcumulado: number;
 };
 
+function ativaNoMes(mesIso: string, dataInicio: string | null, dataFim: string | null): boolean {
+  const mes = new Date(mesIso + "T00:00:00");
+  const inicio = dataInicio ? new Date(dataInicio + "T00:00:00") : null;
+  const fim = dataFim ? new Date(dataFim + "T00:00:00") : null;
+  const iniciouAntes = !inicio || new Date(inicio.getFullYear(), inicio.getMonth(), 1) <= mes;
+  const aindaAtiva = !fim || fim >= mes;
+  return iniciouAntes && aindaAtiva;
+}
+
 async function agregarPorCenario(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
@@ -35,13 +46,16 @@ async function agregarPorCenario(
 ): Promise<ResumoCenario> {
   if (!cenarioId) return { linhas: [], cacMedio: null, breakEvenMes: null, totalInvestido: 0, ebitdaAcumulado: 0 };
 
-  const [{ data: simRows }, { data: vinculos }] = await Promise.all([
+  const [{ data: simRows }, { data: vinculos }, { data: custosEmpresaRaw }, { data: alocacoesRaw }, { data: modelosRaw }] = await Promise.all([
     supabase
       .from("simulacao_mensal")
       .select("mes_referencia, receita_bruta, ebitda, clientes_ativos, cac_all_in, novos_clientes")
       .eq("cenario_id", cenarioId)
       .order("mes_referencia"),
     supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId),
+    supabase.from("custos_empresa").select("*").eq("cenario_id", cenarioId),
+    supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioId),
+    supabase.from("modelos_contratacao").select("*"),
   ]);
 
   const porMes = new Map<string, Agregado>();
@@ -49,9 +63,9 @@ async function agregarPorCenario(
   let somaNovosClientes = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const row of (simRows ?? []) as any[]) {
-    const atual = porMes.get(row.mes_referencia) ?? { mes_referencia: row.mes_referencia, receita: 0, ebitda: 0, clientes: 0 };
+    const atual = porMes.get(row.mes_referencia) ?? { mes_referencia: row.mes_referencia, receita: 0, ebitdaProdutos: 0, clientes: 0, custosEmpresa: 0, ebitda: 0 };
     atual.receita += Number(row.receita_bruta);
-    atual.ebitda += Number(row.ebitda);
+    atual.ebitdaProdutos += Number(row.ebitda);
     atual.clientes += Number(row.clientes_ativos);
     porMes.set(row.mes_referencia, atual);
 
@@ -61,6 +75,36 @@ async function agregarPorCenario(
       somaNovosClientes += novos;
     }
   }
+
+  // Custos compartilhados da empresa (não ligados a um produto) — entram uma vez no EBITDA
+  // consolidado, sem ratear entre produtos.
+  const modeloById = new Map(((modelosRaw ?? []) as { id: string; tipo_modelo: string; parametros: ParametrosModelo }[]).map((m) => [m.id, m]));
+  for (const atual of porMes.values()) {
+    const mesDate = new Date(atual.mes_referencia + "T00:00:00");
+
+    let custosEmpresa = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of (custosEmpresaRaw ?? []) as any[]) {
+      custosEmpresa += custoEmpresaNoMes(c as CustoEmpresaInput, mesDate, atual.receita, atual.clientes);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const a of (alocacoesRaw ?? []) as any[]) {
+      if (!ativaNoMes(atual.mes_referencia, a.data_inicio, a.data_fim)) continue;
+      const modelo = modeloById.get(a.modelo_id);
+      if (!modelo) continue;
+      const tipo = modelo.tipo_modelo as TipoModelo;
+      const quantidade = Number(a.quantidade);
+      const demandaEquivalente =
+        tipo === "clt" || tipo === "pj" || tipo === "empresa_fixo_escopo"
+          ? quantidade * (modelo.parametros.capacidade_unidade_mes ?? 1)
+          : quantidade;
+      custosEmpresa += custoMensalModelo(tipo, modelo.parametros, demandaEquivalente).custoMensal;
+    }
+
+    atual.custosEmpresa = custosEmpresa;
+    atual.ebitda = atual.ebitdaProdutos - custosEmpresa;
+  }
+
   const linhas = [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
   const cacMedio = somaNovosClientes > 0 ? somaCacPonderado / somaNovosClientes : null;
 
@@ -201,7 +245,26 @@ export default async function RelatoriosPage({
               </thead>
               <tbody>
                 <LinhaComparativa label="Receita acumulada" a={totalReceitaA} b={totalReceitaB} formato="brl" />
-                <LinhaComparativa label="EBITDA acumulado" a={resumoA.ebitdaAcumulado} b={resumoB.ebitdaAcumulado} formato="brl" />
+                <LinhaComparativa
+                  label="EBITDA dos produtos (soma, antes dos custos da empresa)"
+                  a={resumoA.linhas.reduce((s, l) => s + l.ebitdaProdutos, 0)}
+                  b={resumoB.linhas.reduce((s, l) => s + l.ebitdaProdutos, 0)}
+                  formato="brl"
+                />
+                <tr className="border-t border-border-soft">
+                  <td className="flex items-center px-2 py-2.5">
+                    (–) Custos compartilhados da empresa
+                    <InfoTooltip texto="Contador, jurídico, escritório, cloud, equipe comercial etc. — cadastrados em Plano de Custos > Custos da Empresa e nas alocações de Necessidade de Contratação. Entram uma única vez aqui, sem ratear entre produtos." />
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-mono text-danger">
+                    − {formatBRL(resumoA.linhas.reduce((s, l) => s + l.custosEmpresa, 0))}
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-mono text-danger">
+                    − {formatBRL(resumoB.linhas.reduce((s, l) => s + l.custosEmpresa, 0))}
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
+                </tr>
+                <LinhaComparativa label="(=) EBITDA consolidado da empresa" a={resumoA.ebitdaAcumulado} b={resumoB.ebitdaAcumulado} formato="brl" />
                 <tr className="border-t border-border-soft">
                   <td className="px-2 py-2.5">Clientes ativos (fim do período)</td>
                   <td className="px-2 py-2.5 text-right font-mono">{clientesFinalA.toLocaleString("pt-BR")}</td>
