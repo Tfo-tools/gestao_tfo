@@ -84,9 +84,26 @@ export async function recalcularSimulacao(
         : Promise.resolve({ data: [] as PlanoFaseRow[] }),
       supabase
         .from("modulos_produto")
-        .select("nome, preco, fase_lancamento, meses_apos_lancamento, adesao_inicial_pct, crescimento_adesao_mensal_pct")
+        .select("id, nome, preco, fase_lancamento, meses_apos_lancamento, adesao_inicial_pct, crescimento_adesao_mensal_pct")
         .eq("produto_id", produtoId),
     ]);
+
+  const moduloIds = (modulosRaw ?? []).map((m) => m.id);
+  const { data: betasModuloRaw } =
+    moduloIds.length > 0
+      ? await supabase
+          .from("beta_testers_modulo")
+          .select("modulo_id, quantidade, condicao_especial_pct, condicao_especial_meses")
+          .in("modulo_id", moduloIds)
+      : { data: [] };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const betasModuloByModuloId = new Map<string, any[]>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const b of (betasModuloRaw ?? []) as any[]) {
+    const atual = betasModuloByModuloId.get(b.modulo_id) ?? [];
+    atual.push(b);
+    betasModuloByModuloId.set(b.modulo_id, atual);
+  }
 
   const faseValueById = new Map(fases.map((f) => [f.id as string, f.fase as FaseValue]));
   const regimeAliquota = new Map((regimes ?? []).map((r) => [r.id, Number(r.aliquota_total_efetiva)]));
@@ -156,6 +173,11 @@ export async function recalcularSimulacao(
       meses_apos_lancamento: m.meses_apos_lancamento,
       adesao_inicial_pct: Number(m.adesao_inicial_pct),
       crescimento_adesao_mensal_pct: Number(m.crescimento_adesao_mensal_pct),
+      betaTesters: (betasModuloByModuloId.get(m.id) ?? []).map((b) => ({
+        quantidade: Number(b.quantidade),
+        condicao_especial_pct: b.condicao_especial_pct,
+        condicao_especial_meses: b.condicao_especial_meses,
+      })),
     })),
     custosFixos: (custosFixosRaw ?? []).map((c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

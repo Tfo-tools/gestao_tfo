@@ -44,6 +44,13 @@ export type PlanoInput = {
   precos_por_fase: Partial<Record<FaseValue, number>>;
 };
 
+export type BetaModuloInput = {
+  quantidade: number;
+  /** Desconto aplicado por um período a partir do lançamento oficial do módulo (opcional). */
+  condicao_especial_pct: number | null;
+  condicao_especial_meses: number | null;
+};
+
 export type ModuloInput = {
   nome: string;
   preco: number;
@@ -53,6 +60,8 @@ export type ModuloInput = {
   meses_apos_lancamento: number | null;
   adesao_inicial_pct: number;
   crescimento_adesao_mensal_pct: number;
+  /** Beta testers do módulo — sempre testam ANTES do lançamento oficial, sem pagar; convertem no mês do lançamento. */
+  betaTesters: BetaModuloInput[];
 };
 
 export type CustoFixoInput = {
@@ -200,6 +209,11 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
   let clientesAtivos = 0;
   let betaAtivos = 0;
   const adocaoModulos = new Map<number, number>();
+  // Beta testers de módulo: convertem no mês do lançamento oficial. Enquanto durar a condição
+  // especial (se houver), pagam com desconto; depois disso somam-se aos "permanentes" (preço cheio).
+  const moduloJaLancado = new Set<number>();
+  const betaModuloPermanentes = new Map<number, number>();
+  let betaModuloComDesconto: { moduloIdx: number; quantidade: number; desconto: number; mesFim: number }[] = [];
   // Clientes que converteram do beta e ainda estão dentro da janela de condição especial
   // (desconto por tempo limitado) — cada entrada é um lote independente, escopado à fase/beta
   // que a originou, sem acumular com outras condições de outras fases ou módulos.
@@ -296,6 +310,14 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     // de clientes e crescimento mensal composto até 100%.
     const faseIdxAtual = FASE_ORDEM.indexOf(fase.fase);
     let receitaModulos = 0;
+    // Remove condições especiais de beta de módulo já vencidas, somando o lote ao grupo
+    // permanente (preço cheio dali em diante).
+    betaModuloComDesconto = betaModuloComDesconto.filter((c) => {
+      if (c.mesFim > i) return true;
+      betaModuloPermanentes.set(c.moduloIdx, (betaModuloPermanentes.get(c.moduloIdx) ?? 0) + c.quantidade);
+      return false;
+    });
+
     input.modulos.forEach((modulo, mi) => {
       const lancado =
         modulo.meses_apos_lancamento != null
@@ -303,11 +325,33 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
           : modulo.fase_lancamento != null && faseIdxAtual >= FASE_ORDEM.indexOf(modulo.fase_lancamento);
       if (!lancado) return;
 
+      // No mês exato do lançamento oficial, os beta testers desse módulo convertem: com desconto
+      // por um período (se configurado) ou direto pro preço cheio.
+      if (!moduloJaLancado.has(mi)) {
+        moduloJaLancado.add(mi);
+        for (const beta of modulo.betaTesters) {
+          if (beta.condicao_especial_pct && beta.condicao_especial_meses) {
+            betaModuloComDesconto.push({
+              moduloIdx: mi,
+              quantidade: beta.quantidade,
+              desconto: beta.condicao_especial_pct,
+              mesFim: i + beta.condicao_especial_meses,
+            });
+          } else {
+            betaModuloPermanentes.set(mi, (betaModuloPermanentes.get(mi) ?? 0) + beta.quantidade);
+          }
+        }
+      }
+
       let adocaoPct = adocaoModulos.get(mi);
       adocaoPct = adocaoPct === undefined ? modulo.adesao_inicial_pct : Math.min(1, adocaoPct * (1 + modulo.crescimento_adesao_mensal_pct));
       adocaoModulos.set(mi, adocaoPct);
 
       receitaModulos += adocaoPct * clientesAtivos * modulo.preco;
+      receitaModulos += (betaModuloPermanentes.get(mi) ?? 0) * modulo.preco;
+      receitaModulos += betaModuloComDesconto
+        .filter((c) => c.moduloIdx === mi)
+        .reduce((acc, c) => acc + c.quantidade * modulo.preco * (1 - c.desconto), 0);
     });
     receitaModulos *= fatorProRata;
 

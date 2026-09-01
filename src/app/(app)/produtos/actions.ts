@@ -206,6 +206,47 @@ export async function excluirModulo(moduloId: string, produtoId: string) {
   revalidatePath(`/produtos/${produtoId}`);
 }
 
+export async function criarBetaModulo(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const modulo_id = String(formData.get("modulo_id") || "");
+  const produto_id = String(formData.get("produto_id") || "");
+  const quantidade = Number(formData.get("quantidade") || 0);
+  const data_inicio = String(formData.get("data_inicio") || "") || null;
+  const data_fim = String(formData.get("data_fim") || "") || null;
+  const condicaoEspecialPct = formData.get("condicao_especial_pct");
+  const condicao_especial_pct = condicaoEspecialPct !== null && condicaoEspecialPct !== "" ? Number(condicaoEspecialPct) / 100 : null;
+  const condicao_especial_meses = formData.get("condicao_especial_meses") ? Number(formData.get("condicao_especial_meses")) : null;
+
+  if (!modulo_id || !quantidade) {
+    return { error: "Preencha a quantidade de beta testers do módulo." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("beta_testers_modulo").insert({
+    modulo_id,
+    quantidade,
+    data_inicio,
+    data_fim,
+    condicao_especial_pct,
+    condicao_especial_meses,
+  });
+
+  if (error) {
+    return { error: "Não foi possível salvar o beta do módulo." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
+
+export async function excluirBetaModulo(id: string, produtoId: string) {
+  const supabase = await createClient();
+  await supabase.from("beta_testers_modulo").delete().eq("id", id);
+  revalidatePath(`/produtos/${produtoId}`);
+}
+
 export async function criarProduto(
   _prevState: ActionState,
   formData: FormData,

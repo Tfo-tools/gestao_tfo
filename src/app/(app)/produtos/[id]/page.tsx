@@ -35,10 +35,24 @@ export default async function ProdutoDetailPage({
   if (!produto) notFound();
 
   const planoIds = (planos ?? []).map((p) => p.id);
-  const { data: precosFase } =
+  const moduloIds = (modulos ?? []).map((m) => m.id);
+  const [{ data: precosFase }, { data: betasModuloRaw }] = await Promise.all([
     planoIds.length > 0
-      ? await supabase.from("planos_precificacao_fases").select("*").in("plano_id", planoIds)
-      : { data: [] };
+      ? supabase.from("planos_precificacao_fases").select("*").in("plano_id", planoIds)
+      : Promise.resolve({ data: [] }),
+    moduloIds.length > 0
+      ? supabase.from("beta_testers_modulo").select("*").in("modulo_id", moduloIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const betasModuloByModuloId = new Map<string, any[]>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const b of (betasModuloRaw ?? []) as any[]) {
+    const atual = betasModuloByModuloId.get(b.modulo_id) ?? [];
+    atual.push(b);
+    betasModuloByModuloId.set(b.modulo_id, atual);
+  }
+  const modulosComBeta = (modulos ?? []).map((m) => ({ ...m, betaTesters: betasModuloByModuloId.get(m.id) ?? [] }));
 
   const cenarioAtual =
     cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
@@ -99,7 +113,7 @@ export default async function ProdutoDetailPage({
         <SimulacaoResultado linhas={simulacao ?? []} />
       </div>
 
-      <div className="grid grid-cols-[1fr_340px] items-start gap-5">
+      <div className="grid grid-cols-[340px_1fr] items-start gap-5">
         <div className="flex flex-col gap-2.5">
           {FASES.map((f, i) => {
             const dados = faseByValue.get(f.value) ?? null;
@@ -122,7 +136,7 @@ export default async function ProdutoDetailPage({
 
         <div className="flex flex-col gap-5">
           <PlanosPrecificacao produtoId={id} planos={planos ?? []} precosFase={precosFase ?? []} />
-          <ModulosProduto produtoId={id} modulos={modulos ?? []} />
+          <ModulosProduto produtoId={id} modulos={modulosComBeta} />
         </div>
       </div>
     </div>
