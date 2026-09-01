@@ -6,6 +6,44 @@ import { createClient } from "@/lib/supabase/server";
 
 export type CenarioFormState = { error: string | null };
 
+export async function renomearCenario(
+  _prevState: CenarioFormState,
+  formData: FormData,
+): Promise<CenarioFormState> {
+  const id = String(formData.get("id") || "");
+  const nome = String(formData.get("nome") || "").trim();
+  const descricao = String(formData.get("descricao") || "").trim() || null;
+
+  if (!id || !nome) {
+    return { error: "Dê um nome para o cenário." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("cenarios").update({ nome, descricao }).eq("id", id);
+
+  if (error) {
+    return { error: "Não foi possível renomear o cenário." };
+  }
+
+  revalidatePath("/cenarios");
+  return { error: null };
+}
+
+export async function excluirCenario(id: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("cenarios").delete().eq("id", id);
+
+  if (error) {
+    if (error.code === "23503") {
+      return { error: "Não é possível excluir: existem outros cenários duplicados a partir deste. Exclua-os primeiro." };
+    }
+    return { error: "Não foi possível excluir o cenário." };
+  }
+
+  revalidatePath("/cenarios");
+  return { error: null };
+}
+
 export async function criarCenario(
   _prevState: CenarioFormState,
   formData: FormData,
