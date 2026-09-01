@@ -1,12 +1,14 @@
 "use client";
 
-import { useActionState, useRef, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import {
   criarPlano,
+  atualizarPlano,
   criarPrecoFase,
   excluirPlano,
   excluirPrecoFase,
   criarBetaProduto,
+  atualizarBetaProduto,
   excluirBetaProduto,
   type ActionState,
 } from "../actions";
@@ -63,7 +65,6 @@ export function PlanosPrecificacao({
 }) {
   const [state, formAction, pending] = useActionState(criarPlano, initialState);
   const formRef = useRef<HTMLFormElement>(null);
-  const [isPending, startTransition] = useTransition();
 
   const somaMix = planos.reduce((acc, p) => acc + Number(p.mix_percentual ?? 0), 0);
   const precosFasePorPlano = new Map<string, PrecoFase[]>();
@@ -83,41 +84,7 @@ export function PlanosPrecificacao({
           <p className="text-[12px] text-text-faint">Nenhum plano cadastrado ainda.</p>
         )}
         {planos.map((p) => (
-          <div key={p.id} className="rounded-lg border border-border-soft px-3 py-2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[12.5px] font-semibold">{p.nome_plano}</div>
-                <div className="text-[10.5px] text-text-faint">
-                  {p.tipo_cobranca} · {p.tipo_venda}
-                  {p.is_annual_only ? " · annual-only" : ""}
-                  {p.desconto_pct ? ` · -${p.desconto_pct}%` : ""}
-                  {p.reajuste_anual_pct ? ` · reajuste +${(p.reajuste_anual_pct * 100).toFixed(1)}%/ano` : ""}
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                {p.mix_percentual != null && (
-                  <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-primary-deep">
-                    {p.mix_percentual}%
-                  </span>
-                )}
-                <span className="font-mono text-[13px] font-semibold">{formatBRL(Number(p.preco))}</span>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => startTransition(() => excluirPlano(p.id, produtoId))}
-                  className="text-[11px] text-danger"
-                >
-                  Remover
-                </button>
-              </div>
-            </div>
-            <PrecosPorFase
-              produtoId={produtoId}
-              planoId={p.id}
-              precoBase={Number(p.preco)}
-              itens={precosFasePorPlano.get(p.id) ?? []}
-            />
-          </div>
+          <PlanoRow key={p.id} produtoId={produtoId} plano={p} precosFase={precosFasePorPlano.get(p.id) ?? []} />
         ))}
         {planos.length > 0 && (
           <div
@@ -208,6 +175,114 @@ export function PlanosPrecificacao({
   );
 }
 
+function PlanoRow({ produtoId, plano, precosFase }: { produtoId: string; plano: Plano; precosFase: PrecoFase[] }) {
+  const [editando, setEditando] = useState(false);
+  const [state, formAction, pending] = useActionState(atualizarPlano, initialState);
+  const [isPending, startTransition] = useTransition();
+  const foiPending = useRef(false);
+
+  useEffect(() => {
+    if (foiPending.current && !pending && state.success) setEditando(false);
+    foiPending.current = pending;
+  }, [pending, state.success]);
+
+  if (editando) {
+    return (
+      <div className="rounded-lg border border-primary-fill px-3 py-2.5">
+        <form action={formAction} className="flex flex-col gap-2">
+          <input type="hidden" name="id" value={plano.id} />
+          <input type="hidden" name="produto_id" value={produtoId} />
+          <input name="nome_plano" defaultValue={plano.nome_plano} className="input" required />
+          <div className="grid grid-cols-2 gap-2">
+            <select name="tipo_cobranca" defaultValue={plano.tipo_cobranca} className="input" required>
+              <option value="mensal">Mensal</option>
+              <option value="semestral">Semestral</option>
+              <option value="anual">Anual</option>
+            </select>
+            <select name="tipo_venda" defaultValue={plano.tipo_venda} className="input">
+              <option value="individual">Individual</option>
+              <option value="pacote">Pacote</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input name="preco" type="number" step="0.01" defaultValue={plano.preco} placeholder="Preço (R$)" className="input" required />
+            <input name="desconto_pct" type="number" step="0.01" defaultValue={plano.desconto_pct ?? ""} placeholder="Desconto (%)" className="input" />
+          </div>
+          <input
+            name="reajuste_anual_pct"
+            type="number"
+            step="0.01"
+            defaultValue={plano.reajuste_anual_pct != null ? (plano.reajuste_anual_pct * 100).toFixed(2) : ""}
+            placeholder="Reajuste anual (%)"
+            className="input"
+          />
+          <input
+            name="mix_percentual"
+            type="number"
+            step="0.01"
+            min="0"
+            max="100"
+            defaultValue={plano.mix_percentual ?? ""}
+            placeholder="% dos clientes nesse plano"
+            className="input"
+          />
+          <label className="flex items-center gap-2 text-[11.5px]">
+            <input type="checkbox" name="is_annual_only" defaultChecked={plano.is_annual_only} className="h-4 w-4 rounded border-border" />
+            Somente contrato anual (annual-only)
+          </label>
+          {state.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={pending}
+              className="rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60"
+            >
+              {pending ? "Salvando…" : "Salvar"}
+            </button>
+            <button type="button" onClick={() => setEditando(false)} className="rounded-lg border border-border px-3 py-2 text-[12px] text-text-muted">
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border-soft px-3 py-2.5">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-[12.5px] font-semibold">{plano.nome_plano}</div>
+          <div className="text-[10.5px] text-text-faint">
+            {plano.tipo_cobranca} · {plano.tipo_venda}
+            {plano.is_annual_only ? " · annual-only" : ""}
+            {plano.desconto_pct ? ` · -${plano.desconto_pct}%` : ""}
+            {plano.reajuste_anual_pct ? ` · reajuste +${(plano.reajuste_anual_pct * 100).toFixed(1)}%/ano` : ""}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {plano.mix_percentual != null && (
+            <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-primary-deep">{plano.mix_percentual}%</span>
+          )}
+          <span className="font-mono text-[13px] font-semibold">{formatBRL(Number(plano.preco))}</span>
+          <button type="button" onClick={() => setEditando(true)} className="text-[11px] text-primary-deep">
+            Editar
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => startTransition(() => excluirPlano(plano.id, produtoId))}
+            className="text-[11px] text-danger"
+          >
+            Remover
+          </button>
+        </div>
+      </div>
+      <PrecosPorFase produtoId={produtoId} planoId={plano.id} precoBase={Number(plano.preco)} itens={precosFase} />
+    </div>
+  );
+}
+
 function faseNaData(fases: FaseComData[], dataIso: string | null): string | null {
   if (!dataIso) return null;
   const data = new Date(dataIso + "T00:00:00");
@@ -259,27 +334,15 @@ function BetaProdutoSection({
           {itens.map((b) => {
             const faseNoInicio = faseNaData(fases, b.data_inicio);
             return (
-              <div key={b.id} className="rounded-md border border-border-soft bg-surface px-2.5 py-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11.5px]">
-                    {b.quantidade} pessoa(s) · {formatDate(b.data_inicio)} → {formatDate(b.data_fim)}
-                    {faseNoInicio && <span className="ml-1.5 text-text-faint">({faseNoInicio})</span>}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() => startTransition(() => excluirBetaProduto(b.id, produtoId))}
-                    className="text-[11px] text-danger"
-                  >
-                    ×
-                  </button>
-                </div>
-                {b.condicao_especial_pct && (
-                  <div className="mt-0.5 text-[10.5px] text-text-faint">
-                    {(b.condicao_especial_pct * 100).toFixed(0)}% off por {b.condicao_especial_meses} meses a partir do lançamento
-                  </div>
-                )}
-              </div>
+              <BetaRow
+                key={b.id}
+                produtoId={produtoId}
+                cenarioId={cenarioId}
+                beta={b}
+                faseNoInicio={faseNoInicio}
+                isPending={isPending}
+                startTransition={startTransition}
+              />
             );
           })}
 
@@ -336,6 +399,111 @@ function BetaProdutoSection({
             </div>
           </form>
           {state.error && <p className="text-[10.5px] text-danger">{state.error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BetaRow({
+  produtoId,
+  cenarioId,
+  beta,
+  faseNoInicio,
+  isPending,
+  startTransition,
+}: {
+  produtoId: string;
+  cenarioId: string;
+  beta: BetaProduto;
+  faseNoInicio: string | null;
+  isPending: boolean;
+  startTransition: (callback: () => void | Promise<void>) => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [state, formAction, pending] = useActionState(atualizarBetaProduto, initialState);
+  const foiPending = useRef(false);
+
+  useEffect(() => {
+    if (foiPending.current && !pending && state.success) setEditando(false);
+    foiPending.current = pending;
+  }, [pending, state.success]);
+
+  if (editando) {
+    return (
+      <form action={formAction} className="flex flex-col gap-2 rounded-md border border-primary-fill bg-surface px-2.5 py-2">
+        <input type="hidden" name="id" value={beta.id} />
+        <input type="hidden" name="produto_id" value={produtoId} />
+        <input type="hidden" name="cenario_id" value={cenarioId} />
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <label className="mb-1 block text-[10px] text-text-faint">Quantidade</label>
+            <input name="quantidade" type="number" min="1" defaultValue={beta.quantidade} className="input w-[80px]" required />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] text-text-faint">Início do teste</label>
+            <input name="data_inicio" type="date" defaultValue={beta.data_inicio ?? ""} className="input w-[140px]" />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] text-text-faint">Fim do teste</label>
+            <input name="data_fim" type="date" defaultValue={beta.data_fim ?? ""} className="input w-[140px]" />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <label className="mb-1 block text-[10px] text-text-faint">Desconto no lançamento (%)</label>
+            <input
+              name="condicao_especial_pct"
+              type="number"
+              step="0.01"
+              defaultValue={beta.condicao_especial_pct != null ? (beta.condicao_especial_pct * 100).toFixed(2) : ""}
+              className="input w-[130px]"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] text-text-faint">Duração (meses)</label>
+            <input name="condicao_especial_meses" type="number" defaultValue={beta.condicao_especial_meses ?? ""} className="input w-[100px]" />
+          </div>
+          <button
+            type="submit"
+            disabled={pending}
+            className="rounded-lg bg-wine-deep px-3 py-2 text-[11px] font-medium text-white disabled:opacity-60"
+          >
+            {pending ? "Salvando…" : "Salvar"}
+          </button>
+          <button type="button" onClick={() => setEditando(false)} className="rounded-lg border border-border px-3 py-2 text-[11px] text-text-muted">
+            Cancelar
+          </button>
+        </div>
+        {state.error && <p className="text-[10.5px] text-danger">{state.error}</p>}
+      </form>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border-soft bg-surface px-2.5 py-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11.5px]">
+          {beta.quantidade} pessoa(s) · {formatDate(beta.data_inicio)} → {formatDate(beta.data_fim)}
+          {faseNoInicio && <span className="ml-1.5 text-text-faint">({faseNoInicio})</span>}
+        </span>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setEditando(true)} className="text-[11px] text-primary-deep">
+            Editar
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => startTransition(() => excluirBetaProduto(beta.id, produtoId))}
+            className="text-[11px] text-danger"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+      {beta.condicao_especial_pct && (
+        <div className="mt-0.5 text-[10.5px] text-text-faint">
+          {(beta.condicao_especial_pct * 100).toFixed(0)}% off por {beta.condicao_especial_meses} meses a partir do lançamento
         </div>
       )}
     </div>

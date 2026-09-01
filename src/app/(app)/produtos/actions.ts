@@ -103,6 +103,38 @@ export async function excluirBetaProduto(id: string, produtoId: string) {
   revalidatePath(`/produtos/${produtoId}`);
 }
 
+export async function atualizarBetaProduto(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = String(formData.get("id") || "");
+  const produto_id = String(formData.get("produto_id") || "");
+  const quantidade = Number(formData.get("quantidade") || 0);
+  const data_inicio = String(formData.get("data_inicio") || "") || null;
+  const data_fim = String(formData.get("data_fim") || "") || null;
+  const tipo = String(formData.get("tipo") || "mvp_inicial");
+  const condicaoEspecialPct = formData.get("condicao_especial_pct");
+  const condicao_especial_pct = condicaoEspecialPct !== null && condicaoEspecialPct !== "" ? Number(condicaoEspecialPct) / 100 : null;
+  const condicao_especial_meses = formData.get("condicao_especial_meses") ? Number(formData.get("condicao_especial_meses")) : null;
+
+  if (!id || !produto_id || !quantidade) {
+    return { error: "Preencha a quantidade de beta testers." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("beta_testers_config")
+    .update({ quantidade, data_inicio, data_fim, tipo, condicao_especial_pct, condicao_especial_meses })
+    .eq("id", id);
+
+  if (error) {
+    return { error: "Não foi possível salvar o beta." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
+
 export async function criarPlano(
   _prevState: ActionState,
   formData: FormData,
@@ -305,6 +337,41 @@ export async function excluirPlano(planoId: string, produtoId: string) {
   const supabase = await createClient();
   await supabase.from("planos_precificacao").delete().eq("id", planoId);
   revalidatePath(`/produtos/${produtoId}`);
+}
+
+export async function atualizarPlano(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = String(formData.get("id") || "");
+  const produto_id = String(formData.get("produto_id") || "");
+  const nome_plano = String(formData.get("nome_plano") || "").trim();
+  const tipo_cobranca = String(formData.get("tipo_cobranca") || "");
+  const tipo_venda = String(formData.get("tipo_venda") || "individual");
+  const preco = Number(formData.get("preco") || 0);
+  const desconto_pct = formData.get("desconto_pct") ? Number(formData.get("desconto_pct")) : 0;
+  const is_annual_only = formData.get("is_annual_only") === "on";
+  const mix_percentual = formData.get("mix_percentual") ? Number(formData.get("mix_percentual")) : null;
+  const reajuste_anual_pct = formData.get("reajuste_anual_pct")
+    ? Number(formData.get("reajuste_anual_pct")) / 100
+    : null;
+
+  if (!id || !produto_id || !nome_plano || !tipo_cobranca || !preco) {
+    return { error: "Preencha nome do plano, cobrança e preço." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("planos_precificacao")
+    .update({ nome_plano, tipo_cobranca, tipo_venda, preco, desconto_pct, is_annual_only, mix_percentual, reajuste_anual_pct })
+    .eq("id", id);
+
+  if (error) {
+    return { error: "Não foi possível salvar o plano." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
 }
 
 export async function atualizarDatasProduto(
