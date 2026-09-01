@@ -14,7 +14,7 @@ export default async function CustosEmpresaPage({
   const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base").order("created_at");
   const cenarioAtual = cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
 
-  const [{ data: custos }, { data: planoContas }] = await Promise.all([
+  const [{ data: custos }, { data: planoContas }, { data: produtos }] = await Promise.all([
     cenarioAtual
       ? supabase
           .from("custos_empresa")
@@ -23,6 +23,7 @@ export default async function CustosEmpresaPage({
           .order("created_at")
       : Promise.resolve({ data: [] }),
     supabase.from("plano_contas").select("id, codigo, conta").order("codigo"),
+    supabase.from("produtos").select("id, nome").order("nome"),
   ]);
 
   return (
@@ -57,9 +58,9 @@ export default async function CustosEmpresaPage({
       </div>
 
       <div className="grid grid-cols-[380px_1fr] items-start gap-5">
-        <CustoEmpresaForm cenarioId={cenarioAtual} planoContas={planoContas ?? []} />
+        <CustoEmpresaForm cenarioId={cenarioAtual} planoContas={planoContas ?? []} produtos={produtos ?? []} />
         {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        <CustosEmpresaLista custos={(custos ?? []) as any} />
+        <CustosEmpresaLista custos={(custos ?? []) as any} planoContas={planoContas ?? []} produtos={produtos ?? []} />
       </div>
     </div>
   );

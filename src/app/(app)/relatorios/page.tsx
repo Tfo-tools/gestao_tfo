@@ -2,7 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { AlocacaoInvestimento } from "./alocacao-investimento";
-import { custoEmpresaNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
+import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
+import type { FaseValue } from "@/lib/fases";
 import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
 
 function formatBRL(v: number) {
@@ -193,17 +194,26 @@ async function agregarPorCenario(
 ): Promise<ResumoCenario> {
   if (!cenarioId) return { linhas: [], cacMedio: null, breakEvenMes: null, totalInvestido: 0, ebitdaAcumulado: 0 };
 
-  const [{ data: simRows }, { data: vinculos }, { data: custosEmpresaRaw }, { data: alocacoesRaw }, { data: modelosRaw }] = await Promise.all([
-    supabase
-      .from("simulacao_mensal")
-      .select("mes_referencia, receita_bruta, ebitda, clientes_ativos, cac_all_in, novos_clientes")
-      .eq("cenario_id", cenarioId)
-      .order("mes_referencia"),
-    supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId),
-    supabase.from("custos_empresa").select("*").eq("cenario_id", cenarioId),
-    supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioId),
-    supabase.from("modelos_contratacao").select("*"),
-  ]);
+  const [{ data: simRows }, { data: vinculos }, { data: custosEmpresaRaw }, { data: alocacoesRaw }, { data: modelosRaw }, { data: fasesRaw }] =
+    await Promise.all([
+      supabase
+        .from("simulacao_mensal")
+        .select("mes_referencia, receita_bruta, ebitda, clientes_ativos, cac_all_in, novos_clientes")
+        .eq("cenario_id", cenarioId)
+        .order("mes_referencia"),
+      supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId),
+      supabase.from("custos_empresa").select("*").eq("cenario_id", cenarioId),
+      supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioId),
+      supabase.from("modelos_contratacao").select("*"),
+      supabase.from("fases_produto").select("produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioId),
+    ]);
+
+  const fasesPorProduto = new Map<string, { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]>();
+  for (const f of (fasesRaw ?? []) as { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]) {
+    const atual = fasesPorProduto.get(f.produto_id) ?? [];
+    atual.push(f);
+    fasesPorProduto.set(f.produto_id, atual);
+  }
 
   const porMes = new Map<string, Agregado>();
   let somaCacPonderado = 0;
@@ -232,7 +242,9 @@ async function agregarPorCenario(
     let custosEmpresa = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const c of (custosEmpresaRaw ?? []) as any[]) {
-      custosEmpresa += custoEmpresaNoMes(c as CustoEmpresaInput, mesDate, atual.receita, atual.clientes);
+      const produtoRefId = c.parametros?.produto_referencia_id as string | undefined;
+      const faseReferencia = produtoRefId ? faseDoProdutoNoMes(fasesPorProduto.get(produtoRefId) ?? [], mesDate) : null;
+      custosEmpresa += custoEmpresaNoMes(c as CustoEmpresaInput, mesDate, atual.receita, atual.clientes, faseReferencia);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const a of (alocacoesRaw ?? []) as any[]) {

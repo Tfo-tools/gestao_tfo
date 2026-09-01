@@ -1,7 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { excluirModeloContratacao } from "./actions";
+import { ModeloForm } from "./modelo-form";
 import { TIPO_MODELO_LABEL, type TipoModelo, type ParametrosModelo } from "@/lib/modelos-contratacao";
 
 type Modelo = {
@@ -24,8 +25,9 @@ function resumoParametros(tipo: TipoModelo, p: ParametrosModelo): string {
     case "clt":
       return `${formatBRL(p.salario_bruto ?? 0)}/mês + ${((p.aliquota_encargos ?? 0) * 100).toFixed(0)}% encargos · ${p.horas_semanais ?? "?"}h/semana · cobre ${p.capacidade_unidade_mes ?? "?"}/mês`;
     case "pj":
+      return `${formatBRL(p.valor_mensal ?? 0)}/mês em capacidade cheia (${p.capacidade_unidade_mes ?? "?"}/mês) · proporcional às horas usadas`;
     case "empresa_fixo_escopo":
-      return `${formatBRL(p.valor_mensal ?? 0)}/mês · cobre ${p.capacidade_unidade_mes ?? "?"}/mês`;
+      return `${formatBRL(p.valor_mensal ?? 0)}/mês · pacote cobre ${p.capacidade_unidade_mes ?? "?"}/mês`;
     case "empresa_hibrido":
       return `${formatBRL(p.valor_fixo_mensal ?? 0)} fixo + ${formatBRL(p.valor_por_unidade_convertida ?? 0)} por resultado`;
     case "empresa_creditos":
@@ -33,8 +35,9 @@ function resumoParametros(tipo: TipoModelo, p: ParametrosModelo): string {
   }
 }
 
-export function ModelosLista({ modelos }: { modelos: Modelo[] }) {
+export function ModelosLista({ modelos, cargosSugeridos }: { modelos: Modelo[]; cargosSugeridos: string[] }) {
   const [isPending, startTransition] = useTransition();
+  const [editandoId, setEditandoId] = useState<string | null>(null);
 
   const porCargo = new Map<string, Modelo[]>();
   for (const m of modelos) {
@@ -57,31 +60,38 @@ export function ModelosLista({ modelos }: { modelos: Modelo[] }) {
         <div key={cargo} className="rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-3 font-heading text-[13px] font-semibold">{cargo}</h2>
           <div className="flex flex-col gap-2">
-            {itens.map((m) => (
-              <div key={m.id} className="flex items-center justify-between rounded-lg border border-border-soft px-3 py-2.5">
-                <div>
+            {itens.map((m) =>
+              editandoId === m.id ? (
+                <ModeloForm key={m.id} cargosSugeridos={cargosSugeridos} modeloExistente={m} onSaved={() => setEditandoId(null)} onCancelar={() => setEditandoId(null)} />
+              ) : (
+                <div key={m.id} className="flex items-center justify-between rounded-lg border border-border-soft px-3 py-2.5">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12.5px] font-semibold">{m.nome}</span>
+                      <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[9.5px] font-semibold text-primary-deep">
+                        {TIPO_MODELO_LABEL[m.tipo_modelo as TipoModelo] ?? m.tipo_modelo}
+                      </span>
+                      <span className="text-[9.5px] uppercase text-text-faint">{m.categoria}</span>
+                    </div>
+                    <div className="mt-0.5 text-[10.5px] text-text-faint">{resumoParametros(m.tipo_modelo as TipoModelo, m.parametros)}</div>
+                    {m.observacoes && <div className="mt-0.5 text-[10.5px] text-text-faint">{m.observacoes}</div>}
+                  </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[12.5px] font-semibold">{m.nome}</span>
-                    <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[9.5px] font-semibold text-primary-deep">
-                      {TIPO_MODELO_LABEL[m.tipo_modelo as TipoModelo] ?? m.tipo_modelo}
-                    </span>
-                    <span className="text-[9.5px] uppercase text-text-faint">{m.categoria}</span>
+                    <button type="button" onClick={() => setEditandoId(m.id)} className="text-[11px] text-primary-deep">
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => startTransition(() => excluirModeloContratacao(m.id))}
+                      className="text-[11px] text-danger"
+                    >
+                      Remover
+                    </button>
                   </div>
-                  <div className="mt-0.5 text-[10.5px] text-text-faint">
-                    {resumoParametros(m.tipo_modelo as TipoModelo, m.parametros)}
-                  </div>
-                  {m.observacoes && <div className="mt-0.5 text-[10.5px] text-text-faint">{m.observacoes}</div>}
                 </div>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => startTransition(() => excluirModeloContratacao(m.id))}
-                  className="text-[11px] text-danger"
-                >
-                  Remover
-                </button>
-              </div>
-            ))}
+              ),
+            )}
           </div>
         </div>
       ))}

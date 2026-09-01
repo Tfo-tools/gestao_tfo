@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { custoEmpresaNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
+import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
 import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
 import { subgrupoDeConta, subgrupoDeCargo, type SubgrupoConta } from "@/lib/subgrupo-conta";
+import type { FaseValue } from "@/lib/fases";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -106,11 +107,18 @@ export default async function RelatoriosMensalPage({
 
   // Custos compartilhados da empresa entram só na visão consolidada (sem filtro de produto).
   if (!produtoFiltro && cenarioAtual) {
-    const [{ data: custosEmpresaRaw }, { data: alocacoesRaw }, { data: modelosRaw }] = await Promise.all([
+    const [{ data: custosEmpresaRaw }, { data: alocacoesRaw }, { data: modelosRaw }, { data: fasesRaw }] = await Promise.all([
       supabase.from("custos_empresa").select("*, plano_contas:plano_contas_id(codigo, tipo)").eq("cenario_id", cenarioAtual),
       supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioAtual),
       supabase.from("modelos_contratacao").select("*"),
+      supabase.from("fases_produto").select("produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioAtual),
     ]);
+    const fasesPorProduto = new Map<string, { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]>();
+    for (const f of (fasesRaw ?? []) as { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]) {
+      const atual = fasesPorProduto.get(f.produto_id) ?? [];
+      atual.push(f);
+      fasesPorProduto.set(f.produto_id, atual);
+    }
     const modeloById = new Map(
       ((modelosRaw ?? []) as { id: string; cargo: string; tipo_modelo: string; categoria: "pd" | "sm" | "ga"; parametros: ParametrosModelo }[]).map((m) => [
         m.id,
@@ -123,7 +131,9 @@ export default async function RelatoriosMensalPage({
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const c of (custosEmpresaRaw ?? []) as any[]) {
-        const valor = custoEmpresaNoMes(c as CustoEmpresaInput, mesDate, linha.receita_bruta, linha.clientes_ativos);
+        const produtoRefId = c.parametros?.produto_referencia_id as string | undefined;
+        const faseReferencia = produtoRefId ? faseDoProdutoNoMes(fasesPorProduto.get(produtoRefId) ?? [], mesDate) : null;
+        const valor = custoEmpresaNoMes(c as CustoEmpresaInput, mesDate, linha.receita_bruta, linha.clientes_ativos, faseReferencia);
         if (valor === 0) continue;
         const sub: SubgrupoConta = c.plano_contas ? subgrupoDeConta(c.plano_contas.codigo, c.plano_contas.tipo) : "outros";
         somarNaLinha(linha, sub, valor);

@@ -15,20 +15,7 @@ function pct(formData: FormData, name: string): number | undefined {
   return v !== null && v !== "" ? Number(v) / 100 : undefined;
 }
 
-export async function criarModeloContratacao(
-  _prevState: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  const cargo = String(formData.get("cargo") || "").trim();
-  const tipo_modelo = String(formData.get("tipo_modelo") || "") as TipoModelo;
-  const nome = String(formData.get("nome") || "").trim();
-  const categoria = String(formData.get("categoria") || "sm");
-  const observacoes = String(formData.get("observacoes") || "").trim() || null;
-
-  if (!cargo || !tipo_modelo || !nome) {
-    return { error: "Preencha cargo, tipo de modelo e nome." };
-  }
-
+function montarParametros(formData: FormData, tipo_modelo: TipoModelo): Record<string, unknown> {
   const parametros: Record<string, unknown> = {};
   if (tipo_modelo === "clt") {
     parametros.capacidade_unidade_mes = num(formData, "capacidade_unidade_mes");
@@ -48,6 +35,22 @@ export async function criarModeloContratacao(
     parametros.valor_por_credito = num(formData, "valor_por_credito");
     parametros.creditos_por_unidade = num(formData, "creditos_por_unidade") ?? 1;
   }
+  return parametros;
+}
+
+export async function criarModeloContratacao(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const cargo = String(formData.get("cargo") || "").trim();
+  const tipo_modelo = String(formData.get("tipo_modelo") || "") as TipoModelo;
+  const nome = String(formData.get("nome") || "").trim();
+  const categoria = String(formData.get("categoria") || "sm");
+  const observacoes = String(formData.get("observacoes") || "").trim() || null;
+
+  if (!cargo || !tipo_modelo || !nome) {
+    return { error: "Preencha cargo, tipo de modelo e nome." };
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.from("modelos_contratacao").insert({
@@ -55,9 +58,39 @@ export async function criarModeloContratacao(
     tipo_modelo,
     nome,
     categoria,
-    parametros,
+    parametros: montarParametros(formData, tipo_modelo),
     observacoes,
   });
+
+  if (error) {
+    return { error: "Não foi possível salvar o modelo." };
+  }
+
+  revalidatePath("/contratacoes/modelos");
+  revalidatePath("/contratacoes/necessidade");
+  return { error: null, success: true };
+}
+
+export async function atualizarModeloContratacao(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = String(formData.get("id") || "");
+  const cargo = String(formData.get("cargo") || "").trim();
+  const tipo_modelo = String(formData.get("tipo_modelo") || "") as TipoModelo;
+  const nome = String(formData.get("nome") || "").trim();
+  const categoria = String(formData.get("categoria") || "sm");
+  const observacoes = String(formData.get("observacoes") || "").trim() || null;
+
+  if (!id || !cargo || !tipo_modelo || !nome) {
+    return { error: "Preencha cargo, tipo de modelo e nome." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("modelos_contratacao")
+    .update({ cargo, tipo_modelo, nome, categoria, parametros: montarParametros(formData, tipo_modelo), observacoes })
+    .eq("id", id);
 
   if (error) {
     return { error: "Não foi possível salvar o modelo." };

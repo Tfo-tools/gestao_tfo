@@ -41,8 +41,18 @@ export function custoMensalModelo(
         (parametros.salario_bruto ?? 0) * (1 + (parametros.aliquota_encargos ?? 0)) + (parametros.custo_estrutura_mensal ?? 0);
       return { custoMensal: unidades * custoUnitario, unidades };
     }
-    case "pj":
+    case "pj": {
+      // PJ é contratado só pela quantidade de horas necessária — custo proporcional à demanda
+      // (fração de "unidade cheia"), sem arredondar pra cima. É por isso que, em baixo volume,
+      // o PJ sai mais barato que 1 CLT inteiro; conforme o volume sobe, o CLT (que só entra
+      // inteiro) passa a compensar mais.
+      const capacidade = parametros.capacidade_unidade_mes ?? 0;
+      const unidades = capacidade > 0 ? demanda / capacidade : 0;
+      const custoEstrutura = unidades > 0 ? (parametros.custo_estrutura_mensal ?? 0) : 0;
+      return { custoMensal: unidades * (parametros.valor_mensal ?? 0) + custoEstrutura, unidades };
+    }
     case "empresa_fixo_escopo": {
+      // Pacote de agência: compra-se em unidades inteiras de capacidade (não dá pra comprar "meio pacote").
       const capacidade = parametros.capacidade_unidade_mes ?? 0;
       const unidades = capacidade > 0 ? Math.ceil(demanda / capacidade) : 0;
       return { custoMensal: unidades * (parametros.valor_mensal ?? 0), unidades };

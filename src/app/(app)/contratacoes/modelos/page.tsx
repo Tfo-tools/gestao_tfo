@@ -40,7 +40,7 @@ export default async function ModelosContratacaoPage() {
 
       <div className="grid grid-cols-[380px_1fr] items-start gap-5">
         <ModeloForm cargosSugeridos={[...new Set(cargosSugeridos)]} />
-        <ModelosLista modelos={modelos ?? []} />
+        <ModelosLista modelos={modelos ?? []} cargosSugeridos={[...new Set(cargosSugeridos)]} />
       </div>
     </div>
   );
