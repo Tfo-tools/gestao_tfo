@@ -246,3 +246,29 @@ export async function excluirPlano(planoId: string, produtoId: string) {
   await supabase.from("planos_precificacao").delete().eq("id", planoId);
   revalidatePath(`/produtos/${produtoId}`);
 }
+
+export async function atualizarDatasProduto(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const produto_id = String(formData.get("produto_id") || "");
+  const data_inicio_desenvolvimento = String(formData.get("data_inicio_desenvolvimento") || "") || null;
+  const data_lancamento_estimada = String(formData.get("data_lancamento_estimada") || "") || null;
+
+  if (!produto_id) {
+    return { error: "Produto inválido." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("produtos")
+    .update({ data_inicio_desenvolvimento, data_lancamento_estimada })
+    .eq("id", produto_id);
+
+  if (error) {
+    return { error: "Não foi possível salvar as datas." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}

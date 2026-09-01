@@ -8,6 +8,7 @@ import { PlanosPrecificacao } from "./planos-precificacao";
 import { ModulosProduto } from "./modulos-produto";
 import { RecalcularButton } from "./recalcular-button";
 import { SimulacaoResultado } from "./simulacao-resultado";
+import { DatasProduto } from "./datas-produto";
 
 export default async function ProdutoDetailPage({
   params,
@@ -21,7 +22,11 @@ export default async function ProdutoDetailPage({
   const supabase = await createClient();
 
   const [{ data: produto }, { data: cenarios }, { data: planos }, { data: modulos }] = await Promise.all([
-    supabase.from("produtos").select("id, nome, descricao").eq("id", id).single(),
+    supabase
+      .from("produtos")
+      .select("id, nome, descricao, data_inicio_desenvolvimento, data_lancamento_estimada")
+      .eq("id", id)
+      .single(),
     supabase.from("cenarios").select("id, nome, is_base").order("created_at"),
     supabase.from("planos_precificacao").select("*").eq("produto_id", id).order("preco"),
     supabase.from("modulos_produto").select("*").eq("produto_id", id).order("created_at"),
@@ -77,6 +82,11 @@ export default async function ProdutoDetailPage({
           <p className="mt-0.5 text-[11px] text-text-faint">
             Metas de crescimento e preço ficam aqui — custos (equipe, fixos e variáveis) ficam em Plano de Custos
           </p>
+          <DatasProduto
+            produtoId={id}
+            dataInicioDesenvolvimento={produto.data_inicio_desenvolvimento}
+            dataLancamentoEstimada={produto.data_lancamento_estimada}
+          />
         </div>
         <div className="flex items-center gap-3">
           {cenarioAtual && <CenarioSelector cenarios={cenarios ?? []} cenarioAtual={cenarioAtual} />}
