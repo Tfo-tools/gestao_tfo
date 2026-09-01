@@ -120,9 +120,18 @@ export function NecessidadeTabelas({
               </thead>
               <tbody>
                 {linhasRelevantes.map((l) => {
+                  // Modelos discretos (CLT/pacote fechado) contam pela capacidade que a quantidade
+                  // escolhida cobre; modelos por demanda (PJ/créditos/híbrido) já cobrem a demanda
+                  // real do mês inteira, por definição — mostramos a própria demanda coberta.
                   const alocado = alocacoesDoCargo
                     .filter((a) => ativaNoMes(a, l.mes_referencia))
-                    .reduce((acc, a) => acc + a.quantidade, 0);
+                    .reduce((acc, a) => {
+                      const modelo = modelosDoCargo.find((m) => m.id === a.modelo_id);
+                      if (modelo && precisaQuantidade(modelo.tipo_modelo)) {
+                        return acc + a.quantidade * (modelo.parametros.capacidade_unidade_mes ?? 1);
+                      }
+                      return acc + l.demanda;
+                    }, 0);
                   return (
                     <tr key={l.mes_referencia} className="border-t border-border-soft">
                       <td className="px-2 py-1.5 capitalize">{formatMes(l.mes_referencia)}</td>
@@ -136,7 +145,7 @@ export function NecessidadeTabelas({
                         );
                       })}
                       <td className={`px-2 py-1.5 text-right font-mono ${alocado > 0 ? "text-success" : "text-text-faint"}`}>
-                        {alocado || "—"}
+                        {alocado > 0 ? alocado.toFixed(1) : "—"}
                       </td>
                     </tr>
                   );
@@ -150,6 +159,14 @@ export function NecessidadeTabelas({
       <AlocacaoModelo cenarioId={cenarioId} cargo={cargoAtual.label} modelos={modelosDoCargo} alocacoes={alocacoesDoCargo} />
     </div>
   );
+}
+
+// CLT e pacote fechado (empresa_fixo_escopo) são decisões discretas — "quantas pessoas/pacotes eu
+// contratei" é uma escolha real seu, o custo é esse independente da demanda flutuar. PJ e os
+// modelos pay-per-use (créditos/híbrido) já são cobrados pela demanda real calculada mês a mês —
+// pedir uma "quantidade" fixa nesses não faz sentido, o sistema usa a demanda automaticamente.
+function precisaQuantidade(tipo: string): boolean {
+  return tipo === "clt" || tipo === "empresa_fixo_escopo";
 }
 
 function AlocacaoModelo({
@@ -167,33 +184,41 @@ function AlocacaoModelo({
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
   const modeloById = new Map(modelos.map((m) => [m.id, m]));
+  const [modeloSelecionadoId, setModeloSelecionadoId] = useState("");
+  const modeloSelecionado = modeloById.get(modeloSelecionadoId);
+  const mostraQuantidade = !modeloSelecionado || precisaQuantidade(modeloSelecionado.tipo_modelo);
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
       <h2 className="mb-1 flex items-center font-heading text-sm font-semibold">
         Alocação escolhida — {cargo}
-        <InfoTooltip texto="Registre aqui qual modelo você decidiu usar de fato, quantas unidades e por quanto tempo — isso alimenta a coluna 'Alocado' acima e entra no custo real da projeção (EBITDA/CAC)." />
+        <InfoTooltip texto="Registre aqui qual modelo você decidiu usar de fato e por quanto tempo — isso alimenta a coluna 'Alocado' acima e entra no custo real da projeção (EBITDA/CAC). Em CLT e pacote fechado você escolhe quantas unidades; em PJ e modelos pay-per-use o custo já segue a demanda calculada automaticamente, mês a mês." />
       </h2>
       <p className="mb-4 text-[11px] text-text-muted">O que você realmente vai usar em cada período, depois de comparar os modelos</p>
 
       <div className="mb-4 flex flex-col gap-1.5">
         {alocacoes.length === 0 && <p className="text-[12px] text-text-faint">Nenhuma alocação registrada pra {cargo} ainda.</p>}
-        {alocacoes.map((a) => (
-          <div key={a.id} className="flex items-center justify-between rounded-md border border-border-soft px-2.5 py-2">
-            <span className="text-[12px]">
-              {a.quantidade}× {modeloById.get(a.modelo_id)?.nome ?? "modelo removido"} · {a.data_inicio ?? "início aberto"} →{" "}
-              {a.data_fim ?? "sem fim"}
-            </span>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => startTransition(() => excluirAlocacaoModelo(a.id))}
-              className="text-[11px] text-danger"
-            >
-              ×
-            </button>
-          </div>
-        ))}
+        {alocacoes.map((a) => {
+          const modelo = modeloById.get(a.modelo_id);
+          const usaQuantidade = modelo ? precisaQuantidade(modelo.tipo_modelo) : true;
+          return (
+            <div key={a.id} className="flex items-center justify-between rounded-md border border-border-soft px-2.5 py-2">
+              <span className="text-[12px]">
+                {usaQuantidade ? `${a.quantidade}× ` : ""}
+                {modelo?.nome ?? "modelo removido"}
+                {!usaQuantidade && " (demanda automática)"} · {a.data_inicio ?? "início aberto"} → {a.data_fim ?? "sem fim"}
+              </span>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => startTransition(() => excluirAlocacaoModelo(a.id))}
+                className="text-[11px] text-danger"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {modelos.length === 0 ? (
@@ -204,12 +229,19 @@ function AlocacaoModelo({
           action={async (fd) => {
             await formAction(fd);
             formRef.current?.reset();
+            setModeloSelecionadoId("");
           }}
           className="flex flex-wrap items-end gap-2"
         >
           <input type="hidden" name="cenario_id" value={cenarioId} />
           <input type="hidden" name="cargo" value={cargo} />
-          <select name="modelo_id" className="input min-w-[160px] flex-1" defaultValue="" required>
+          <select
+            name="modelo_id"
+            className="input min-w-[160px] flex-1"
+            value={modeloSelecionadoId}
+            onChange={(e) => setModeloSelecionadoId(e.target.value)}
+            required
+          >
             <option value="" disabled>
               Modelo…
             </option>
@@ -219,7 +251,11 @@ function AlocacaoModelo({
               </option>
             ))}
           </select>
-          <input name="quantidade" type="number" min="1" defaultValue={1} placeholder="Qtd." className="input w-[70px]" required />
+          {mostraQuantidade ? (
+            <input name="quantidade" type="number" min="1" defaultValue={1} placeholder="Qtd." className="input w-[70px]" required />
+          ) : (
+            <input type="hidden" name="quantidade" value={1} />
+          )}
           <div>
             <label className="mb-0.5 block text-[9.5px] text-text-faint">Início</label>
             <input name="data_inicio" type="date" className="input w-[130px]" />
@@ -236,6 +272,12 @@ function AlocacaoModelo({
             {pending ? "…" : "+ Alocar"}
           </button>
         </form>
+      )}
+      {modeloSelecionado && !mostraQuantidade && (
+        <p className="mt-2 text-[11px] text-text-faint">
+          Esse modelo cobra pela demanda real de {cargo.toLowerCase()} calculada mês a mês — não precisa informar quantidade, o sistema
+          ajusta o custo sozinho dentro do período escolhido.
+        </p>
       )}
       {state.error && <p className="mt-2 text-[11px] text-danger">{state.error}</p>}
     </div>
