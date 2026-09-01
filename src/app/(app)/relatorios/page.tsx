@@ -176,6 +176,7 @@ type Agregado = {
   clientes: number;
   custosEmpresa: number;
   ebitda: number;
+  cogs: number;
   novosClientes: number;
   cacPonderado: number;
 };
@@ -190,6 +191,7 @@ type Metricas = {
   ebitdaAcumulado: number;
   custosAcumulados: number;
   margemOperacional: number | null;
+  margemBruta: number | null;
   clientesInicio: number;
   clientesFinal: number;
   cacMedio: number | null;
@@ -205,6 +207,11 @@ function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
   const ebitdaAcumulado = linhas.reduce((s, l) => s + l.ebitda, 0);
   const custosAcumulados = receitaAcumulada - ebitdaAcumulado;
   const margemOperacional = receitaAcumulada > 0 ? (ebitdaAcumulado / receitaAcumulada) * 100 : null;
+  // Margem bruta: receita menos só o COGS direto dos produtos (suporte, infra, outros custos de
+  // entrega) — diferente da margem operacional, que desconta TODOS os custos (inclusive S&M, P&D,
+  // G&A e os custos compartilhados da empresa).
+  const cogsAcumulado = linhas.reduce((s, l) => s + l.cogs, 0);
+  const margemBruta = receitaAcumulada > 0 ? ((receitaAcumulada - cogsAcumulado) / receitaAcumulada) * 100 : null;
   const clientesInicio = linhas[0]?.clientes ?? 0;
   const clientesFinal = linhas[linhas.length - 1]?.clientes ?? 0;
 
@@ -235,6 +242,7 @@ function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
     ebitdaAcumulado,
     custosAcumulados,
     margemOperacional,
+    margemBruta,
     clientesInicio,
     clientesFinal,
     cacMedio: somaNovosClientes > 0 ? somaCacPonderado / somaNovosClientes : null,
@@ -264,7 +272,7 @@ async function agregarPorCenario(
     await Promise.all([
       supabase
         .from("simulacao_mensal")
-        .select("produto_id, mes_referencia, receita_bruta, ebitda, clientes_ativos, cac_all_in, novos_clientes")
+        .select("produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes")
         .eq("cenario_id", cenarioId)
         .order("mes_referencia"),
       supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId),
@@ -350,12 +358,14 @@ async function agregarPorCenario(
         clientes: 0,
         custosEmpresa: 0,
         ebitda: 0,
+        cogs: 0,
         novosClientes: 0,
         cacPonderado: 0,
       } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
     atual.clientes += Number(row.clientes_ativos);
+    atual.cogs += Number(row.cogs ?? 0);
     porMes.set(row.mes_referencia, atual);
 
     const novos = Number(row.novos_clientes ?? 0);
@@ -511,7 +521,11 @@ function MetricasInvestidor({ nome, metricas, totalInvestido }: { nome: string; 
           valor={metricas.margemOperacional != null ? `${metricas.margemOperacional.toFixed(0)}%` : "—"}
           detalhe="EBITDA / receita, no período"
         />
-        <Metrica label="Investimento em equipe e operação" valor={formatBRL(metricas.custosAcumulados)} detalhe="custo total no período" />
+        <Metrica
+          label="Margem bruta"
+          valor={metricas.margemBruta != null ? `${metricas.margemBruta.toFixed(0)}%` : "—"}
+          detalhe="(receita − COGS) / receita, no período"
+        />
         <Metrica
           label="Retorno do investimento"
           valor={totalInvestido > 0 ? (metricas.paybackMes ? formatMes(metricas.paybackMes) : "não recuperado no período") : "sem captação vinculada"}
