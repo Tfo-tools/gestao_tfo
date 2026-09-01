@@ -26,9 +26,9 @@ function buildPath(values: number[], width: number, height: number, min: number,
 export default async function RelatoriosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ aba?: string; a?: string; b?: string; periodo?: string }>;
+  searchParams: Promise<{ aba?: string; cenario?: string; inicio?: string; fim?: string }>;
 }) {
-  const { aba, a, b, periodo } = await searchParams;
+  const { aba, cenario, inicio, fim } = await searchParams;
   const abaAtual = aba === "planos" ? "planos" : "real";
 
   return (
@@ -58,7 +58,7 @@ export default async function RelatoriosPage({
         </div>
       </div>
 
-      {abaAtual === "real" ? <RelatorioReal /> : <RelatorioPlanos a={a} b={b} periodo={periodo} />}
+      {abaAtual === "real" ? <RelatorioReal /> : <RelatorioPlanos cenario={cenario} inicio={inicio} fim={fim} />}
     </div>
   );
 }
@@ -169,18 +169,80 @@ async function RelatorioReal() {
   );
 }
 
-type Agregado = { mes_referencia: string; receita: number; ebitdaProdutos: number; clientes: number; custosEmpresa: number; ebitda: number };
+type Agregado = {
+  mes_referencia: string;
+  receita: number;
+  ebitdaProdutos: number;
+  clientes: number;
+  custosEmpresa: number;
+  ebitda: number;
+  novosClientes: number;
+  cacPonderado: number;
+};
 
 type ResumoCenario = {
   linhas: Agregado[];
+  totalInvestido: number;
+};
+
+type Metricas = {
+  receitaAcumulada: number;
+  ebitdaAcumulado: number;
+  custosAcumulados: number;
+  margemOperacional: number | null;
+  clientesInicio: number;
+  clientesFinal: number;
   cacMedio: number | null;
   breakEvenMes: string | null;
   breakEvenClientes: number | null;
-  clientes12Meses: number | null;
   paybackMes: string | null;
-  totalInvestido: number;
-  ebitdaAcumulado: number;
 };
+
+/** Todas as métricas calculadas só a partir das linhas já filtradas pro período selecionado —
+ * break-even e payback recomeçam do zero no início do período, não carregam saldo de fora dele. */
+function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
+  const receitaAcumulada = linhas.reduce((s, l) => s + l.receita, 0);
+  const ebitdaAcumulado = linhas.reduce((s, l) => s + l.ebitda, 0);
+  const custosAcumulados = receitaAcumulada - ebitdaAcumulado;
+  const margemOperacional = receitaAcumulada > 0 ? (ebitdaAcumulado / receitaAcumulada) * 100 : null;
+  const clientesInicio = linhas[0]?.clientes ?? 0;
+  const clientesFinal = linhas[linhas.length - 1]?.clientes ?? 0;
+
+  let somaCacPonderado = 0;
+  let somaNovosClientes = 0;
+  let acumulado = 0;
+  let breakEvenMes: string | null = null;
+  let breakEvenClientes: number | null = null;
+  let acumuladoPayback = 0;
+  let paybackMes: string | null = null;
+
+  for (const [i, l] of linhas.entries()) {
+    acumulado += l.ebitda;
+    if (breakEvenMes === null && acumulado >= 0 && i > 0) {
+      breakEvenMes = l.mes_referencia;
+      breakEvenClientes = l.clientes;
+    }
+    if (totalInvestido > 0 && paybackMes === null) {
+      acumuladoPayback += l.ebitda;
+      if (acumuladoPayback >= totalInvestido) paybackMes = l.mes_referencia;
+    }
+    somaCacPonderado += l.cacPonderado;
+    somaNovosClientes += l.novosClientes;
+  }
+
+  return {
+    receitaAcumulada,
+    ebitdaAcumulado,
+    custosAcumulados,
+    margemOperacional,
+    clientesInicio,
+    clientesFinal,
+    cacMedio: somaNovosClientes > 0 ? somaCacPonderado / somaNovosClientes : null,
+    breakEvenMes,
+    breakEvenClientes,
+    paybackMes,
+  };
+}
 
 function ativaNoMes(mesIso: string, dataInicio: string | null, dataFim: string | null): boolean {
   const mes = new Date(mesIso + "T00:00:00");
@@ -196,17 +258,7 @@ async function agregarPorCenario(
   supabase: any,
   cenarioId: string,
 ): Promise<ResumoCenario> {
-  if (!cenarioId)
-    return {
-      linhas: [],
-      cacMedio: null,
-      breakEvenMes: null,
-      breakEvenClientes: null,
-      clientes12Meses: null,
-      paybackMes: null,
-      totalInvestido: 0,
-      ebitdaAcumulado: 0,
-    };
+  if (!cenarioId) return { linhas: [], totalInvestido: 0 };
 
   const [{ data: simRows }, { data: vinculos }, { data: custosEmpresaRaw }, { data: alocacoesRaw }, { data: modelosRaw }, { data: fasesRaw }] =
     await Promise.all([
@@ -287,11 +339,20 @@ async function agregarPorCenario(
   }
 
   const porMes = new Map<string, Agregado>();
-  let somaCacPonderado = 0;
-  let somaNovosClientes = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const row of (simRows ?? []) as any[]) {
-    const atual = porMes.get(row.mes_referencia) ?? { mes_referencia: row.mes_referencia, receita: 0, ebitdaProdutos: 0, clientes: 0, custosEmpresa: 0, ebitda: 0 };
+    const atual =
+      porMes.get(row.mes_referencia) ??
+      ({
+        mes_referencia: row.mes_referencia,
+        receita: 0,
+        ebitdaProdutos: 0,
+        clientes: 0,
+        custosEmpresa: 0,
+        ebitda: 0,
+        novosClientes: 0,
+        cacPonderado: 0,
+      } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
     atual.clientes += Number(row.clientes_ativos);
@@ -299,8 +360,8 @@ async function agregarPorCenario(
 
     const novos = Number(row.novos_clientes ?? 0);
     if (row.cac_all_in != null && novos > 0) {
-      somaCacPonderado += Number(row.cac_all_in) * novos;
-      somaNovosClientes += novos;
+      atual.cacPonderado += Number(row.cac_all_in) * novos;
+      atual.novosClientes += novos;
     }
   }
 
@@ -339,23 +400,6 @@ async function agregarPorCenario(
   }
 
   const linhas = [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
-  const cacMedio = somaNovosClientes > 0 ? somaCacPonderado / somaNovosClientes : null;
-
-  let acumulado = 0;
-  let breakEvenMes: string | null = null;
-  let breakEvenClientes: number | null = null;
-  for (const l of linhas) {
-    acumulado += l.ebitda;
-    if (breakEvenMes === null && acumulado >= 0 && l.mes_referencia !== linhas[0]?.mes_referencia) {
-      breakEvenMes = l.mes_referencia;
-      breakEvenClientes = l.clientes;
-    }
-  }
-  const ebitdaAcumulado = linhas.reduce((s, l) => s + l.ebitda, 0);
-
-  // Meta: clientes pagantes ativos no 12º mês da linha do tempo simulada (ou o último mês
-  // disponível, se o cenário tiver menos de 12 meses simulados).
-  const clientes12Meses = linhas.length > 0 ? (linhas[11] ?? linhas[linhas.length - 1]).clientes : null;
 
   const programaIds = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
   let totalInvestido = 0;
@@ -368,74 +412,50 @@ async function agregarPorCenario(
     totalInvestido = ((programas ?? []) as any[]).reduce((s, p) => s + Number(p.valor_total ?? 0), 0);
   }
 
-  // Payback: primeiro mês em que o EBITDA acumulado recupera todo o capital captado — diferente
-  // do break-even (que só olha a operação ficar positiva, sem considerar o capital investido).
-  let paybackMes: string | null = null;
-  if (totalInvestido > 0) {
-    let acumuladoPayback = 0;
-    for (const l of linhas) {
-      acumuladoPayback += l.ebitda;
-      if (acumuladoPayback >= totalInvestido) {
-        paybackMes = l.mes_referencia;
-        break;
-      }
-    }
-  }
-
-  return { linhas, cacMedio, breakEvenMes, breakEvenClientes, clientes12Meses, paybackMes, totalInvestido, ebitdaAcumulado };
+  return { linhas, totalInvestido };
 }
 
-async function RelatorioPlanos({ a, b, periodo }: { a?: string; b?: string; periodo?: string }) {
+async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; inicio?: string; fim?: string }) {
   const supabase = await createClient();
 
   const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base").order("created_at");
 
-  const cenarioA = a ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
-  const cenarioB = b ?? (cenarios ?? []).find((c) => c.id !== cenarioA)?.id ?? "";
+  const cenarioId = cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
+  const nome = (cenarios ?? []).find((c) => c.id === cenarioId)?.nome ?? "—";
 
-  const [resumoA, resumoB] = await Promise.all([agregarPorCenario(supabase, cenarioA), agregarPorCenario(supabase, cenarioB)]);
+  const resumo = await agregarPorCenario(supabase, cenarioId);
 
-  const nomeA = (cenarios ?? []).find((c) => c.id === cenarioA)?.nome ?? "—";
-  const nomeB = (cenarios ?? []).find((c) => c.id === cenarioB)?.nome ?? "—";
+  const { data: alocacoes } = cenarioId
+    ? await supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioId).order("created_at")
+    : { data: [] };
 
-  const [{ data: alocacoesA }, { data: alocacoesB }] = await Promise.all([
-    cenarioA ? supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioA).order("created_at") : Promise.resolve({ data: [] }),
-    cenarioB ? supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioB).order("created_at") : Promise.resolve({ data: [] }),
-  ]);
+  // Período de análise: todo o horizonte simulado por padrão, recortado pro intervalo de mês
+  // escolhido — mes_referencia é sempre "AAAA-MM-01", os inputs <input type="month"> mandam
+  // "AAAA-MM", então completamos com "-01" pra comparar.
+  const primeiroMes = resumo.linhas[0]?.mes_referencia ?? null;
+  const ultimoMes = resumo.linhas[resumo.linhas.length - 1]?.mes_referencia ?? null;
+  const inicioEfetivo = inicio ? `${inicio}-01` : (primeiroMes ?? "");
+  const fimEfetivo = fim ? `${fim}-01` : (ultimoMes ?? "");
+  const linhasPeriodo = resumo.linhas.filter((l) => l.mes_referencia >= inicioEfetivo && l.mes_referencia <= fimEfetivo);
 
-  // Período de análise pro gráfico e pros indicadores acumulados — nunca o horizonte completo
-  // (60 meses) por padrão, senão os números somem diluídos numa janela grande demais pra decisão.
-  const mesesPeriodo = periodo === "12" ? 12 : periodo === "36" ? 36 : periodo === "tudo" ? Infinity : 24;
-  const linhasPeriodoA = resumoA.linhas.slice(0, mesesPeriodo);
-  const linhasPeriodoB = resumoB.linhas.slice(0, mesesPeriodo);
+  const metricas = computeMetricas(linhasPeriodo, resumo.totalInvestido);
 
-  const semDados = resumoA.linhas.length === 0 && resumoB.linhas.length === 0;
+  const semDados = resumo.linhas.length === 0;
 
   return (
     <>
       <div className="mb-6 flex items-center justify-between">
-        <p className="text-[13px] text-text-muted">Resultado consolidado (todos os produtos) de um cenário contra outro</p>
+        <p className="text-[13px] text-text-muted">Resultado consolidado (todos os produtos) do cenário selecionado</p>
         <Link href="/relatorios/mensal" className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep">
           Detalhamento Mensal por Produto
         </Link>
       </div>
 
-      <form method="get" className="mb-6 grid grid-cols-[1fr_auto_1fr_auto] items-end gap-4">
+      <form method="get" className="mb-6 grid grid-cols-[1fr_auto_auto_auto] items-end gap-4">
         <input type="hidden" name="aba" value="planos" />
         <div>
-          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Cenário A</label>
-          <select name="a" defaultValue={cenarioA} className="input w-full">
-            {(cenarios ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="pb-2.5 text-[11px] uppercase tracking-wide text-text-faint">vs.</div>
-        <div>
-          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Cenário B</label>
-          <select name="b" defaultValue={cenarioB} className="input w-full">
+          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Cenário</label>
+          <select name="cenario" defaultValue={cenarioId} className="input w-full">
             {(cenarios ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nome}
@@ -444,73 +464,58 @@ async function RelatorioPlanos({ a, b, periodo }: { a?: string; b?: string; peri
           </select>
         </div>
         <div>
-          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Período de análise</label>
-          <select name="periodo" defaultValue={periodo ?? "24"} className="input w-full">
-            <option value="12">Primeiros 12 meses</option>
-            <option value="24">Primeiros 24 meses</option>
-            <option value="36">Primeiros 36 meses</option>
-            <option value="tudo">Horizonte completo</option>
-          </select>
+          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">De</label>
+          <input type="month" name="inicio" defaultValue={inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "")} className="input" />
         </div>
-        <button type="submit" className="col-span-4 rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
+        <div>
+          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Até</label>
+          <input type="month" name="fim" defaultValue={fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "")} className="input" />
+        </div>
+        <button type="submit" className="rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
           Aplicar
         </button>
       </form>
 
       {semDados ? (
         <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
-          <p className="text-sm text-text-muted">Nenhum dos dois cenários tem projeção calculada ainda — recalcule em Produtos primeiro.</p>
+          <p className="text-sm text-text-muted">Nenhuma projeção calculada nesse cenário ainda — recalcule em Produtos primeiro.</p>
         </div>
       ) : (
         <>
-          <MetricasInvestidor nome={nomeA} resumo={resumoA} />
-          {cenarioB && <MetricasInvestidor nome={nomeB} resumo={resumoB} />}
-
-          <ReceitaEIndicadores
-            nomeA={nomeA}
-            nomeB={nomeB}
-            resumoA={resumoA}
-            resumoB={resumoB}
-            linhasPeriodoA={linhasPeriodoA}
-            linhasPeriodoB={linhasPeriodoB}
-          />
-
-          <div className="grid grid-cols-2 items-start gap-5">
-            <AlocacaoInvestimento cenarioId={cenarioA} itens={alocacoesA ?? []} nomeCenario={nomeA} />
-            <AlocacaoInvestimento cenarioId={cenarioB} itens={alocacoesB ?? []} nomeCenario={nomeB} />
-          </div>
+          <MetricasInvestidor nome={nome} metricas={metricas} totalInvestido={resumo.totalInvestido} />
+          <ReceitaEIndicadores nome={nome} linhasPeriodo={linhasPeriodo} metricas={metricas} />
+          <AlocacaoInvestimento cenarioId={cenarioId} itens={alocacoes ?? []} nomeCenario={nome} />
         </>
       )}
     </>
   );
 }
 
-function MetricasInvestidor({ nome, resumo }: { nome: string; resumo: ResumoCenario }) {
-  const totalCustos = resumo.linhas.reduce((s, l) => s + (l.receita - l.ebitda), 0);
+function MetricasInvestidor({ nome, metricas, totalInvestido }: { nome: string; metricas: Metricas; totalInvestido: number }) {
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
       <h2 className="mb-4 font-heading text-sm font-semibold">Métricas para investidor — {nome}</h2>
       <div className="grid grid-cols-5 gap-4">
         <Metrica
-          label="Meta"
-          valor={resumo.clientes12Meses != null ? `${resumo.clientes12Meses.toLocaleString("pt-BR")} clientes` : "—"}
-          detalhe="pagantes em 12 meses"
+          label="Meta do período"
+          valor={`${metricas.clientesFinal.toLocaleString("pt-BR")} clientes`}
+          detalhe="pagantes ao fim do período"
         />
         <Metrica
           label="Break-even"
-          valor={resumo.breakEvenMes ? formatMes(resumo.breakEvenMes) : "não atingido"}
-          detalhe={resumo.breakEvenClientes != null ? `com ${resumo.breakEvenClientes.toLocaleString("pt-BR")} clientes` : "no período simulado"}
+          valor={metricas.breakEvenMes ? formatMes(metricas.breakEvenMes) : "não atingido"}
+          detalhe={metricas.breakEvenClientes != null ? `com ${metricas.breakEvenClientes.toLocaleString("pt-BR")} clientes` : "no período selecionado"}
         />
         <Metrica
           label="Margem operacional"
-          valor={resumo.linhas.reduce((s, l) => s + l.receita, 0) > 0 ? `${((resumo.ebitdaAcumulado / resumo.linhas.reduce((s, l) => s + l.receita, 0)) * 100).toFixed(0)}%` : "—"}
-          detalhe="EBITDA / receita, todo o período"
+          valor={metricas.margemOperacional != null ? `${metricas.margemOperacional.toFixed(0)}%` : "—"}
+          detalhe="EBITDA / receita, no período"
         />
-        <Metrica label="Investimento em equipe e operação" valor={formatBRL(totalCustos)} detalhe="custo total acumulado" />
+        <Metrica label="Investimento em equipe e operação" valor={formatBRL(metricas.custosAcumulados)} detalhe="custo total no período" />
         <Metrica
           label="Retorno do investimento"
-          valor={resumo.totalInvestido > 0 ? (resumo.paybackMes ? formatMes(resumo.paybackMes) : "não recuperado no período") : "sem captação vinculada"}
-          detalhe={resumo.totalInvestido > 0 ? `capital de ${formatBRL(resumo.totalInvestido)} recuperado` : "cenário sem investimento"}
+          valor={totalInvestido > 0 ? (metricas.paybackMes ? formatMes(metricas.paybackMes) : "não recuperado no período") : "sem captação vinculada"}
+          detalhe={totalInvestido > 0 ? `capital de ${formatBRL(totalInvestido)} recuperado` : "cenário sem investimento"}
         />
       </div>
     </div>
@@ -527,96 +532,58 @@ function Metrica({ label, valor, detalhe }: { label: string; valor: string; deta
   );
 }
 
-function ReceitaEIndicadores({
-  nomeA,
-  nomeB,
-  resumoA,
-  resumoB,
-  linhasPeriodoA,
-  linhasPeriodoB,
-}: {
-  nomeA: string;
-  nomeB: string;
-  resumoA: ResumoCenario;
-  resumoB: ResumoCenario;
-  linhasPeriodoA: Agregado[];
-  linhasPeriodoB: Agregado[];
-}) {
-  const receitasA = linhasPeriodoA.map((l) => l.receita);
-  const receitasB = linhasPeriodoB.map((l) => l.receita);
+function ReceitaEIndicadores({ nome, linhasPeriodo, metricas }: { nome: string; linhasPeriodo: Agregado[]; metricas: Metricas }) {
+  const receitas = linhasPeriodo.map((l) => l.receita);
   const width = 1050;
   const height = 200;
   const min = 0;
-  const max = Math.max(1, ...receitasA, ...receitasB);
-
-  const totalReceitaA = receitasA.reduce((s, v) => s + v, 0);
-  const totalReceitaB = receitasB.reduce((s, v) => s + v, 0);
-  const clientesFinalA = linhasPeriodoA[linhasPeriodoA.length - 1]?.clientes ?? 0;
-  const clientesFinalB = linhasPeriodoB[linhasPeriodoB.length - 1]?.clientes ?? 0;
-  const ebitdaPeriodoA = linhasPeriodoA.reduce((s, l) => s + l.ebitda, 0);
-  const ebitdaPeriodoB = linhasPeriodoB.reduce((s, l) => s + l.ebitda, 0);
-  const custosPeriodoA = linhasPeriodoA.reduce((s, l) => s + (l.receita - l.ebitda), 0);
-  const custosPeriodoB = linhasPeriodoB.reduce((s, l) => s + (l.receita - l.ebitda), 0);
+  const max = Math.max(1, ...receitas);
 
   return (
     <>
       <div className="mb-5 rounded-xl border border-border bg-surface p-6">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="font-heading text-sm font-semibold">
-            Receita consolidada — {nomeA} x {nomeB}
-          </h2>
-        </div>
-        <div className="mb-3 flex items-center gap-4">
-          <Legenda cor="var(--color-text-faint)" texto={nomeA} />
-          <Legenda cor="var(--color-primary-fill)" texto={nomeB} />
+          <h2 className="font-heading text-sm font-semibold">Receita consolidada — {nome}</h2>
         </div>
         <svg viewBox={`0 0 ${width} ${height + 10}`} style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
           <line x1="0" y1={height} x2={width} y2={height} stroke="var(--color-border)" strokeWidth={1} />
-          <path d={buildPath(receitasA, width, height, min, max)} fill="none" stroke="var(--color-text-faint)" strokeWidth={2.5} />
-          <path d={buildPath(receitasB, width, height, min, max)} fill="none" stroke="var(--color-primary-fill)" strokeWidth={2.5} />
+          <path d={buildPath(receitas, width, height, min, max)} fill="none" stroke="var(--color-primary-fill)" strokeWidth={2.5} />
         </svg>
       </div>
 
       <div className="mb-5 rounded-xl border border-border bg-surface p-6">
         <h2 className="mb-4 font-heading text-sm font-semibold">Indicadores no período selecionado</h2>
         <table className="w-full border-collapse text-[12.5px]">
-          <thead>
-            <tr className="text-left text-text-muted">
-              <td className="px-2 py-1.5 font-medium">Indicador</td>
-              <td className="px-2 py-1.5 text-right font-medium">{nomeA}</td>
-              <td className="px-2 py-1.5 text-right font-medium">{nomeB}</td>
-              <td className="px-2 py-1.5 text-right font-medium">Diferença</td>
-            </tr>
-          </thead>
           <tbody>
-            <LinhaComparativa label="Receita acumulada" a={totalReceitaA} b={totalReceitaB} formato="brl" />
+            <tr className="border-t border-border-soft">
+              <td className="px-2 py-2.5">Receita acumulada</td>
+              <td className="px-2 py-2.5 text-right font-mono">{formatBRL(metricas.receitaAcumulada)}</td>
+            </tr>
             <tr className="border-t border-border-soft">
               <td className="flex items-center px-2 py-2.5">
                 (–) Custos totais (produtos + empresa)
                 <InfoTooltip texto="Custos diretos dos produtos somados aos custos compartilhados da empresa (contador, jurídico, escritório, cloud, equipe comercial etc.), no período selecionado." />
               </td>
-              <td className="px-2 py-2.5 text-right font-mono text-danger">− {formatBRL(custosPeriodoA)}</td>
-              <td className="px-2 py-2.5 text-right font-mono text-danger">− {formatBRL(custosPeriodoB)}</td>
-              <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
+              <td className="px-2 py-2.5 text-right font-mono text-danger">− {formatBRL(metricas.custosAcumulados)}</td>
             </tr>
-            <LinhaComparativa label="(=) EBITDA no período" a={ebitdaPeriodoA} b={ebitdaPeriodoB} formato="brl" />
+            <tr className="border-t border-border-soft bg-wine-soft">
+              <td className="px-2 py-2.5 font-semibold">(=) EBITDA no período</td>
+              <td className={`px-2 py-2.5 text-right font-mono font-semibold ${metricas.ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
+                {formatBRL(metricas.ebitdaAcumulado)}
+              </td>
+            </tr>
             <tr className="border-t border-border-soft">
-              <td className="px-2 py-2.5">Clientes ativos (fim do período)</td>
-              <td className="px-2 py-2.5 text-right font-mono">{clientesFinalA.toLocaleString("pt-BR")}</td>
-              <td className="px-2 py-2.5 text-right font-mono">{clientesFinalB.toLocaleString("pt-BR")}</td>
+              <td className="px-2 py-2.5">Clientes ativos (início → fim do período)</td>
               <td className="px-2 py-2.5 text-right font-mono">
-                {clientesFinalB - clientesFinalA >= 0 ? "+" : ""}
-                {(clientesFinalB - clientesFinalA).toLocaleString("pt-BR")}
+                {metricas.clientesInicio.toLocaleString("pt-BR")} → {metricas.clientesFinal.toLocaleString("pt-BR")}
               </td>
             </tr>
             <tr className="border-t border-border-soft">
               <td className="flex items-center px-2 py-2.5">
                 CAC médio (all-in)
-                <InfoTooltip texto="CAC ponderado pelos clientes novos de cada mês — quanto custou, em média, adquirir cada cliente ao longo de todo o período simulado (não limitado pelo seletor de período)." />
+                <InfoTooltip texto="CAC ponderado pelos clientes novos de cada mês — quanto custou, em média, adquirir cada cliente, dentro do período selecionado." />
               </td>
-              <td className="px-2 py-2.5 text-right font-mono">{resumoA.cacMedio != null ? formatBRL(resumoA.cacMedio) : "—"}</td>
-              <td className="px-2 py-2.5 text-right font-mono">{resumoB.cacMedio != null ? formatBRL(resumoB.cacMedio) : "—"}</td>
-              <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
+              <td className="px-2 py-2.5 text-right font-mono">{metricas.cacMedio != null ? formatBRL(metricas.cacMedio) : "—"}</td>
             </tr>
           </tbody>
         </table>
@@ -625,27 +592,3 @@ function ReceitaEIndicadores({
   );
 }
 
-function Legenda({ cor, texto }: { cor: string; texto: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="inline-block h-[2px] w-3.5" style={{ background: cor }} />
-      <span className="text-[11px] text-text-muted">{texto}</span>
-    </div>
-  );
-}
-
-function LinhaComparativa({ label, a, b, formato }: { label: string; a: number; b: number; formato: "brl" }) {
-  const diff = b - a;
-  const fmt = formato === "brl" ? formatBRL : (v: number) => v.toString();
-  return (
-    <tr className="border-t border-border-soft">
-      <td className="px-2 py-2.5">{label}</td>
-      <td className="px-2 py-2.5 text-right font-mono">{fmt(a)}</td>
-      <td className="px-2 py-2.5 text-right font-mono">{fmt(b)}</td>
-      <td className={`px-2 py-2.5 text-right font-mono ${diff >= 0 ? "text-success" : "text-danger"}`}>
-        {diff >= 0 ? "+" : ""}
-        {fmt(diff)}
-      </td>
-    </tr>
-  );
-}
