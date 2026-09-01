@@ -318,6 +318,8 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     // um período (se configurado) ou preço cheio direto.
     let conversaoBeta = 0;
     if (mesesDesdeLancamentoProduto === 0) {
+      // No mês do lançamento os beta testers convertem em clientes pagantes — deixam de ser "beta".
+      betaAtivos = 0;
       for (const beta of input.betas) {
         conversaoBeta += beta.quantidade;
         if (beta.condicao_especial_pct && beta.condicao_especial_meses) {
@@ -329,6 +331,9 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         }
       }
     } else if (mesesDesdeLancamentoProduto != null && mesesDesdeLancamentoProduto < 0) {
+      // Recalcula do zero a cada mês (não acumula sobre o mês anterior) — senão o mesmo lote de
+      // beta testers seria contado de novo em cada mês que passa, inflando o total.
+      betaAtivos = 0;
       for (const beta of input.betas) {
         if (beta.data_inicio && new Date(beta.data_inicio + "T00:00:00") <= mes) betaAtivos += beta.quantidade;
       }

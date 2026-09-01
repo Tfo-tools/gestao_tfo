@@ -26,9 +26,9 @@ function buildPath(values: number[], width: number, height: number, min: number,
 export default async function RelatoriosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ aba?: string; a?: string; b?: string }>;
+  searchParams: Promise<{ aba?: string; a?: string; b?: string; periodo?: string }>;
 }) {
-  const { aba, a, b } = await searchParams;
+  const { aba, a, b, periodo } = await searchParams;
   const abaAtual = aba === "planos" ? "planos" : "real";
 
   return (
@@ -58,7 +58,7 @@ export default async function RelatoriosPage({
         </div>
       </div>
 
-      {abaAtual === "real" ? <RelatorioReal /> : <RelatorioPlanos a={a} b={b} />}
+      {abaAtual === "real" ? <RelatorioReal /> : <RelatorioPlanos a={a} b={b} periodo={periodo} />}
     </div>
   );
 }
@@ -175,6 +175,9 @@ type ResumoCenario = {
   linhas: Agregado[];
   cacMedio: number | null;
   breakEvenMes: string | null;
+  breakEvenClientes: number | null;
+  clientes12Meses: number | null;
+  paybackMes: string | null;
   totalInvestido: number;
   ebitdaAcumulado: number;
 };
@@ -193,7 +196,17 @@ async function agregarPorCenario(
   supabase: any,
   cenarioId: string,
 ): Promise<ResumoCenario> {
-  if (!cenarioId) return { linhas: [], cacMedio: null, breakEvenMes: null, totalInvestido: 0, ebitdaAcumulado: 0 };
+  if (!cenarioId)
+    return {
+      linhas: [],
+      cacMedio: null,
+      breakEvenMes: null,
+      breakEvenClientes: null,
+      clientes12Meses: null,
+      paybackMes: null,
+      totalInvestido: 0,
+      ebitdaAcumulado: 0,
+    };
 
   const [{ data: simRows }, { data: vinculos }, { data: custosEmpresaRaw }, { data: alocacoesRaw }, { data: modelosRaw }, { data: fasesRaw }] =
     await Promise.all([
@@ -330,13 +343,19 @@ async function agregarPorCenario(
 
   let acumulado = 0;
   let breakEvenMes: string | null = null;
+  let breakEvenClientes: number | null = null;
   for (const l of linhas) {
     acumulado += l.ebitda;
     if (breakEvenMes === null && acumulado >= 0 && l.mes_referencia !== linhas[0]?.mes_referencia) {
       breakEvenMes = l.mes_referencia;
+      breakEvenClientes = l.clientes;
     }
   }
   const ebitdaAcumulado = linhas.reduce((s, l) => s + l.ebitda, 0);
+
+  // Meta: clientes pagantes ativos no 12º mês da linha do tempo simulada (ou o último mês
+  // disponível, se o cenário tiver menos de 12 meses simulados).
+  const clientes12Meses = linhas.length > 0 ? (linhas[11] ?? linhas[linhas.length - 1]).clientes : null;
 
   const programaIds = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
   let totalInvestido = 0;
@@ -349,10 +368,24 @@ async function agregarPorCenario(
     totalInvestido = ((programas ?? []) as any[]).reduce((s, p) => s + Number(p.valor_total ?? 0), 0);
   }
 
-  return { linhas, cacMedio, breakEvenMes, totalInvestido, ebitdaAcumulado };
+  // Payback: primeiro mês em que o EBITDA acumulado recupera todo o capital captado — diferente
+  // do break-even (que só olha a operação ficar positiva, sem considerar o capital investido).
+  let paybackMes: string | null = null;
+  if (totalInvestido > 0) {
+    let acumuladoPayback = 0;
+    for (const l of linhas) {
+      acumuladoPayback += l.ebitda;
+      if (acumuladoPayback >= totalInvestido) {
+        paybackMes = l.mes_referencia;
+        break;
+      }
+    }
+  }
+
+  return { linhas, cacMedio, breakEvenMes, breakEvenClientes, clientes12Meses, paybackMes, totalInvestido, ebitdaAcumulado };
 }
 
-async function RelatorioPlanos({ a, b }: { a?: string; b?: string }) {
+async function RelatorioPlanos({ a, b, periodo }: { a?: string; b?: string; periodo?: string }) {
   const supabase = await createClient();
 
   const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base").order("created_at");
@@ -370,17 +403,11 @@ async function RelatorioPlanos({ a, b }: { a?: string; b?: string }) {
     cenarioB ? supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioB).order("created_at") : Promise.resolve({ data: [] }),
   ]);
 
-  const receitasA = resumoA.linhas.map((l) => l.receita);
-  const receitasB = resumoB.linhas.map((l) => l.receita);
-  const width = 1050;
-  const height = 200;
-  const min = 0;
-  const max = Math.max(1, ...receitasA, ...receitasB);
-
-  const totalReceitaA = receitasA.reduce((s, v) => s + v, 0);
-  const totalReceitaB = receitasB.reduce((s, v) => s + v, 0);
-  const clientesFinalA = resumoA.linhas[resumoA.linhas.length - 1]?.clientes ?? 0;
-  const clientesFinalB = resumoB.linhas[resumoB.linhas.length - 1]?.clientes ?? 0;
+  // Período de análise pro gráfico e pros indicadores acumulados — nunca o horizonte completo
+  // (60 meses) por padrão, senão os números somem diluídos numa janela grande demais pra decisão.
+  const mesesPeriodo = periodo === "12" ? 12 : periodo === "36" ? 36 : periodo === "tudo" ? Infinity : 24;
+  const linhasPeriodoA = resumoA.linhas.slice(0, mesesPeriodo);
+  const linhasPeriodoB = resumoB.linhas.slice(0, mesesPeriodo);
 
   const semDados = resumoA.linhas.length === 0 && resumoB.linhas.length === 0;
 
@@ -393,7 +420,7 @@ async function RelatorioPlanos({ a, b }: { a?: string; b?: string }) {
         </Link>
       </div>
 
-      <form method="get" className="mb-6 grid grid-cols-[1fr_auto_1fr] items-end gap-4">
+      <form method="get" className="mb-6 grid grid-cols-[1fr_auto_1fr_auto] items-end gap-4">
         <input type="hidden" name="aba" value="planos" />
         <div>
           <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Cenário A</label>
@@ -416,8 +443,17 @@ async function RelatorioPlanos({ a, b }: { a?: string; b?: string }) {
             ))}
           </select>
         </div>
-        <button type="submit" className="col-span-3 rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
-          Comparar
+        <div>
+          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Período de análise</label>
+          <select name="periodo" defaultValue={periodo ?? "24"} className="input w-full">
+            <option value="12">Primeiros 12 meses</option>
+            <option value="24">Primeiros 24 meses</option>
+            <option value="36">Primeiros 36 meses</option>
+            <option value="tudo">Horizonte completo</option>
+          </select>
+        </div>
+        <button type="submit" className="col-span-4 rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
+          Aplicar
         </button>
       </form>
 
@@ -427,99 +463,17 @@ async function RelatorioPlanos({ a, b }: { a?: string; b?: string }) {
         </div>
       ) : (
         <>
-          <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-            <div className="mb-1 flex items-center justify-between">
-              <h2 className="font-heading text-sm font-semibold">
-                Receita consolidada — {nomeA} x {nomeB}
-              </h2>
-            </div>
-            <div className="mb-3 flex items-center gap-4">
-              <Legenda cor="var(--color-text-faint)" texto={nomeA} />
-              <Legenda cor="var(--color-primary-fill)" texto={nomeB} />
-            </div>
-            <svg viewBox={`0 0 ${width} ${height + 10}`} style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
-              <line x1="0" y1={height} x2={width} y2={height} stroke="var(--color-border)" strokeWidth={1} />
-              <path d={buildPath(receitasA, width, height, min, max)} fill="none" stroke="var(--color-text-faint)" strokeWidth={2.5} />
-              <path d={buildPath(receitasB, width, height, min, max)} fill="none" stroke="var(--color-primary-fill)" strokeWidth={2.5} />
-            </svg>
-          </div>
+          <MetricasInvestidor nome={nomeA} resumo={resumoA} />
+          {cenarioB && <MetricasInvestidor nome={nomeB} resumo={resumoB} />}
 
-          <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-            <h2 className="mb-4 font-heading text-sm font-semibold">Indicadores acumulados</h2>
-            <table className="w-full border-collapse text-[12.5px]">
-              <thead>
-                <tr className="text-left text-text-muted">
-                  <td className="px-2 py-1.5 font-medium">Indicador</td>
-                  <td className="px-2 py-1.5 text-right font-medium">{nomeA}</td>
-                  <td className="px-2 py-1.5 text-right font-medium">{nomeB}</td>
-                  <td className="px-2 py-1.5 text-right font-medium">Diferença</td>
-                </tr>
-              </thead>
-              <tbody>
-                <LinhaComparativa label="Receita acumulada" a={totalReceitaA} b={totalReceitaB} formato="brl" />
-                <LinhaComparativa
-                  label="EBITDA dos produtos (soma, antes dos custos da empresa)"
-                  a={resumoA.linhas.reduce((s, l) => s + l.ebitdaProdutos, 0)}
-                  b={resumoB.linhas.reduce((s, l) => s + l.ebitdaProdutos, 0)}
-                  formato="brl"
-                />
-                <tr className="border-t border-border-soft">
-                  <td className="flex items-center px-2 py-2.5">
-                    (–) Custos compartilhados da empresa
-                    <InfoTooltip texto="Contador, jurídico, escritório, cloud, equipe comercial etc. — cadastrados em Plano de Custos > Custos da Empresa e nas alocações de Necessidade de Contratação. Entram uma única vez aqui, sem ratear entre produtos." />
-                  </td>
-                  <td className="px-2 py-2.5 text-right font-mono text-danger">
-                    − {formatBRL(resumoA.linhas.reduce((s, l) => s + l.custosEmpresa, 0))}
-                  </td>
-                  <td className="px-2 py-2.5 text-right font-mono text-danger">
-                    − {formatBRL(resumoB.linhas.reduce((s, l) => s + l.custosEmpresa, 0))}
-                  </td>
-                  <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
-                </tr>
-                <LinhaComparativa label="(=) EBITDA consolidado da empresa" a={resumoA.ebitdaAcumulado} b={resumoB.ebitdaAcumulado} formato="brl" />
-                <tr className="border-t border-border-soft">
-                  <td className="px-2 py-2.5">Clientes ativos (fim do período)</td>
-                  <td className="px-2 py-2.5 text-right font-mono">{clientesFinalA.toLocaleString("pt-BR")}</td>
-                  <td className="px-2 py-2.5 text-right font-mono">{clientesFinalB.toLocaleString("pt-BR")}</td>
-                  <td className="px-2 py-2.5 text-right font-mono">
-                    {clientesFinalB - clientesFinalA >= 0 ? "+" : ""}
-                    {(clientesFinalB - clientesFinalA).toLocaleString("pt-BR")}
-                  </td>
-                </tr>
-                <tr className="border-t border-border-soft">
-                  <td className="flex items-center px-2 py-2.5">
-                    CAC médio (all-in)
-                    <InfoTooltip texto="CAC ponderado pelos clientes novos de cada mês — quanto custou, em média, adquirir cada cliente ao longo de todo o período simulado." />
-                  </td>
-                  <td className="px-2 py-2.5 text-right font-mono">{resumoA.cacMedio != null ? formatBRL(resumoA.cacMedio) : "—"}</td>
-                  <td className="px-2 py-2.5 text-right font-mono">{resumoB.cacMedio != null ? formatBRL(resumoB.cacMedio) : "—"}</td>
-                  <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
-                </tr>
-                <tr className="border-t border-border-soft">
-                  <td className="flex items-center px-2 py-2.5">
-                    Ponto de equilíbrio
-                    <InfoTooltip texto="Break-even: primeiro mês em que o EBITDA acumulado (desde o início da simulação) deixa de ser negativo — a partir dali, o negócio já gerou de volta tudo o que consumiu antes." />
-                  </td>
-                  <td className="px-2 py-2.5 text-right font-mono">{resumoA.breakEvenMes ? formatMes(resumoA.breakEvenMes) : "não atingido no período"}</td>
-                  <td className="px-2 py-2.5 text-right font-mono">{resumoB.breakEvenMes ? formatMes(resumoB.breakEvenMes) : "não atingido no período"}</td>
-                  <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
-                </tr>
-                <tr className="border-t border-border-soft">
-                  <td className="flex items-center px-2 py-2.5">
-                    Retorno sobre o investimento
-                    <InfoTooltip texto="EBITDA acumulado no período simulado dividido pelo total captado (fomento + investimento) vinculado a este cenário. Ex: 3,2x significa que o resultado operacional gerado equivale a 3,2 vezes o capital investido." />
-                  </td>
-                  <td className="px-2 py-2.5 text-right font-mono">
-                    {resumoA.totalInvestido > 0 ? `${(resumoA.ebitdaAcumulado / resumoA.totalInvestido).toFixed(1)}x` : "sem captação vinculada"}
-                  </td>
-                  <td className="px-2 py-2.5 text-right font-mono">
-                    {resumoB.totalInvestido > 0 ? `${(resumoB.ebitdaAcumulado / resumoB.totalInvestido).toFixed(1)}x` : "sem captação vinculada"}
-                  </td>
-                  <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <ReceitaEIndicadores
+            nomeA={nomeA}
+            nomeB={nomeB}
+            resumoA={resumoA}
+            resumoB={resumoB}
+            linhasPeriodoA={linhasPeriodoA}
+            linhasPeriodoB={linhasPeriodoB}
+          />
 
           <div className="grid grid-cols-2 items-start gap-5">
             <AlocacaoInvestimento cenarioId={cenarioA} itens={alocacoesA ?? []} nomeCenario={nomeA} />
@@ -527,6 +481,146 @@ async function RelatorioPlanos({ a, b }: { a?: string; b?: string }) {
           </div>
         </>
       )}
+    </>
+  );
+}
+
+function MetricasInvestidor({ nome, resumo }: { nome: string; resumo: ResumoCenario }) {
+  const totalCustos = resumo.linhas.reduce((s, l) => s + (l.receita - l.ebitda), 0);
+  return (
+    <div className="mb-5 rounded-xl border border-border bg-surface p-6">
+      <h2 className="mb-4 font-heading text-sm font-semibold">Métricas para investidor — {nome}</h2>
+      <div className="grid grid-cols-5 gap-4">
+        <Metrica
+          label="Meta"
+          valor={resumo.clientes12Meses != null ? `${resumo.clientes12Meses.toLocaleString("pt-BR")} clientes` : "—"}
+          detalhe="pagantes em 12 meses"
+        />
+        <Metrica
+          label="Break-even"
+          valor={resumo.breakEvenMes ? formatMes(resumo.breakEvenMes) : "não atingido"}
+          detalhe={resumo.breakEvenClientes != null ? `com ${resumo.breakEvenClientes.toLocaleString("pt-BR")} clientes` : "no período simulado"}
+        />
+        <Metrica
+          label="Margem operacional"
+          valor={resumo.linhas.reduce((s, l) => s + l.receita, 0) > 0 ? `${((resumo.ebitdaAcumulado / resumo.linhas.reduce((s, l) => s + l.receita, 0)) * 100).toFixed(0)}%` : "—"}
+          detalhe="EBITDA / receita, todo o período"
+        />
+        <Metrica label="Investimento em equipe e operação" valor={formatBRL(totalCustos)} detalhe="custo total acumulado" />
+        <Metrica
+          label="Retorno do investimento"
+          valor={resumo.totalInvestido > 0 ? (resumo.paybackMes ? formatMes(resumo.paybackMes) : "não recuperado no período") : "sem captação vinculada"}
+          detalhe={resumo.totalInvestido > 0 ? `capital de ${formatBRL(resumo.totalInvestido)} recuperado` : "cenário sem investimento"}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Metrica({ label, valor, detalhe }: { label: string; valor: string; detalhe: string }) {
+  return (
+    <div className="rounded-lg bg-bg p-3">
+      <div className="text-[10.5px] font-medium uppercase tracking-wide text-text-faint">{label}</div>
+      <div className="mt-1 text-[16px] font-semibold text-text">{valor}</div>
+      <div className="mt-0.5 text-[10.5px] text-text-muted">{detalhe}</div>
+    </div>
+  );
+}
+
+function ReceitaEIndicadores({
+  nomeA,
+  nomeB,
+  resumoA,
+  resumoB,
+  linhasPeriodoA,
+  linhasPeriodoB,
+}: {
+  nomeA: string;
+  nomeB: string;
+  resumoA: ResumoCenario;
+  resumoB: ResumoCenario;
+  linhasPeriodoA: Agregado[];
+  linhasPeriodoB: Agregado[];
+}) {
+  const receitasA = linhasPeriodoA.map((l) => l.receita);
+  const receitasB = linhasPeriodoB.map((l) => l.receita);
+  const width = 1050;
+  const height = 200;
+  const min = 0;
+  const max = Math.max(1, ...receitasA, ...receitasB);
+
+  const totalReceitaA = receitasA.reduce((s, v) => s + v, 0);
+  const totalReceitaB = receitasB.reduce((s, v) => s + v, 0);
+  const clientesFinalA = linhasPeriodoA[linhasPeriodoA.length - 1]?.clientes ?? 0;
+  const clientesFinalB = linhasPeriodoB[linhasPeriodoB.length - 1]?.clientes ?? 0;
+  const ebitdaPeriodoA = linhasPeriodoA.reduce((s, l) => s + l.ebitda, 0);
+  const ebitdaPeriodoB = linhasPeriodoB.reduce((s, l) => s + l.ebitda, 0);
+  const custosPeriodoA = linhasPeriodoA.reduce((s, l) => s + (l.receita - l.ebitda), 0);
+  const custosPeriodoB = linhasPeriodoB.reduce((s, l) => s + (l.receita - l.ebitda), 0);
+
+  return (
+    <>
+      <div className="mb-5 rounded-xl border border-border bg-surface p-6">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="font-heading text-sm font-semibold">
+            Receita consolidada — {nomeA} x {nomeB}
+          </h2>
+        </div>
+        <div className="mb-3 flex items-center gap-4">
+          <Legenda cor="var(--color-text-faint)" texto={nomeA} />
+          <Legenda cor="var(--color-primary-fill)" texto={nomeB} />
+        </div>
+        <svg viewBox={`0 0 ${width} ${height + 10}`} style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
+          <line x1="0" y1={height} x2={width} y2={height} stroke="var(--color-border)" strokeWidth={1} />
+          <path d={buildPath(receitasA, width, height, min, max)} fill="none" stroke="var(--color-text-faint)" strokeWidth={2.5} />
+          <path d={buildPath(receitasB, width, height, min, max)} fill="none" stroke="var(--color-primary-fill)" strokeWidth={2.5} />
+        </svg>
+      </div>
+
+      <div className="mb-5 rounded-xl border border-border bg-surface p-6">
+        <h2 className="mb-4 font-heading text-sm font-semibold">Indicadores no período selecionado</h2>
+        <table className="w-full border-collapse text-[12.5px]">
+          <thead>
+            <tr className="text-left text-text-muted">
+              <td className="px-2 py-1.5 font-medium">Indicador</td>
+              <td className="px-2 py-1.5 text-right font-medium">{nomeA}</td>
+              <td className="px-2 py-1.5 text-right font-medium">{nomeB}</td>
+              <td className="px-2 py-1.5 text-right font-medium">Diferença</td>
+            </tr>
+          </thead>
+          <tbody>
+            <LinhaComparativa label="Receita acumulada" a={totalReceitaA} b={totalReceitaB} formato="brl" />
+            <tr className="border-t border-border-soft">
+              <td className="flex items-center px-2 py-2.5">
+                (–) Custos totais (produtos + empresa)
+                <InfoTooltip texto="Custos diretos dos produtos somados aos custos compartilhados da empresa (contador, jurídico, escritório, cloud, equipe comercial etc.), no período selecionado." />
+              </td>
+              <td className="px-2 py-2.5 text-right font-mono text-danger">− {formatBRL(custosPeriodoA)}</td>
+              <td className="px-2 py-2.5 text-right font-mono text-danger">− {formatBRL(custosPeriodoB)}</td>
+              <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
+            </tr>
+            <LinhaComparativa label="(=) EBITDA no período" a={ebitdaPeriodoA} b={ebitdaPeriodoB} formato="brl" />
+            <tr className="border-t border-border-soft">
+              <td className="px-2 py-2.5">Clientes ativos (fim do período)</td>
+              <td className="px-2 py-2.5 text-right font-mono">{clientesFinalA.toLocaleString("pt-BR")}</td>
+              <td className="px-2 py-2.5 text-right font-mono">{clientesFinalB.toLocaleString("pt-BR")}</td>
+              <td className="px-2 py-2.5 text-right font-mono">
+                {clientesFinalB - clientesFinalA >= 0 ? "+" : ""}
+                {(clientesFinalB - clientesFinalA).toLocaleString("pt-BR")}
+              </td>
+            </tr>
+            <tr className="border-t border-border-soft">
+              <td className="flex items-center px-2 py-2.5">
+                CAC médio (all-in)
+                <InfoTooltip texto="CAC ponderado pelos clientes novos de cada mês — quanto custou, em média, adquirir cada cliente ao longo de todo o período simulado (não limitado pelo seletor de período)." />
+              </td>
+              <td className="px-2 py-2.5 text-right font-mono">{resumoA.cacMedio != null ? formatBRL(resumoA.cacMedio) : "—"}</td>
+              <td className="px-2 py-2.5 text-right font-mono">{resumoB.cacMedio != null ? formatBRL(resumoB.cacMedio) : "—"}</td>
+              <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }
