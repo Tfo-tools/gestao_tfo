@@ -6,7 +6,6 @@ export type FaseInput = {
   data_fim: string | null;
   taxa_crescimento_mensal: number | null;
   taxa_churn_mensal: number | null;
-  investimento_ms_mensal: number | null;
 };
 
 export type BetaInput = {
@@ -43,7 +42,10 @@ export type PlanoInput = {
 export type ModuloInput = {
   nome: string;
   preco: number;
-  fase_lancamento: FaseValue;
+  /** Gatilho por fase do ciclo de vida — usado quando `meses_apos_lancamento` não é definido. */
+  fase_lancamento: FaseValue | null;
+  /** Gatilho por tempo: quantos meses após o lançamento comercial do produto o módulo entra (ex: melhorias do Fashion Mind, 12/24 meses). Tem prioridade sobre `fase_lancamento`. */
+  meses_apos_lancamento: number | null;
   adesao_inicial_pct: number;
   crescimento_adesao_mensal_pct: number;
 };
@@ -65,6 +67,7 @@ export type AlocacaoInput = {
 
 export type CustoVariavelInput = {
   fase: FaseValue;
+  grupo: "cogs" | "sm" | "pd" | "ga" | "outros";
   tipo_calculo: "percentual_receita" | "valor_por_cliente" | "valor_fixo";
   valor_base: number | null;
   percentual: number | null;
@@ -253,13 +256,24 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     const arpu = calcularArpu(input.planos, fase.fase, mes, input.dataLancamentoEstimada);
     const receitaPlanos = arpu * clientesAtivos * fatorProRata;
 
-    // Receita de módulos add-on: ativa a partir da fase de lançamento do módulo,
-    // com adesão inicial sobre a base de clientes e crescimento mensal composto até 100%.
+    // Meses desde o lançamento comercial do produto — usado por reajustes e por módulos com gatilho por tempo.
+    let mesesDesdeLancamentoProduto: number | null = null;
+    if (input.dataLancamentoEstimada) {
+      const lanc = new Date(input.dataLancamentoEstimada + "T00:00:00");
+      mesesDesdeLancamentoProduto = (mes.getFullYear() - lanc.getFullYear()) * 12 + (mes.getMonth() - lanc.getMonth());
+    }
+
+    // Receita de módulos add-on: ativa por fase do ciclo de vida OU por tempo desde o lançamento
+    // (ex: melhorias do Fashion Mind, 12/24 meses após o MVP), com adesão inicial sobre a base
+    // de clientes e crescimento mensal composto até 100%.
     const faseIdxAtual = FASE_ORDEM.indexOf(fase.fase);
     let receitaModulos = 0;
     input.modulos.forEach((modulo, mi) => {
-      const faseIdxLancamento = FASE_ORDEM.indexOf(modulo.fase_lancamento);
-      if (faseIdxAtual < faseIdxLancamento) return;
+      const lancado =
+        modulo.meses_apos_lancamento != null
+          ? mesesDesdeLancamentoProduto != null && mesesDesdeLancamentoProduto >= modulo.meses_apos_lancamento
+          : modulo.fase_lancamento != null && faseIdxAtual >= FASE_ORDEM.indexOf(modulo.fase_lancamento);
+      if (!lancado) return;
 
       let adocaoPct = adocaoModulos.get(mi);
       adocaoPct = adocaoPct === undefined ? modulo.adesao_inicial_pct : Math.min(1, adocaoPct * (1 + modulo.crescimento_adesao_mensal_pct));
@@ -273,14 +287,12 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
 
     // Custo real da equipe comercial contratada (CLT + PJ) ativa neste mês.
     const custoEquipeVendas = custoContratacoesNoMes(input.contratacoes, mes);
-    const cacAllIn =
-      novosClientes > 0 ? (custoEquipeVendas + (fase.investimento_ms_mensal ?? 0)) / novosClientes : null;
 
     const ltv = taxaChurn > 0 ? arpu / taxaChurn : null;
 
-    // COGS e OPEX a partir do plano de custos da fase.
+    // COGS e OPEX a partir do plano de custos da fase (equipe alocada + custos fixos/variáveis).
     let cogs = 0;
-    let opexSm = fase.investimento_ms_mensal ?? 0;
+    let opexSm = 0;
     let opexPd = 0;
     let opexGa = 0;
 
@@ -301,11 +313,21 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     }
 
     for (const c of input.custosVariaveis.filter((c) => c.fase === fase.fase)) {
-      if (c.tipo_calculo === "valor_fixo") cogs += c.valor_base ?? 0;
-      else if (c.tipo_calculo === "valor_por_cliente")
-        cogs += (c.valor_base ?? 0) + (c.valor_por_unidade ?? 0) * clientesAtivos;
-      else if (c.tipo_calculo === "percentual_receita") cogs += (c.percentual ?? 0) * receitaBruta;
+      const valor =
+        c.tipo_calculo === "valor_fixo"
+          ? (c.valor_base ?? 0)
+          : c.tipo_calculo === "valor_por_cliente"
+            ? (c.valor_base ?? 0) + (c.valor_por_unidade ?? 0) * clientesAtivos
+            : (c.percentual ?? 0) * receitaBruta;
+      if (c.grupo === "sm") opexSm += valor;
+      else if (c.grupo === "pd") opexPd += valor;
+      else if (c.grupo === "ga") opexGa += valor;
+      else cogs += valor;
     }
+
+    // CAC all-in: todo o investimento em S&M da fase (equipe comercial contratada + equipe
+    // alocada + custos fixos/variáveis categorizados como S&M) dividido pelos clientes novos.
+    const cacAllIn = novosClientes > 0 ? opexSm / novosClientes : null;
 
     resultados.push({
       mes_referencia: isoMonth(mes),

@@ -40,7 +40,7 @@ export default async function PlanoDeCustosDetailPage({
   const faseIdByValue = new Map((fases ?? []).map((f) => [f.fase, f.id]));
   const faseIds = (fases ?? []).map((f) => f.id);
 
-  const [{ data: custosFixos }, { data: custosVariaveis }] =
+  const [{ data: custosFixos }, { data: custosVariaveis }, { data: alocacoesRaw }] =
     faseIds.length > 0
       ? await Promise.all([
           supabase
@@ -53,8 +53,12 @@ export default async function PlanoDeCustosDetailPage({
               "id, fase_produto_id, item, tipo_calculo, valor_base, percentual, valor_por_unidade, plano_contas:plano_contas_id(codigo, conta)",
             )
             .in("fase_produto_id", faseIds),
+          supabase
+            .from("equipe_alocada")
+            .select("id, fase_produto_id, cargo, categoria, quantidade_funcionarios, horas_mes, custo_hora")
+            .in("fase_produto_id", faseIds),
         ])
-      : [{ data: [] }, { data: [] }];
+      : [{ data: [] }, { data: [] }, { data: [] }];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fixosByFaseId = new Map<string, any[]>();
@@ -73,6 +77,22 @@ export default async function PlanoDeCustosDetailPage({
     variaveisByFaseId.set(c.fase_produto_id, atual);
   }
 
+  type AlocacaoRow = {
+    id: string;
+    fase_produto_id: string;
+    cargo: string;
+    categoria: string;
+    quantidade_funcionarios: number;
+    horas_mes: number;
+    custo_hora: number;
+  };
+  const alocacoesByFaseId = new Map<string, AlocacaoRow[]>();
+  for (const a of (alocacoesRaw ?? []) as AlocacaoRow[]) {
+    const atual = alocacoesByFaseId.get(a.fase_produto_id) ?? [];
+    atual.push(a);
+    alocacoesByFaseId.set(a.fase_produto_id, atual);
+  }
+
   return (
     <div>
       <div className="mb-2">
@@ -85,8 +105,7 @@ export default async function PlanoDeCustosDetailPage({
         <div>
           <h1 className="font-heading text-[22px] font-semibold">{produto.nome}</h1>
           <p className="mt-1 text-[13px] text-text-muted">
-            Estrutura e custos que escalam com clientes, por fase — o custo de pessoal fica em Produtos
-            (Equipe alocada)
+            Equipe alocada, estrutura fixa e custos que escalam com clientes ou receita, por fase
           </p>
         </div>
         {cenarioAtual && <CenarioSelector cenarios={cenarios ?? []} cenarioAtual={cenarioAtual} />}
@@ -105,6 +124,7 @@ export default async function PlanoDeCustosDetailPage({
               ordem={i + 1}
               custosFixos={faseId ? (fixosByFaseId.get(faseId) ?? []) : []}
               custosVariaveis={faseId ? (variaveisByFaseId.get(faseId) ?? []) : []}
+              alocacoes={faseId ? (alocacoesByFaseId.get(faseId) ?? []) : []}
               planoContas={planoContas ?? []}
               defaultOpen={i === 0}
             />

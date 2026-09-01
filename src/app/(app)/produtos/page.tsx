@@ -36,6 +36,12 @@ export default async function ProdutosPage({
               Cenário: {cenarioNome}
             </span>
           )}
+          <Link
+            href="/produtos/combos"
+            className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
+          >
+            Combos &amp; Pacotes
+          </Link>
         </div>
       </div>
 

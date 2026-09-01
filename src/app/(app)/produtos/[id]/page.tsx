@@ -40,39 +40,18 @@ export default async function ProdutoDetailPage({
 
   const { data: fases } = await supabase
     .from("fases_produto")
-    .select(
-      "id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, investimento_ms_mensal, observacoes",
-    )
+    .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, observacoes")
     .eq("produto_id", id)
     .eq("cenario_id", cenarioAtual);
 
   const faseIds = (fases ?? []).map((f) => f.id);
-  const [{ data: betas }, { data: alocacoesRaw }] =
+  const { data: betas } =
     faseIds.length > 0
-      ? await Promise.all([
-          supabase.from("beta_testers_config").select("*").in("fase_produto_id", faseIds),
-          supabase.from("equipe_alocada").select("*").in("fase_produto_id", faseIds),
-        ])
-      : [{ data: [] }, { data: [] }];
-
-  type AlocacaoRow = {
-    id: string;
-    fase_produto_id: string;
-    cargo: string;
-    categoria: string;
-    quantidade_funcionarios: number;
-    horas_mes: number;
-    custo_hora: number;
-  };
+      ? await supabase.from("beta_testers_config").select("*").in("fase_produto_id", faseIds)
+      : { data: [] };
 
   const faseByValue = new Map((fases ?? []).map((f) => [f.fase, f]));
   const betaByFaseId = new Map((betas ?? []).map((b) => [b.fase_produto_id, b]));
-  const alocacoesByFaseId = new Map<string, AlocacaoRow[]>();
-  for (const a of (alocacoesRaw ?? []) as AlocacaoRow[]) {
-    const atual = alocacoesByFaseId.get(a.fase_produto_id) ?? [];
-    atual.push(a);
-    alocacoesByFaseId.set(a.fase_produto_id, atual);
-  }
 
   const primeiraVazia = FASES.findIndex((f) => !faseByValue.get(f.value)?.data_inicio);
 
@@ -95,6 +74,9 @@ export default async function ProdutoDetailPage({
         <div>
           <h1 className="font-heading text-[22px] font-semibold">{produto.nome}</h1>
           <p className="mt-1 text-[13px] text-text-muted">{produto.descricao ?? "Sem descrição."}</p>
+          <p className="mt-0.5 text-[11px] text-text-faint">
+            Metas de crescimento e preço ficam aqui — custos (equipe, fixos e variáveis) ficam em Plano de Custos
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {cenarioAtual && <CenarioSelector cenarios={cenarios ?? []} cenarioAtual={cenarioAtual} />}
@@ -111,7 +93,6 @@ export default async function ProdutoDetailPage({
           {FASES.map((f, i) => {
             const dados = faseByValue.get(f.value) ?? null;
             const beta = dados ? (betaByFaseId.get(dados.id) ?? null) : null;
-            const alocacoes = dados ? (alocacoesByFaseId.get(dados.id) ?? []) : [];
             return (
               <FaseCard
                 key={f.value}
@@ -122,7 +103,6 @@ export default async function ProdutoDetailPage({
                 ordem={i + 1}
                 dados={dados}
                 beta={beta}
-                alocacoes={alocacoes}
                 defaultOpen={i === (primeiraVazia === -1 ? 0 : primeiraVazia)}
               />
             );

@@ -43,7 +43,6 @@ export async function salvarFase(
         data_fim: str("data_fim"),
         taxa_crescimento_mensal: pct("taxa_crescimento_mensal"),
         taxa_churn_mensal: pct("taxa_churn_mensal"),
-        investimento_ms_mensal: num("investimento_ms_mensal") ?? 0,
         observacoes: str("observacoes"),
         updated_at: new Date().toISOString(),
       },
@@ -163,7 +162,12 @@ export async function criarModulo(
   const produto_id = String(formData.get("produto_id") || "");
   const nome = String(formData.get("nome") || "").trim();
   const preco = Number(formData.get("preco") || 0);
-  const fase_lancamento = String(formData.get("fase_lancamento") || "");
+  const gatilho = String(formData.get("gatilho") || "fase");
+  const fase_lancamento = gatilho === "fase" ? String(formData.get("fase_lancamento") || "") || null : null;
+  const meses_apos_lancamento =
+    gatilho === "tempo" && formData.get("meses_apos_lancamento")
+      ? Number(formData.get("meses_apos_lancamento"))
+      : null;
   const adesao_inicial_pct = formData.get("adesao_inicial_pct")
     ? Number(formData.get("adesao_inicial_pct")) / 100
     : 0;
@@ -171,8 +175,8 @@ export async function criarModulo(
     ? Number(formData.get("crescimento_adesao_mensal_pct")) / 100
     : 0;
 
-  if (!produto_id || !nome || !preco || !fase_lancamento) {
-    return { error: "Preencha nome, preço e fase de lançamento do módulo." };
+  if (!produto_id || !nome || !preco || (!fase_lancamento && meses_apos_lancamento == null)) {
+    return { error: "Preencha nome, preço e a fase (ou o tempo) de lançamento do módulo." };
   }
 
   const supabase = await createClient();
@@ -181,6 +185,7 @@ export async function criarModulo(
     nome,
     preco,
     fase_lancamento,
+    meses_apos_lancamento,
     adesao_inicial_pct,
     crescimento_adesao_mensal_pct,
   });

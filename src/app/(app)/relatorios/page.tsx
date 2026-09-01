@@ -1,7 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
+import { InfoTooltip } from "@/components/info-tooltip";
+import { AlocacaoInvestimento } from "./alocacao-investimento";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+}
+
+function formatMes(iso: string) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
 
 function buildPath(values: number[], width: number, height: number, min: number, max: number) {
@@ -14,28 +20,72 @@ function buildPath(values: number[], width: number, height: number, min: number,
 
 type Agregado = { mes_referencia: string; receita: number; ebitda: number; clientes: number };
 
+type ResumoCenario = {
+  linhas: Agregado[];
+  cacMedio: number | null;
+  breakEvenMes: string | null;
+  totalInvestido: number;
+  ebitdaAcumulado: number;
+};
+
 async function agregarPorCenario(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   cenarioId: string,
-): Promise<Agregado[]> {
-  if (!cenarioId) return [];
-  const { data } = await supabase
-    .from("simulacao_mensal")
-    .select("mes_referencia, receita_bruta, ebitda, clientes_ativos")
-    .eq("cenario_id", cenarioId)
-    .order("mes_referencia");
+): Promise<ResumoCenario> {
+  if (!cenarioId) return { linhas: [], cacMedio: null, breakEvenMes: null, totalInvestido: 0, ebitdaAcumulado: 0 };
+
+  const [{ data: simRows }, { data: vinculos }] = await Promise.all([
+    supabase
+      .from("simulacao_mensal")
+      .select("mes_referencia, receita_bruta, ebitda, clientes_ativos, cac_all_in, novos_clientes")
+      .eq("cenario_id", cenarioId)
+      .order("mes_referencia"),
+    supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId),
+  ]);
 
   const porMes = new Map<string, Agregado>();
+  let somaCacPonderado = 0;
+  let somaNovosClientes = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const row of (data ?? []) as any[]) {
+  for (const row of (simRows ?? []) as any[]) {
     const atual = porMes.get(row.mes_referencia) ?? { mes_referencia: row.mes_referencia, receita: 0, ebitda: 0, clientes: 0 };
     atual.receita += Number(row.receita_bruta);
     atual.ebitda += Number(row.ebitda);
     atual.clientes += Number(row.clientes_ativos);
     porMes.set(row.mes_referencia, atual);
+
+    const novos = Number(row.novos_clientes ?? 0);
+    if (row.cac_all_in != null && novos > 0) {
+      somaCacPonderado += Number(row.cac_all_in) * novos;
+      somaNovosClientes += novos;
+    }
   }
-  return [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
+  const linhas = [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
+  const cacMedio = somaNovosClientes > 0 ? somaCacPonderado / somaNovosClientes : null;
+
+  let acumulado = 0;
+  let breakEvenMes: string | null = null;
+  for (const l of linhas) {
+    acumulado += l.ebitda;
+    if (breakEvenMes === null && acumulado >= 0 && l.mes_referencia !== linhas[0]?.mes_referencia) {
+      breakEvenMes = l.mes_referencia;
+    }
+  }
+  const ebitdaAcumulado = linhas.reduce((s, l) => s + l.ebitda, 0);
+
+  const programaIds = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
+  let totalInvestido = 0;
+  if (programaIds.length > 0) {
+    const { data: programas } = await supabase
+      .from("programas_investimento")
+      .select("valor_total")
+      .in("id", programaIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    totalInvestido = ((programas ?? []) as any[]).reduce((s, p) => s + Number(p.valor_total ?? 0), 0);
+  }
+
+  return { linhas, cacMedio, breakEvenMes, totalInvestido, ebitdaAcumulado };
 }
 
 export default async function RelatoriosPage({
@@ -51,13 +101,18 @@ export default async function RelatoriosPage({
   const cenarioA = a ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
   const cenarioB = b ?? (cenarios ?? []).find((c) => c.id !== cenarioA)?.id ?? "";
 
-  const [linhasA, linhasB] = await Promise.all([agregarPorCenario(supabase, cenarioA), agregarPorCenario(supabase, cenarioB)]);
+  const [resumoA, resumoB] = await Promise.all([agregarPorCenario(supabase, cenarioA), agregarPorCenario(supabase, cenarioB)]);
 
   const nomeA = (cenarios ?? []).find((c) => c.id === cenarioA)?.nome ?? "—";
   const nomeB = (cenarios ?? []).find((c) => c.id === cenarioB)?.nome ?? "—";
 
-  const receitasA = linhasA.map((l) => l.receita);
-  const receitasB = linhasB.map((l) => l.receita);
+  const [{ data: alocacoesA }, { data: alocacoesB }] = await Promise.all([
+    cenarioA ? supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioA).order("created_at") : Promise.resolve({ data: [] }),
+    cenarioB ? supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioB).order("created_at") : Promise.resolve({ data: [] }),
+  ]);
+
+  const receitasA = resumoA.linhas.map((l) => l.receita);
+  const receitasB = resumoB.linhas.map((l) => l.receita);
   const width = 1050;
   const height = 200;
   const min = 0;
@@ -65,12 +120,14 @@ export default async function RelatoriosPage({
 
   const totalReceitaA = receitasA.reduce((s, v) => s + v, 0);
   const totalReceitaB = receitasB.reduce((s, v) => s + v, 0);
-  const totalEbitdaA = linhasA.reduce((s, l) => s + l.ebitda, 0);
-  const totalEbitdaB = linhasB.reduce((s, l) => s + l.ebitda, 0);
-  const clientesFinalA = linhasA[linhasA.length - 1]?.clientes ?? 0;
-  const clientesFinalB = linhasB[linhasB.length - 1]?.clientes ?? 0;
+  const clientesFinalA = resumoA.linhas[resumoA.linhas.length - 1]?.clientes ?? 0;
+  const clientesFinalB = resumoB.linhas[resumoB.linhas.length - 1]?.clientes ?? 0;
 
-  const semDados = linhasA.length === 0 && linhasB.length === 0;
+  const semDados = resumoA.linhas.length === 0 && resumoB.linhas.length === 0;
+
+  const mesesUnificados = [...new Set([...resumoA.linhas.map((l) => l.mes_referencia), ...resumoB.linhas.map((l) => l.mes_referencia)])].sort();
+  const linhaAPorMes = new Map(resumoA.linhas.map((l) => [l.mes_referencia, l]));
+  const linhaBPorMes = new Map(resumoB.linhas.map((l) => [l.mes_referencia, l]));
 
   return (
     <div>
@@ -131,7 +188,7 @@ export default async function RelatoriosPage({
             </svg>
           </div>
 
-          <div className="rounded-xl border border-border bg-surface p-6">
+          <div className="mb-5 rounded-xl border border-border bg-surface p-6">
             <h2 className="mb-4 font-heading text-sm font-semibold">Indicadores acumulados</h2>
             <table className="w-full border-collapse text-[12.5px]">
               <thead>
@@ -143,8 +200,8 @@ export default async function RelatoriosPage({
                 </tr>
               </thead>
               <tbody>
-                <LinhaComparativa label="Receita acumulada" a={totalReceitaA} b={totalReceitaB} />
-                <LinhaComparativa label="EBITDA acumulado" a={totalEbitdaA} b={totalEbitdaB} />
+                <LinhaComparativa label="Receita acumulada" a={totalReceitaA} b={totalReceitaB} formato="brl" />
+                <LinhaComparativa label="EBITDA acumulado" a={resumoA.ebitdaAcumulado} b={resumoB.ebitdaAcumulado} formato="brl" />
                 <tr className="border-t border-border-soft">
                   <td className="px-2 py-2.5">Clientes ativos (fim do período)</td>
                   <td className="px-2 py-2.5 text-right font-mono">{clientesFinalA.toLocaleString("pt-BR")}</td>
@@ -154,8 +211,77 @@ export default async function RelatoriosPage({
                     {(clientesFinalB - clientesFinalA).toLocaleString("pt-BR")}
                   </td>
                 </tr>
+                <tr className="border-t border-border-soft">
+                  <td className="flex items-center px-2 py-2.5">
+                    CAC médio (all-in)
+                    <InfoTooltip texto="CAC ponderado pelos clientes novos de cada mês — quanto custou, em média, adquirir cada cliente ao longo de todo o período simulado." />
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-mono">{resumoA.cacMedio != null ? formatBRL(resumoA.cacMedio) : "—"}</td>
+                  <td className="px-2 py-2.5 text-right font-mono">{resumoB.cacMedio != null ? formatBRL(resumoB.cacMedio) : "—"}</td>
+                  <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
+                </tr>
+                <tr className="border-t border-border-soft">
+                  <td className="flex items-center px-2 py-2.5">
+                    Ponto de equilíbrio
+                    <InfoTooltip texto="Break-even: primeiro mês em que o EBITDA acumulado (desde o início da simulação) deixa de ser negativo — a partir dali, o negócio já gerou de volta tudo o que consumiu antes." />
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-mono">{resumoA.breakEvenMes ? formatMes(resumoA.breakEvenMes) : "não atingido no período"}</td>
+                  <td className="px-2 py-2.5 text-right font-mono">{resumoB.breakEvenMes ? formatMes(resumoB.breakEvenMes) : "não atingido no período"}</td>
+                  <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
+                </tr>
+                <tr className="border-t border-border-soft">
+                  <td className="flex items-center px-2 py-2.5">
+                    Retorno sobre o investimento
+                    <InfoTooltip texto="EBITDA acumulado no período simulado dividido pelo total captado (fomento + investimento) vinculado a este cenário. Ex: 3,2x significa que o resultado operacional gerado equivale a 3,2 vezes o capital investido." />
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-mono">
+                    {resumoA.totalInvestido > 0 ? `${(resumoA.ebitdaAcumulado / resumoA.totalInvestido).toFixed(1)}x` : "sem captação vinculada"}
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-mono">
+                    {resumoB.totalInvestido > 0 ? `${(resumoB.ebitdaAcumulado / resumoB.totalInvestido).toFixed(1)}x` : "sem captação vinculada"}
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-mono text-text-faint">—</td>
+                </tr>
               </tbody>
             </table>
+          </div>
+
+          <div className="mb-5 grid grid-cols-2 items-start gap-5">
+            <AlocacaoInvestimento cenarioId={cenarioA} itens={alocacoesA ?? []} nomeCenario={nomeA} />
+            <AlocacaoInvestimento cenarioId={cenarioB} itens={alocacoesB ?? []} nomeCenario={nomeB} />
+          </div>
+
+          <div className="rounded-xl border border-border bg-surface p-6">
+            <h2 className="mb-1 font-heading text-sm font-semibold">Clientes e faturamento mês a mês</h2>
+            <p className="mb-4 text-[11px] text-text-muted">Pronto para levar às apresentações de investimento</p>
+            <div className="max-h-[420px] overflow-y-auto overflow-x-auto">
+              <table className="w-full border-collapse text-[12px]">
+                <thead className="sticky top-0 bg-surface">
+                  <tr className="text-left text-text-muted">
+                    <td className="px-2 py-1.5 font-medium">Mês</td>
+                    <td className="px-2 py-1.5 text-right font-medium">Clientes ({nomeA})</td>
+                    <td className="px-2 py-1.5 text-right font-medium">Faturamento ({nomeA})</td>
+                    <td className="px-2 py-1.5 text-right font-medium">Clientes ({nomeB})</td>
+                    <td className="px-2 py-1.5 text-right font-medium">Faturamento ({nomeB})</td>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mesesUnificados.map((mes) => {
+                    const la = linhaAPorMes.get(mes);
+                    const lb = linhaBPorMes.get(mes);
+                    return (
+                      <tr key={mes} className="border-t border-border-soft">
+                        <td className="px-2 py-1.5 capitalize">{formatMes(mes)}</td>
+                        <td className="px-2 py-1.5 text-right font-mono">{la ? la.clientes.toLocaleString("pt-BR") : "—"}</td>
+                        <td className="px-2 py-1.5 text-right font-mono">{la ? formatBRL(la.receita) : "—"}</td>
+                        <td className="px-2 py-1.5 text-right font-mono">{lb ? lb.clientes.toLocaleString("pt-BR") : "—"}</td>
+                        <td className="px-2 py-1.5 text-right font-mono">{lb ? formatBRL(lb.receita) : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}
@@ -172,16 +298,17 @@ function Legenda({ cor, texto }: { cor: string; texto: string }) {
   );
 }
 
-function LinhaComparativa({ label, a, b }: { label: string; a: number; b: number }) {
+function LinhaComparativa({ label, a, b, formato }: { label: string; a: number; b: number; formato: "brl" }) {
   const diff = b - a;
+  const fmt = formato === "brl" ? formatBRL : (v: number) => v.toString();
   return (
     <tr className="border-t border-border-soft">
       <td className="px-2 py-2.5">{label}</td>
-      <td className="px-2 py-2.5 text-right font-mono">{formatBRL(a)}</td>
-      <td className="px-2 py-2.5 text-right font-mono">{formatBRL(b)}</td>
+      <td className="px-2 py-2.5 text-right font-mono">{fmt(a)}</td>
+      <td className="px-2 py-2.5 text-right font-mono">{fmt(b)}</td>
       <td className={`px-2 py-2.5 text-right font-mono ${diff >= 0 ? "text-success" : "text-danger"}`}>
         {diff >= 0 ? "+" : ""}
-        {formatBRL(diff)}
+        {fmt(diff)}
       </td>
     </tr>
   );

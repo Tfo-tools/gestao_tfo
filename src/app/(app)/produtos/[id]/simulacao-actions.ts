@@ -25,7 +25,7 @@ export async function recalcularSimulacao(
       .single(),
     supabase
       .from("fases_produto")
-      .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, investimento_ms_mensal")
+      .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal")
       .eq("produto_id", produtoId)
       .eq("cenario_id", cenarioId),
     supabase
@@ -70,7 +70,7 @@ export async function recalcularSimulacao(
         .in("fase_produto_id", faseIds),
       supabase
         .from("plano_custos_variaveis")
-        .select("fase_produto_id, tipo_calculo, valor_base, percentual, valor_por_unidade")
+        .select("fase_produto_id, tipo_calculo, valor_base, percentual, valor_por_unidade, plano_contas:plano_contas_id(codigo, tipo)")
         .in("fase_produto_id", faseIds),
       supabase
         .from("equipe_alocada")
@@ -81,7 +81,7 @@ export async function recalcularSimulacao(
         : Promise.resolve({ data: [] as PlanoFaseRow[] }),
       supabase
         .from("modulos_produto")
-        .select("nome, preco, fase_lancamento, adesao_inicial_pct, crescimento_adesao_mensal_pct")
+        .select("nome, preco, fase_lancamento, meses_apos_lancamento, adesao_inicial_pct, crescimento_adesao_mensal_pct")
         .eq("produto_id", produtoId),
     ]);
 
@@ -104,7 +104,6 @@ export async function recalcularSimulacao(
       data_fim: f.data_fim,
       taxa_crescimento_mensal: f.taxa_crescimento_mensal,
       taxa_churn_mensal: f.taxa_churn_mensal,
-      investimento_ms_mensal: f.investimento_ms_mensal,
     })),
     betas: (betas ?? []).map((b) => ({
       fase: faseValueById.get(b.fase_produto_id)!,
@@ -147,7 +146,8 @@ export async function recalcularSimulacao(
     modulos: (modulosRaw ?? []).map((m) => ({
       nome: m.nome,
       preco: Number(m.preco),
-      fase_lancamento: m.fase_lancamento as FaseValue,
+      fase_lancamento: (m.fase_lancamento as FaseValue) ?? null,
+      meses_apos_lancamento: m.meses_apos_lancamento,
       adesao_inicial_pct: Number(m.adesao_inicial_pct),
       crescimento_adesao_mensal_pct: Number(m.crescimento_adesao_mensal_pct),
     })),
@@ -163,14 +163,21 @@ export async function recalcularSimulacao(
         valor_unitario: Number(c.valor_unitario ?? 0),
       };
     }),
-    custosVariaveis: (custosVariaveisRaw ?? []).map((c) => ({
-      fase: faseValueById.get(c.fase_produto_id)!,
+    custosVariaveis: (custosVariaveisRaw ?? []).map((c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tipo_calculo: c.tipo_calculo as any,
-      valor_base: c.valor_base,
-      percentual: c.percentual,
-      valor_por_unidade: c.valor_por_unidade,
-    })),
+      const conta = c.plano_contas as any;
+      const grupoBruto = conta ? grupoDeConta(conta.codigo, conta.tipo) : "outros";
+      const grupo = grupoBruto === "financeiro" || grupoBruto === "ativo" ? "outros" : grupoBruto;
+      return {
+        fase: faseValueById.get(c.fase_produto_id)!,
+        grupo,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tipo_calculo: c.tipo_calculo as any,
+        valor_base: c.valor_base,
+        percentual: c.percentual,
+        valor_por_unidade: c.valor_por_unidade,
+      };
+    }),
   };
 
   const resultado = calcularSimulacao(input);

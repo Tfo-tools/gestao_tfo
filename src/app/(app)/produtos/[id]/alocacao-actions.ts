@@ -58,12 +58,12 @@ export async function criarAlocacao(
     return { error: "Não foi possível salvar a alocação." };
   }
 
-  revalidatePath(`/produtos/${produto_id}`);
+  revalidatePath(`/plano-de-custos/${produto_id}`);
   return { error: null, success: true };
 }
 
 export async function excluirAlocacao(id: string, produtoId: string) {
   const supabase = await createClient();
   await supabase.from("equipe_alocada").delete().eq("id", id);
-  revalidatePath(`/produtos/${produtoId}`);
+  revalidatePath(`/plano-de-custos/${produtoId}`);
 }

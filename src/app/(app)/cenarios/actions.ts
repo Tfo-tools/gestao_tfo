@@ -44,7 +44,7 @@ export async function criarCenario(
     const { data: fasesOrigem } = await supabase
       .from("fases_produto")
       .select(
-        "id, produto_id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, investimento_ms_mensal, observacoes",
+        "id, produto_id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, observacoes",
       )
       .eq("cenario_id", duplicarDe);
 
@@ -59,7 +59,6 @@ export async function criarCenario(
           data_fim: fase.data_fim,
           taxa_crescimento_mensal: fase.taxa_crescimento_mensal,
           taxa_churn_mensal: fase.taxa_churn_mensal,
-          investimento_ms_mensal: fase.investimento_ms_mensal,
           observacoes: fase.observacoes,
         })
         .select("id")

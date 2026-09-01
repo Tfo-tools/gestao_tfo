@@ -8,6 +8,7 @@ import {
   excluirCustoVariavel,
   type ActionState,
 } from "../actions";
+import { EquipeAlocada } from "../../produtos/[id]/equipe-alocada";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
 type CustoFixo = { id: string; item: string; quantidade: number; valor_unitario: number; plano_contas: { codigo: string; conta: string } | null };
@@ -19,6 +20,14 @@ type CustoVariavel = {
   percentual: number | null;
   valor_por_unidade: number | null;
   plano_contas: { codigo: string; conta: string } | null;
+};
+type Alocacao = {
+  id: string;
+  cargo: string;
+  categoria: string;
+  quantidade_funcionarios: number;
+  horas_mes: number;
+  custo_hora: number;
 };
 
 const initialState: ActionState = { error: null };
@@ -41,6 +50,7 @@ export function FaseCustosCard({
   ordem,
   custosFixos,
   custosVariaveis,
+  alocacoes,
   planoContas,
   defaultOpen = false,
 }: {
@@ -51,11 +61,13 @@ export function FaseCustosCard({
   ordem: number;
   custosFixos: CustoFixo[];
   custosVariaveis: CustoVariavel[];
+  alocacoes: Alocacao[];
   planoContas: PlanoContas[];
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const totalFixo = custosFixos.reduce((acc, c) => acc + c.quantidade * c.valor_unitario, 0);
+  const totalEquipe = alocacoes.reduce((acc, a) => acc + a.quantidade_funcionarios * a.horas_mes * a.custo_hora, 0);
+  const totalFixo = custosFixos.reduce((acc, c) => acc + c.quantidade * c.valor_unitario, 0) + totalEquipe;
 
   if (!open) {
     return (
@@ -69,7 +81,7 @@ export function FaseCustosCard({
           <span className="text-[13px] font-semibold">
             {ordem}. {label}
           </span>
-          {totalFixo > 0 && <span className="text-[11.5px] text-text-faint">{formatBRL(totalFixo)}/mês fixo</span>}
+          {totalFixo > 0 && <span className="text-[11.5px] text-text-faint">{formatBRL(totalFixo)}/mês (equipe + fixos)</span>}
         </div>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-text-faint">
           <path d="m6 9 6 6 6-6" />
@@ -95,6 +107,7 @@ export function FaseCustosCard({
       </div>
 
       <div className="flex flex-col gap-4">
+        <EquipeAlocada produtoId={produtoId} cenarioId={cenarioId} fase={fase} alocacoes={alocacoes} />
         <CustosFixosSection
           produtoId={produtoId}
           cenarioId={cenarioId}

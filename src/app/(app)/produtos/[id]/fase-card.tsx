@@ -2,7 +2,6 @@
 
 import { useActionState, useState } from "react";
 import { salvarFase, type ActionState } from "../actions";
-import { EquipeAlocada } from "./equipe-alocada";
 import { InfoTooltip } from "@/components/info-tooltip";
 
 type Fase = {
@@ -10,7 +9,6 @@ type Fase = {
   data_fim: string | null;
   taxa_crescimento_mensal: number | null;
   taxa_churn_mensal: number | null;
-  investimento_ms_mensal: number | null;
   observacoes: string | null;
 } | null;
 
@@ -22,15 +20,6 @@ type Beta = {
   sem_custo_adicional: boolean;
 } | null;
 
-type Alocacao = {
-  id: string;
-  cargo: string;
-  categoria: string;
-  quantidade_funcionarios: number;
-  horas_mes: number;
-  custo_hora: number;
-};
-
 const initialState: ActionState = { error: null };
 
 export function FaseCard({
@@ -41,7 +30,6 @@ export function FaseCard({
   ordem,
   dados,
   beta,
-  alocacoes,
   defaultOpen = false,
 }: {
   produtoId: string;
@@ -51,7 +39,6 @@ export function FaseCard({
   ordem: number;
   dados: Fase;
   beta: Beta;
-  alocacoes: Alocacao[];
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -142,23 +129,9 @@ export function FaseCard({
           </Field>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field
-            label="Investimento M&S no período (R$/mês)"
-            tooltip="M&S = Marketing & Sales (Marketing e Vendas). É o quanto se planeja investir por mês em ações para atrair e converter clientes nessa fase (anúncios, comissões, ferramentas de venda etc.)."
-          >
-            <input
-              type="number"
-              step="0.01"
-              name="investimento_ms_mensal"
-              defaultValue={dados?.investimento_ms_mensal ?? ""}
-              className="input"
-            />
-          </Field>
-          <Field label="Observações">
-            <input type="text" name="observacoes" defaultValue={dados?.observacoes ?? ""} className="input" />
-          </Field>
-        </div>
+        <Field label="Observações">
+          <input type="text" name="observacoes" defaultValue={dados?.observacoes ?? ""} className="input" />
+        </Field>
 
         <div className="rounded-lg bg-bg px-4 py-3.5">
           <div className="mb-3 text-[11.5px] font-semibold text-text-muted">
@@ -207,10 +180,6 @@ export function FaseCard({
           {pending ? "Salvando…" : "Salvar fase"}
         </button>
       </form>
-
-      <div className="mt-4">
-        <EquipeAlocada produtoId={produtoId} cenarioId={cenarioId} fase={fase} alocacoes={alocacoes} />
-      </div>
     </div>
   );
 }
