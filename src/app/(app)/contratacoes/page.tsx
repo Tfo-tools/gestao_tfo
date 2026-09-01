@@ -1,8 +1,7 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { ContratacaoForm } from "./contratacao-form";
 import { ExcluirButton } from "./excluir-button";
-
-const CARGO_LABEL: Record<string, string> = { sdr: "SDR", vendedor: "Vendedor/AE", coordenador: "Coordenador" };
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -20,18 +19,21 @@ export default async function ContratacoesPage({
   const { cenario, produto } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: cenarios }, { data: produtos }, { data: regimes }] = await Promise.all([
+  const [{ data: cenarios }, { data: produtos }, { data: regimes }, { data: alocacoesCargos }] = await Promise.all([
     supabase.from("cenarios").select("id, nome, is_base").order("created_at"),
     supabase.from("produtos").select("id, nome").order("nome"),
     supabase.from("encargos_regimes").select("id, nome, aliquota_total_efetiva").order("aliquota_total_efetiva"),
+    supabase.from("equipe_alocada").select("cargo"),
   ]);
+
+  const cargosSugeridos = [...new Set((alocacoesCargos ?? []).map((a) => a.cargo.trim()).filter(Boolean))].sort();
 
   const cenarioFiltro = cenario ?? "";
 
   let query = supabase
     .from("contratacoes")
     .select(
-      "id, cargo, tipo_contratacao, nome_referencia, salario_bruto, valor_mensal, quantidade_pessoas, inclui_coordenador, data_inicio, data_fim, cenarios:cenario_id(nome), produtos:produto_id(nome), encargos_regimes:regime_id(nome, aliquota_total_efetiva)",
+      "id, cargo, categoria, tipo_contratacao, nome_referencia, salario_bruto, valor_mensal, quantidade_pessoas, inclui_coordenador, data_inicio, data_fim, cenarios:cenario_id(nome), produtos:produto_id(nome), encargos_regimes:regime_id(nome, aliquota_total_efetiva)",
     )
     .order("data_inicio", { ascending: false, nullsFirst: false });
 
@@ -42,11 +44,19 @@ export default async function ContratacoesPage({
 
   return (
     <div>
-      <div className="mb-7">
-        <h1 className="font-heading text-[22px] font-semibold">Contratações</h1>
-        <p className="mt-1 text-[13px] text-text-muted">
-          Equipe comercial (CLT ou PJ) por cenário — vincule a um produto ou deixe como custo geral
-        </p>
+      <div className="mb-7 flex items-center justify-between">
+        <div>
+          <h1 className="font-heading text-[22px] font-semibold">Contratações</h1>
+          <p className="mt-1 text-[13px] text-text-muted">
+            Equipe (CLT ou PJ) por cenário — vincule a um produto ou deixe como custo geral/compartilhado
+          </p>
+        </div>
+        <Link
+          href="/contratacoes/necessidade"
+          className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
+        >
+          Necessidade de Contratação
+        </Link>
       </div>
 
       <div className="grid grid-cols-[420px_1fr] items-start gap-5">
@@ -54,6 +64,7 @@ export default async function ContratacoesPage({
           cenarios={cenarios ?? []}
           produtos={produtos ?? []}
           regimes={regimes ?? []}
+          cargosSugeridos={cargosSugeridos}
           cenarioPadrao={cenario}
           produtoPadrao={produto}
         />
@@ -83,6 +94,7 @@ export default async function ContratacoesPage({
               <thead>
                 <tr className="text-left text-text-muted">
                   <th className="px-2 py-1.5 font-medium">Cargo</th>
+                  <th className="px-2 py-1.5 font-medium">Categoria</th>
                   <th className="px-2 py-1.5 font-medium">Tipo</th>
                   <th className="px-2 py-1.5 font-medium">Nome/empresa</th>
                   <th className="px-2 py-1.5 font-medium">Cenário</th>
@@ -106,7 +118,8 @@ export default async function ContratacoesPage({
                       : Number(c.valor_mensal ?? 0);
                   return (
                     <tr key={c.id} className="border-t border-border-soft">
-                      <td className="px-2 py-2.5">{CARGO_LABEL[c.cargo] ?? c.cargo}</td>
+                      <td className="px-2 py-2.5">{c.cargo}</td>
+                      <td className="px-2 py-2.5 text-text-muted uppercase text-[10.5px]">{c.categoria}</td>
                       <td className="px-2 py-2.5">
                         <span
                           className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${

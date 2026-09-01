@@ -23,7 +23,8 @@ export type FunilInput = {
 };
 
 export type ContratacaoInput = {
-  cargo: "sdr" | "vendedor" | "coordenador";
+  cargo: string;
+  categoria: "pd" | "sm" | "ga";
   data_inicio: string | null;
   data_fim: string | null;
   custo_mensal: number;
@@ -173,15 +174,17 @@ function calcularArpu(planos: PlanoInput[], fase: FaseValue, mes: Date, dataLanc
   }, 0);
 }
 
-/** Soma o custo de todas as contratações ativas (por data) num determinado mês. */
-function custoContratacoesNoMes(contratacoes: ContratacaoInput[], mes: Date): number {
-  return contratacoes.reduce((acc, c) => {
+/** Soma o custo das contratações ativas (por data) num determinado mês, por categoria (P&D/S&M/G&A). */
+function custoContratacoesNoMes(contratacoes: ContratacaoInput[], mes: Date): { sm: number; pd: number; ga: number } {
+  const totais = { sm: 0, pd: 0, ga: 0 };
+  for (const c of contratacoes) {
     const inicio = c.data_inicio ? new Date(c.data_inicio + "T00:00:00") : null;
     const fim = c.data_fim ? new Date(c.data_fim + "T00:00:00") : null;
     const iniciouAntes = !inicio || new Date(inicio.getFullYear(), inicio.getMonth(), 1) <= mes;
     const aindaAtiva = !fim || fim >= mes;
-    return iniciouAntes && aindaAtiva ? acc + c.custo_mensal : acc;
-  }, 0);
+    if (iniciouAntes && aindaAtiva) totais[c.categoria] += c.custo_mensal;
+  }
+  return totais;
 }
 
 export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
@@ -285,16 +288,16 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
 
     const receitaBruta = receitaPlanos + receitaModulos;
 
-    // Custo real da equipe comercial contratada (CLT + PJ) ativa neste mês.
-    const custoEquipeVendas = custoContratacoesNoMes(input.contratacoes, mes);
+    // Custo real das contratações (CLT + PJ) ativas neste mês, já separado por categoria.
+    const custoContratacoes = custoContratacoesNoMes(input.contratacoes, mes);
 
     const ltv = taxaChurn > 0 ? arpu / taxaChurn : null;
 
     // COGS e OPEX a partir do plano de custos da fase (equipe alocada + custos fixos/variáveis).
     let cogs = 0;
-    let opexSm = 0;
-    let opexPd = 0;
-    let opexGa = 0;
+    let opexSm = custoContratacoes.sm;
+    let opexPd = custoContratacoes.pd;
+    let opexGa = custoContratacoes.ga;
 
     for (const c of input.custosFixos.filter((c) => c.fase === fase.fase)) {
       const valor = c.quantidade * c.valor_unitario;
@@ -303,7 +306,6 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       else if (c.grupo === "pd") opexPd += valor;
       else if (c.grupo === "ga") opexGa += valor;
     }
-    opexSm += custoEquipeVendas;
 
     for (const a of input.alocacoes.filter((a) => a.fase === fase.fase)) {
       const custo = a.quantidade_funcionarios * a.horas_mes * a.custo_hora;

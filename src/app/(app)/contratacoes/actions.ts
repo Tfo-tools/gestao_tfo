@@ -11,7 +11,8 @@ export async function criarContratacao(
 ): Promise<ActionState> {
   const cenario_id = String(formData.get("cenario_id") || "");
   const produto_id = String(formData.get("produto_id") || "") || null;
-  const cargo = String(formData.get("cargo") || "");
+  const cargo = String(formData.get("cargo") || "").trim();
+  const categoria = String(formData.get("categoria") || "sm");
   const tipo_contratacao = String(formData.get("tipo_contratacao") || "");
   const nome_referencia = String(formData.get("nome_referencia") || "").trim() || null;
   const data_inicio = String(formData.get("data_inicio") || "") || null;
@@ -26,6 +27,7 @@ export async function criarContratacao(
     cenario_id,
     produto_id,
     cargo,
+    categoria,
     tipo_contratacao,
     nome_referencia,
     data_inicio,

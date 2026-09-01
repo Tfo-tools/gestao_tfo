@@ -14,12 +14,14 @@ export function ContratacaoForm({
   cenarios,
   produtos,
   regimes,
+  cargosSugeridos,
   cenarioPadrao,
   produtoPadrao,
 }: {
   cenarios: Cenario[];
   produtos: Produto[];
   regimes: Regime[];
+  cargosSugeridos: string[];
   cenarioPadrao?: string;
   produtoPadrao?: string;
 }) {
@@ -63,20 +65,39 @@ export function ContratacaoForm({
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Cargo">
-            <select name="cargo" required defaultValue="" className="input">
-              <option value="" disabled>
-                Selecione…
-              </option>
-              <option value="sdr">SDR</option>
-              <option value="vendedor">Vendedor / AE</option>
-              <option value="coordenador">Coordenador</option>
+          <Field
+            label="Cargo"
+            tooltip="Use o mesmo nome de cargo cadastrado em Plano de Custos > Equipe alocada (ex: SDR, Vendedor, Dev Backend) — assim o sistema consegue cruzar as horas alocadas nos produtos com as pessoas contratadas aqui, em Necessidade de Contratação."
+          >
+            <input
+              name="cargo"
+              type="text"
+              list="cargos-sugeridos"
+              required
+              placeholder="Ex: SDR, Vendedor, Dev Backend"
+              className="input"
+            />
+            <datalist id="cargos-sugeridos">
+              {cargosSugeridos.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </Field>
+          <Field
+            label="Categoria"
+            tooltip="Define em qual grupo de custo essa contratação entra: P&D (produto/tech), S&M (vendas/marketing) ou G&A (geral/administrativo) — usado para separar CAC, margem de contribuição e DRE."
+          >
+            <select name="categoria" defaultValue="sm" className="input">
+              <option value="sm">S&amp;M — Vendas e Marketing</option>
+              <option value="pd">P&amp;D — Produto e Tecnologia</option>
+              <option value="ga">G&amp;A — Geral e Administrativo</option>
             </select>
           </Field>
-          <Field label="Nome / empresa (opcional)">
-            <input name="nome_referencia" type="text" className="input" placeholder="Ex: João, ou Agência XPTO" />
-          </Field>
         </div>
+
+        <Field label="Nome / empresa (opcional)">
+          <input name="nome_referencia" type="text" className="input" placeholder="Ex: João, ou Agência XPTO" />
+        </Field>
 
         <div className="flex gap-2 rounded-lg bg-bg p-1">
           <button

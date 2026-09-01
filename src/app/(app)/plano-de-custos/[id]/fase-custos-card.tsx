@@ -6,9 +6,11 @@ import {
   criarCustoVariavel,
   excluirCustoFixo,
   excluirCustoVariavel,
+  copiarCustosFaseAnterior,
   type ActionState,
 } from "../actions";
 import { EquipeAlocada } from "../../produtos/[id]/equipe-alocada";
+import type { FaseValue } from "@/lib/fases";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
 type CustoFixo = { id: string; item: string; quantidade: number; valor_unitario: number; plano_contas: { codigo: string; conta: string } | null };
@@ -66,8 +68,18 @@ export function FaseCustosCard({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [copiaState, setCopiaState] = useState<{ error: string | null; success?: boolean } | null>(null);
+  const [copiaPending, startCopia] = useTransition();
   const totalEquipe = alocacoes.reduce((acc, a) => acc + a.quantidade_funcionarios * a.horas_mes * a.custo_hora, 0);
   const totalFixo = custosFixos.reduce((acc, c) => acc + c.quantidade * c.valor_unitario, 0) + totalEquipe;
+
+  function handleCopiar() {
+    setCopiaState(null);
+    startCopia(async () => {
+      const result = await copiarCustosFaseAnterior(produtoId, cenarioId, fase as FaseValue);
+      setCopiaState(result);
+    });
+  }
 
   if (!open) {
     return (
@@ -99,12 +111,27 @@ export function FaseCustosCard({
             {ordem}. {label}
           </span>
         </div>
-        <button type="button" onClick={() => setOpen(false)} className="text-text-faint">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path d="m18 15-6-6-6 6" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2">
+          {ordem > 1 && (
+            <button
+              type="button"
+              disabled={copiaPending}
+              onClick={handleCopiar}
+              className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-primary-deep disabled:opacity-60"
+            >
+              {copiaPending ? "Copiando…" : "Copiar custos da fase anterior"}
+            </button>
+          )}
+          <button type="button" onClick={() => setOpen(false)} className="text-text-faint">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="m18 15-6-6-6 6" />
+            </svg>
+          </button>
+        </div>
       </div>
+
+      {copiaState?.error && <p className="mb-3 text-[11px] text-danger">{copiaState.error}</p>}
+      {copiaState?.success && <p className="mb-3 text-[11px] text-success">Custos copiados — ajuste o que precisar mudar nesta fase.</p>}
 
       <div className="flex flex-col gap-4">
         <EquipeAlocada produtoId={produtoId} cenarioId={cenarioId} fase={fase} alocacoes={alocacoes} />

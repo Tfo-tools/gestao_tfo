@@ -60,7 +60,7 @@ export async function recalcularSimulacao(
       supabase.from("premissas_funil").select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control").in("fase_produto_id", faseIds),
       supabase
         .from("contratacoes")
-        .select("cargo, tipo_contratacao, salario_bruto, regime_id, valor_mensal, data_inicio, data_fim")
+        .select("cargo, categoria, tipo_contratacao, salario_bruto, regime_id, valor_mensal, data_inicio, data_fim")
         .eq("cenario_id", cenarioId)
         .eq("produto_id", produtoId),
       supabase.from("encargos_regimes").select("id, aliquota_total_efetiva"),
@@ -118,8 +118,9 @@ export async function recalcularSimulacao(
       span_of_control: f.span_of_control,
     })),
     contratacoes: (contratacoesRaw ?? []).map((c) => ({
+      cargo: c.cargo,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cargo: c.cargo as any,
+      categoria: c.categoria as any,
       data_inicio: c.data_inicio,
       data_fim: c.data_fim,
       custo_mensal:

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { FASES, type FaseValue } from "@/lib/fases";
 
 export type ActionState = { error: string | null; success?: boolean };
 
@@ -114,4 +115,69 @@ export async function excluirCustoVariavel(id: string, produtoId: string) {
   const supabase = await createClient();
   await supabase.from("plano_custos_variaveis").delete().eq("id", id);
   revalidatePath(`/plano-de-custos/${produtoId}`);
+}
+
+export async function copiarCustosFaseAnterior(
+  produtoId: string,
+  cenarioId: string,
+  faseAtual: FaseValue,
+): Promise<ActionState> {
+  const idxAtual = FASES.findIndex((f) => f.value === faseAtual);
+  if (idxAtual <= 0) return { error: "Não há fase anterior para copiar." };
+
+  const supabase = await createClient();
+
+  // Procura, andando pra trás, a fase anterior mais próxima que já tenha custos cadastrados.
+  let faseOrigemId: string | null = null;
+  for (let i = idxAtual - 1; i >= 0; i--) {
+    const { data } = await supabase
+      .from("fases_produto")
+      .select("id")
+      .eq("produto_id", produtoId)
+      .eq("cenario_id", cenarioId)
+      .eq("fase", FASES[i].value)
+      .maybeSingle();
+    if (data) {
+      faseOrigemId = data.id;
+      break;
+    }
+  }
+  if (!faseOrigemId) return { error: "Nenhuma fase anterior cadastrada ainda." };
+
+  const [{ data: fixos }, { data: variaveis }, { data: alocacoes }] = await Promise.all([
+    supabase
+      .from("plano_custos_fixos")
+      .select("plano_contas_id, tipo, item, quantidade, valor_unitario")
+      .eq("fase_produto_id", faseOrigemId),
+    supabase
+      .from("plano_custos_variaveis")
+      .select("plano_contas_id, item, tipo_calculo, valor_base, percentual, valor_por_unidade")
+      .eq("fase_produto_id", faseOrigemId),
+    supabase
+      .from("equipe_alocada")
+      .select("cargo, categoria, quantidade_funcionarios, horas_mes, custo_hora")
+      .eq("fase_produto_id", faseOrigemId),
+  ]);
+
+  if ((fixos?.length ?? 0) === 0 && (variaveis?.length ?? 0) === 0 && (alocacoes?.length ?? 0) === 0) {
+    return { error: "A fase anterior não tem custos para copiar." };
+  }
+
+  const faseDestinoId = await getOrCreateFaseId(supabase, produtoId, cenarioId, faseAtual);
+  if (!faseDestinoId) return { error: "Não foi possível preparar a fase." };
+
+  await Promise.all([
+    fixos && fixos.length > 0
+      ? supabase.from("plano_custos_fixos").insert(fixos.map((f) => ({ ...f, fase_produto_id: faseDestinoId })))
+      : Promise.resolve(),
+    variaveis && variaveis.length > 0
+      ? supabase.from("plano_custos_variaveis").insert(variaveis.map((v) => ({ ...v, fase_produto_id: faseDestinoId })))
+      : Promise.resolve(),
+    alocacoes && alocacoes.length > 0
+      ? supabase.from("equipe_alocada").insert(alocacoes.map((a) => ({ ...a, fase_produto_id: faseDestinoId })))
+      : Promise.resolve(),
+  ]);
+
+  revalidatePath(`/plano-de-custos/${produtoId}`);
+  return { error: null, success: true };
 }
