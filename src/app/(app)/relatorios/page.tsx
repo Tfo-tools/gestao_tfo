@@ -179,6 +179,8 @@ type Agregado = {
   cogs: number;
   novosClientes: number;
   cacPonderado: number;
+  churnPonderado: number;
+  ltvPonderado: number;
 };
 
 type ResumoCenario = {
@@ -192,6 +194,8 @@ type Metricas = {
   custosAcumulados: number;
   margemOperacional: number | null;
   margemBruta: number | null;
+  churnMedio: number | null;
+  ltvMedio: number | null;
   clientesInicio: number;
   clientesFinal: number;
   cacMedio: number | null;
@@ -217,6 +221,9 @@ function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
 
   let somaCacPonderado = 0;
   let somaNovosClientes = 0;
+  let somaChurnPonderado = 0;
+  let somaLtvPonderado = 0;
+  let somaClientesPeso = 0;
   let acumulado = 0;
   let breakEvenMes: string | null = null;
   let breakEvenClientes: number | null = null;
@@ -235,6 +242,9 @@ function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
     }
     somaCacPonderado += l.cacPonderado;
     somaNovosClientes += l.novosClientes;
+    somaChurnPonderado += l.churnPonderado;
+    somaLtvPonderado += l.ltvPonderado;
+    somaClientesPeso += l.clientes;
   }
 
   return {
@@ -243,6 +253,8 @@ function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
     custosAcumulados,
     margemOperacional,
     margemBruta,
+    churnMedio: somaClientesPeso > 0 ? (somaChurnPonderado / somaClientesPeso) * 100 : null,
+    ltvMedio: somaClientesPeso > 0 ? somaLtvPonderado / somaClientesPeso : null,
     clientesInicio,
     clientesFinal,
     cacMedio: somaNovosClientes > 0 ? somaCacPonderado / somaNovosClientes : null,
@@ -272,7 +284,7 @@ async function agregarPorCenario(
     await Promise.all([
       supabase
         .from("simulacao_mensal")
-        .select("produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes")
+        .select("produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv")
         .eq("cenario_id", cenarioId)
         .order("mes_referencia"),
       supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId),
@@ -361,6 +373,8 @@ async function agregarPorCenario(
         cogs: 0,
         novosClientes: 0,
         cacPonderado: 0,
+        churnPonderado: 0,
+        ltvPonderado: 0,
       } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
@@ -373,6 +387,11 @@ async function agregarPorCenario(
       atual.cacPonderado += Number(row.cac_all_in) * novos;
       atual.novosClientes += novos;
     }
+    // Churn e LTV ponderados pelos clientes ativos do produto naquele mês — dá a média
+    // consolidada certa em vez de simplesmente somar taxas de produtos diferentes.
+    const clientesRow = Number(row.clientes_ativos ?? 0);
+    if (row.churn_pct != null) atual.churnPonderado += Number(row.churn_pct) * clientesRow;
+    if (row.ltv != null) atual.ltvPonderado += Number(row.ltv) * clientesRow;
   }
 
   // Custos compartilhados da empresa (não ligados a um produto) — entram uma vez no EBITDA
@@ -505,7 +524,7 @@ function MetricasInvestidor({ nome, metricas, totalInvestido }: { nome: string; 
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
       <h2 className="mb-4 font-heading text-sm font-semibold">Métricas para investidor — {nome}</h2>
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <Metrica
           label="Meta do período"
           valor={`${metricas.clientesFinal.toLocaleString("pt-BR")} clientes`}
@@ -525,6 +544,21 @@ function MetricasInvestidor({ nome, metricas, totalInvestido }: { nome: string; 
           label="Margem bruta"
           valor={metricas.margemBruta != null ? `${metricas.margemBruta.toFixed(0)}%` : "—"}
           detalhe="(receita − COGS) / receita, no período"
+        />
+        <Metrica
+          label="CAC (all-in)"
+          valor={metricas.cacMedio != null ? formatBRL(metricas.cacMedio) : "—"}
+          detalhe="custo médio por cliente adquirido"
+        />
+        <Metrica
+          label="LTV"
+          valor={metricas.ltvMedio != null ? formatBRL(metricas.ltvMedio) : "—"}
+          detalhe="valor médio projetado por cliente"
+        />
+        <Metrica
+          label="Churn médio"
+          valor={metricas.churnMedio != null ? `${metricas.churnMedio.toFixed(1)}%/mês` : "—"}
+          detalhe="ponderado pelos clientes ativos"
         />
         <Metrica
           label="Retorno do investimento"
