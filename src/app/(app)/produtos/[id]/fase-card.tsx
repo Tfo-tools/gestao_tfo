@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { salvarFase, type ActionState } from "../actions";
+import { EquipeAlocada } from "./equipe-alocada";
 
 type Fase = {
   data_inicio: string | null;
@@ -20,6 +21,15 @@ type Beta = {
   sem_custo_adicional: boolean;
 } | null;
 
+type Alocacao = {
+  id: string;
+  cargo: string;
+  categoria: string;
+  quantidade_funcionarios: number;
+  horas_mes: number;
+  custo_hora: number;
+};
+
 const initialState: ActionState = { error: null };
 
 export function FaseCard({
@@ -30,6 +40,7 @@ export function FaseCard({
   ordem,
   dados,
   beta,
+  alocacoes,
   defaultOpen = false,
 }: {
   produtoId: string;
@@ -39,6 +50,7 @@ export function FaseCard({
   ordem: number;
   dados: Fase;
   beta: Beta;
+  alocacoes: Alocacao[];
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -185,6 +197,10 @@ export function FaseCard({
           {pending ? "Salvando…" : "Salvar fase"}
         </button>
       </form>
+
+      <div className="mt-4">
+        <EquipeAlocada produtoId={produtoId} cenarioId={cenarioId} fase={fase} alocacoes={alocacoes} />
+      </div>
     </div>
   );
 }

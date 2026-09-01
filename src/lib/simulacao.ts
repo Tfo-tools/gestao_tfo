@@ -43,6 +43,14 @@ export type CustoFixoInput = {
   valor_unitario: number;
 };
 
+export type AlocacaoInput = {
+  fase: FaseValue;
+  categoria: "pd" | "sm" | "ga";
+  quantidade_funcionarios: number;
+  horas_mes: number;
+  custo_hora: number;
+};
+
 export type CustoVariavelInput = {
   fase: FaseValue;
   tipo_calculo: "percentual_receita" | "valor_por_cliente" | "valor_fixo";
@@ -58,6 +66,7 @@ export type SimulacaoInput = {
   betas: BetaInput[];
   funis: FunilInput[];
   contratacoes: ContratacaoInput[];
+  alocacoes: AlocacaoInput[];
   planos: PlanoInput[];
   custosFixos: CustoFixoInput[];
   custosVariaveis: CustoVariavelInput[];
@@ -226,6 +235,13 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       else if (c.grupo === "ga") opexGa += valor;
     }
     opexSm += custoEquipeVendas;
+
+    for (const a of input.alocacoes.filter((a) => a.fase === fase.fase)) {
+      const custo = a.quantidade_funcionarios * a.horas_mes * a.custo_hora;
+      if (a.categoria === "pd") opexPd += custo;
+      else if (a.categoria === "sm") opexSm += custo;
+      else opexGa += custo;
+    }
 
     for (const c of input.custosVariaveis.filter((c) => c.fase === fase.fase)) {
       if (c.tipo_calculo === "valor_fixo") cogs += c.valor_base ?? 0;

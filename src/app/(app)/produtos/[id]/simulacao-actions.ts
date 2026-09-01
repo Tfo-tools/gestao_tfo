@@ -38,7 +38,7 @@ export async function recalcularSimulacao(
   const faseIdByValue = new Map(fases.map((f) => [f.fase as FaseValue, f.id as string]));
   const faseIds = fases.map((f) => f.id);
 
-  const [{ data: betas }, { data: funis }, { data: contratacoesRaw }, { data: regimes }, { data: custosFixosRaw }, { data: custosVariaveisRaw }] =
+  const [{ data: betas }, { data: funis }, { data: contratacoesRaw }, { data: regimes }, { data: custosFixosRaw }, { data: custosVariaveisRaw }, { data: alocacoesRaw }] =
     await Promise.all([
       supabase.from("beta_testers_config").select("fase_produto_id, quantidade, duracao_dias, bonificacao_meses").in("fase_produto_id", faseIds),
       supabase.from("premissas_funil").select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control").in("fase_produto_id", faseIds),
@@ -55,6 +55,10 @@ export async function recalcularSimulacao(
       supabase
         .from("plano_custos_variaveis")
         .select("fase_produto_id, tipo_calculo, valor_base, percentual, valor_por_unidade")
+        .in("fase_produto_id", faseIds),
+      supabase
+        .from("equipe_alocada")
+        .select("fase_produto_id, categoria, quantidade_funcionarios, horas_mes, custo_hora")
         .in("fase_produto_id", faseIds),
     ]);
 
@@ -93,6 +97,14 @@ export async function recalcularSimulacao(
         c.tipo_contratacao === "clt"
           ? Number(c.salario_bruto ?? 0) * (1 + (regimeAliquota.get(c.regime_id ?? "") ?? 0))
           : Number(c.valor_mensal ?? 0),
+    })),
+    alocacoes: (alocacoesRaw ?? []).map((a) => ({
+      fase: faseValueById.get(a.fase_produto_id)!,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      categoria: a.categoria as any,
+      quantidade_funcionarios: Number(a.quantidade_funcionarios),
+      horas_mes: Number(a.horas_mes),
+      custo_hora: Number(a.custo_hora),
     })),
     planos: (planos ?? []).map((p) => ({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

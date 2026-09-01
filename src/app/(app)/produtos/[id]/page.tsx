@@ -39,13 +39,32 @@ export default async function ProdutoDetailPage({
     .eq("cenario_id", cenarioAtual);
 
   const faseIds = (fases ?? []).map((f) => f.id);
-  const { data: betas } =
+  const [{ data: betas }, { data: alocacoesRaw }] =
     faseIds.length > 0
-      ? await supabase.from("beta_testers_config").select("*").in("fase_produto_id", faseIds)
-      : { data: [] };
+      ? await Promise.all([
+          supabase.from("beta_testers_config").select("*").in("fase_produto_id", faseIds),
+          supabase.from("equipe_alocada").select("*").in("fase_produto_id", faseIds),
+        ])
+      : [{ data: [] }, { data: [] }];
+
+  type AlocacaoRow = {
+    id: string;
+    fase_produto_id: string;
+    cargo: string;
+    categoria: string;
+    quantidade_funcionarios: number;
+    horas_mes: number;
+    custo_hora: number;
+  };
 
   const faseByValue = new Map((fases ?? []).map((f) => [f.fase, f]));
   const betaByFaseId = new Map((betas ?? []).map((b) => [b.fase_produto_id, b]));
+  const alocacoesByFaseId = new Map<string, AlocacaoRow[]>();
+  for (const a of (alocacoesRaw ?? []) as AlocacaoRow[]) {
+    const atual = alocacoesByFaseId.get(a.fase_produto_id) ?? [];
+    atual.push(a);
+    alocacoesByFaseId.set(a.fase_produto_id, atual);
+  }
 
   const primeiraVazia = FASES.findIndex((f) => !faseByValue.get(f.value)?.data_inicio);
 
@@ -84,6 +103,7 @@ export default async function ProdutoDetailPage({
           {FASES.map((f, i) => {
             const dados = faseByValue.get(f.value) ?? null;
             const beta = dados ? (betaByFaseId.get(dados.id) ?? null) : null;
+            const alocacoes = dados ? (alocacoesByFaseId.get(dados.id) ?? []) : [];
             return (
               <FaseCard
                 key={f.value}
@@ -94,6 +114,7 @@ export default async function ProdutoDetailPage({
                 ordem={i + 1}
                 dados={dados}
                 beta={beta}
+                alocacoes={alocacoes}
                 defaultOpen={i === (primeiraVazia === -1 ? 0 : primeiraVazia)}
               />
             );
