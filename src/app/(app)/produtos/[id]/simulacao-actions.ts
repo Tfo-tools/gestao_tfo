@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { calcularSimulacao, type SimulacaoInput } from "@/lib/simulacao";
-import { grupoDeConta } from "@/lib/grupo-conta";
+import { subgrupoDeConta } from "@/lib/subgrupo-conta";
 import type { FaseValue } from "@/lib/fases";
 
 type PlanoRow = { id: string; tipo_cobranca: string; preco: number; mix_percentual: number | null; reajuste_anual_pct: number | null };
@@ -78,7 +78,7 @@ export async function recalcularSimulacao(
         .in("fase_produto_id", faseIds),
       supabase
         .from("equipe_alocada")
-        .select("fase_produto_id, categoria, quantidade_funcionarios, horas_mes, custo_hora")
+        .select("fase_produto_id, cargo, categoria, quantidade_funcionarios, horas_mes, custo_hora")
         .in("fase_produto_id", faseIds),
       planoIds.length > 0
         ? supabase.from("planos_precificacao_fases").select("plano_id, fase, preco").in("plano_id", planoIds)
@@ -152,6 +152,7 @@ export async function recalcularSimulacao(
     })),
     alocacoes: (alocacoesRaw ?? []).map((a) => ({
       fase: faseValueById.get(a.fase_produto_id)!,
+      cargo: a.cargo,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       categoria: a.categoria as any,
       quantidade_funcionarios: Number(a.quantidade_funcionarios),
@@ -182,11 +183,10 @@ export async function recalcularSimulacao(
     custosFixos: (custosFixosRaw ?? []).map((c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const conta = c.plano_contas as any;
-      const grupoBruto = conta ? grupoDeConta(conta.codigo, conta.tipo) : "outros";
-      const grupo = grupoBruto === "financeiro" || grupoBruto === "ativo" ? "outros" : grupoBruto;
+      const subgrupo = conta ? subgrupoDeConta(conta.codigo, conta.tipo) : "outros";
       return {
         fase: faseValueById.get(c.fase_produto_id)!,
-        grupo,
+        subgrupo,
         quantidade: Number(c.quantidade ?? 1),
         valor_unitario: Number(c.valor_unitario ?? 0),
       };
@@ -194,11 +194,10 @@ export async function recalcularSimulacao(
     custosVariaveis: (custosVariaveisRaw ?? []).map((c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const conta = c.plano_contas as any;
-      const grupoBruto = conta ? grupoDeConta(conta.codigo, conta.tipo) : "outros";
-      const grupo = grupoBruto === "financeiro" || grupoBruto === "ativo" ? "outros" : grupoBruto;
+      const subgrupo = conta ? subgrupoDeConta(conta.codigo, conta.tipo) : "outros";
       return {
         fase: faseValueById.get(c.fase_produto_id)!,
-        grupo,
+        subgrupo,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         tipo_calculo: c.tipo_calculo as any,
         valor_base: c.valor_base,

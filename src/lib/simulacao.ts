@@ -1,4 +1,5 @@
 import { FASES, type FaseValue } from "@/lib/fases";
+import { subgrupoDeCargo, type SubgrupoConta } from "@/lib/subgrupo-conta";
 
 export type FaseInput = {
   fase: FaseValue;
@@ -34,6 +35,14 @@ export type ContratacaoInput = {
   custo_mensal: number;
 };
 
+const subgrupoParaGrupo = (sub: SubgrupoConta): "cogs" | "sm" | "pd" | "ga" | "outros" => {
+  if (sub === "suporte" || sub === "infraestrutura" || sub === "outros_cogs") return "cogs";
+  if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") return "sm";
+  if (sub === "pd") return "pd";
+  if (sub === "ga") return "ga";
+  return "outros";
+};
+
 export type PlanoInput = {
   tipo_cobranca: "mensal" | "semestral" | "anual";
   preco: number;
@@ -66,13 +75,14 @@ export type ModuloInput = {
 
 export type CustoFixoInput = {
   fase: FaseValue;
-  grupo: "cogs" | "sm" | "pd" | "ga" | "outros";
+  subgrupo: SubgrupoConta;
   quantidade: number;
   valor_unitario: number;
 };
 
 export type AlocacaoInput = {
   fase: FaseValue;
+  cargo: string;
   categoria: "pd" | "sm" | "ga";
   quantidade_funcionarios: number;
   horas_mes: number;
@@ -81,7 +91,7 @@ export type AlocacaoInput = {
 
 export type CustoVariavelInput = {
   fase: FaseValue;
-  grupo: "cogs" | "sm" | "pd" | "ga" | "outros";
+  subgrupo: SubgrupoConta;
   tipo_calculo: "percentual_receita" | "valor_por_cliente" | "valor_fixo";
   valor_base: number | null;
   percentual: number | null;
@@ -119,6 +129,12 @@ export type MesResultado = {
   opex_pd: number;
   opex_ga: number;
   ebitda: number;
+  cogs_suporte: number;
+  cogs_infraestrutura: number;
+  cogs_outros: number;
+  sm_marketing: number;
+  sm_vendas: number;
+  sm_outros: number;
 };
 
 function addMonths(dateStr: string, n: number): Date {
@@ -187,15 +203,35 @@ function calcularArpu(planos: PlanoInput[], fase: FaseValue, mes: Date, dataLanc
   }, 0);
 }
 
-/** Soma o custo das contratações ativas (por data) num determinado mês, por categoria (P&D/S&M/G&A). */
-function custoContratacoesNoMes(contratacoes: ContratacaoInput[], mes: Date): { sm: number; pd: number; ga: number } {
-  const totais = { sm: 0, pd: 0, ga: 0 };
+type Totais = { cogs: number; sm: number; pd: number; ga: number; suporte: number; infraestrutura: number; outros_cogs: number; marketing: number; vendas: number; outros_sm: number };
+
+function novoTotais(): Totais {
+  return { cogs: 0, sm: 0, pd: 0, ga: 0, suporte: 0, infraestrutura: 0, outros_cogs: 0, marketing: 0, vendas: 0, outros_sm: 0 };
+}
+
+function acumular(totais: Totais, subgrupo: SubgrupoConta, valor: number) {
+  const grupo = subgrupoParaGrupo(subgrupo);
+  if (grupo === "cogs") totais.cogs += valor;
+  else if (grupo === "sm") totais.sm += valor;
+  else if (grupo === "pd") totais.pd += valor;
+  else if (grupo === "ga") totais.ga += valor;
+  if (subgrupo === "suporte") totais.suporte += valor;
+  else if (subgrupo === "infraestrutura") totais.infraestrutura += valor;
+  else if (subgrupo === "outros_cogs") totais.outros_cogs += valor;
+  else if (subgrupo === "marketing") totais.marketing += valor;
+  else if (subgrupo === "vendas") totais.vendas += valor;
+  else if (subgrupo === "outros_sm") totais.outros_sm += valor;
+}
+
+/** Soma o custo das contratações ativas (por data) num determinado mês, por categoria fina. */
+function custoContratacoesNoMes(contratacoes: ContratacaoInput[], mes: Date): Totais {
+  const totais = novoTotais();
   for (const c of contratacoes) {
     const inicio = c.data_inicio ? new Date(c.data_inicio + "T00:00:00") : null;
     const fim = c.data_fim ? new Date(c.data_fim + "T00:00:00") : null;
     const iniciouAntes = !inicio || new Date(inicio.getFullYear(), inicio.getMonth(), 1) <= mes;
     const aindaAtiva = !fim || fim >= mes;
-    if (iniciouAntes && aindaAtiva) totais[c.categoria] += c.custo_mensal;
+    if (iniciouAntes && aindaAtiva) acumular(totais, subgrupoDeCargo(c.cargo, c.categoria), c.custo_mensal);
   }
   return totais;
 }
@@ -241,6 +277,12 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         opex_pd: 0,
         opex_ga: 0,
         ebitda: 0,
+        cogs_suporte: 0,
+        cogs_infraestrutura: 0,
+        cogs_outros: 0,
+        sm_marketing: 0,
+        sm_vendas: 0,
+        sm_outros: 0,
       });
       continue;
     }
@@ -356,30 +398,19 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
 
     const receitaBruta = receitaPlanos + receitaModulos;
 
-    // Custo real das contratações (CLT + PJ) ativas neste mês, já separado por categoria.
-    const custoContratacoes = custoContratacoesNoMes(input.contratacoes, mes);
+    // Custo real das contratações (CLT + PJ) ativas neste mês, já separado por categoria fina.
+    const totais = custoContratacoesNoMes(input.contratacoes, mes);
 
     const ltv = taxaChurn > 0 ? arpu / taxaChurn : null;
 
     // COGS e OPEX a partir do plano de custos da fase (equipe alocada + custos fixos/variáveis).
-    let cogs = 0;
-    let opexSm = custoContratacoes.sm;
-    let opexPd = custoContratacoes.pd;
-    let opexGa = custoContratacoes.ga;
-
     for (const c of input.custosFixos.filter((c) => c.fase === fase.fase)) {
-      const valor = c.quantidade * c.valor_unitario;
-      if (c.grupo === "cogs") cogs += valor;
-      else if (c.grupo === "sm") opexSm += valor;
-      else if (c.grupo === "pd") opexPd += valor;
-      else if (c.grupo === "ga") opexGa += valor;
+      acumular(totais, c.subgrupo, c.quantidade * c.valor_unitario);
     }
 
     for (const a of input.alocacoes.filter((a) => a.fase === fase.fase)) {
       const custo = a.quantidade_funcionarios * a.horas_mes * a.custo_hora;
-      if (a.categoria === "pd") opexPd += custo;
-      else if (a.categoria === "sm") opexSm += custo;
-      else opexGa += custo;
+      acumular(totais, subgrupoDeCargo(a.cargo, a.categoria), custo);
     }
 
     for (const c of input.custosVariaveis.filter((c) => c.fase === fase.fase)) {
@@ -389,15 +420,12 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
           : c.tipo_calculo === "valor_por_cliente"
             ? (c.valor_base ?? 0) + (c.valor_por_unidade ?? 0) * clientesAtivos
             : (c.percentual ?? 0) * receitaBruta;
-      if (c.grupo === "sm") opexSm += valor;
-      else if (c.grupo === "pd") opexPd += valor;
-      else if (c.grupo === "ga") opexGa += valor;
-      else cogs += valor;
+      acumular(totais, c.subgrupo, valor);
     }
 
     // CAC all-in: todo o investimento em S&M da fase (equipe comercial contratada + equipe
     // alocada + custos fixos/variáveis categorizados como S&M) dividido pelos clientes novos.
-    const cacAllIn = novosClientes > 0 ? opexSm / novosClientes : null;
+    const cacAllIn = novosClientes > 0 ? totais.sm / novosClientes : null;
 
     resultados.push({
       mes_referencia: isoMonth(mes),
@@ -410,11 +438,17 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       ltv,
       receita_bruta: receitaBruta,
       receita_modulos: receitaModulos,
-      cogs,
-      opex_sm: opexSm,
-      opex_pd: opexPd,
-      opex_ga: opexGa,
-      ebitda: receitaBruta - cogs - opexSm - opexPd - opexGa,
+      cogs: totais.cogs,
+      opex_sm: totais.sm,
+      opex_pd: totais.pd,
+      opex_ga: totais.ga,
+      ebitda: receitaBruta - totais.cogs - totais.sm - totais.pd - totais.ga,
+      cogs_suporte: totais.suporte,
+      cogs_infraestrutura: totais.infraestrutura,
+      cogs_outros: totais.outros_cogs,
+      sm_marketing: totais.marketing,
+      sm_vendas: totais.vendas,
+      sm_outros: totais.outros_sm,
     });
   }
 

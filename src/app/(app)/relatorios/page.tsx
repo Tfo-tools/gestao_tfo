@@ -21,6 +21,152 @@ function buildPath(values: number[], width: number, height: number, min: number,
     .join(" ");
 }
 
+export default async function RelatoriosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ aba?: string; a?: string; b?: string }>;
+}) {
+  const { aba, a, b } = await searchParams;
+  const abaAtual = aba === "planos" ? "planos" : "real";
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="font-heading text-[22px] font-semibold">Relatórios</h1>
+          <p className="mt-1 text-[13px] text-text-muted">
+            {abaAtual === "real"
+              ? "O que de fato está acontecendo na empresa — custos e vendas já realizados"
+              : "Planejamento — projeção de receitas e despesas mês a mês"}
+          </p>
+        </div>
+        <div className="flex gap-2 rounded-lg bg-bg p-1">
+          <Link
+            href="/relatorios?aba=real"
+            className={`rounded-md px-4 py-2 text-[12.5px] font-medium ${abaAtual === "real" ? "bg-surface shadow-sm text-primary-deep" : "text-text-muted"}`}
+          >
+            Real
+          </Link>
+          <Link
+            href="/relatorios?aba=planos"
+            className={`rounded-md px-4 py-2 text-[12.5px] font-medium ${abaAtual === "planos" ? "bg-surface shadow-sm text-primary-deep" : "text-text-muted"}`}
+          >
+            Planos
+          </Link>
+        </div>
+      </div>
+
+      {abaAtual === "real" ? <RelatorioReal /> : <RelatorioPlanos a={a} b={b} />}
+    </div>
+  );
+}
+
+const GRUPO_TOOLTIP: Record<string, string> = {
+  COGS: "Cost of Goods Sold (Custo dos Produtos/Serviços Vendidos): custos diretos para entregar o produto — ex: infraestrutura, hospedagem, APIs de terceiros.",
+  "S&M": "Sales & Marketing (Vendas e Marketing): custos para atrair e converter clientes — ex: anúncios, comissões, equipe comercial.",
+  "P&D": "Pesquisa e Desenvolvimento: custos da equipe e ferramentas que constroem e evoluem o produto.",
+  "G&A": "General & Administrative (Geral e Administrativo): custos de gestão da empresa — ex: contabilidade, jurídico, administrativo.",
+};
+
+function grupoDe(codigo: string, tipo: string): string {
+  if (tipo === "cogs") return "COGS";
+  if (codigo.startsWith("4.2.1")) return "S&M";
+  if (codigo.startsWith("4.2.2")) return "P&D";
+  if (codigo.startsWith("4.2.3") || codigo.startsWith("4.2.4")) return "G&A";
+  if (tipo === "financeiro") return "Financeiro";
+  if (tipo === "ativo") return "Ativos";
+  return "Outros";
+}
+
+const ORDEM_GRUPOS = ["COGS", "S&M", "P&D", "G&A", "Financeiro", "Ativos", "Outros"];
+
+async function RelatorioReal() {
+  const supabase = await createClient();
+
+  const [{ data: despesas }, { data: receitasReais }] = await Promise.all([
+    supabase.from("despesas").select("data_gasto, valor_total, plano_contas:plano_contas_id(codigo, tipo)"),
+    // Nenhuma tabela de receita realizada existe ainda — fica pronto pro dia em que houver vendas reais.
+    Promise.resolve({ data: [] as { data_venda: string; valor: number }[] }),
+  ]);
+
+  const now = new Date();
+  const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const porGrupo = new Map<string, { mes: number; acumulado: number }>();
+  for (const g of ORDEM_GRUPOS) porGrupo.set(g, { mes: 0, acumulado: 0 });
+
+  for (const d of despesas ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conta = d.plano_contas as any;
+    if (!conta) continue;
+    const grupo = grupoDe(conta.codigo, conta.tipo);
+    const entry = porGrupo.get(grupo)!;
+    const valor = Number(d.valor_total);
+    entry.acumulado += valor;
+    if (d.data_gasto.startsWith(mesAtual)) entry.mes += valor;
+  }
+
+  const receitaMes = (receitasReais ?? []).filter((r) => r.data_venda.startsWith(mesAtual)).reduce((s, r) => s + r.valor, 0);
+  const receitaAcumulada = (receitasReais ?? []).reduce((s, r) => s + r.valor, 0);
+
+  const totalCustosMes = [...porGrupo.values()].reduce((acc, g) => acc + g.mes, 0);
+  const totalCustosAcumulado = [...porGrupo.values()].reduce((acc, g) => acc + g.acumulado, 0);
+  const ebitdaMes = receitaMes - totalCustosMes;
+  const ebitdaAcumulado = receitaAcumulada - totalCustosAcumulado;
+
+  return (
+    <div className="rounded-xl border border-border bg-surface p-6">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="font-heading text-sm font-semibold">Demonstrativo de Resultado — Real</h2>
+        {receitaAcumulada === 0 && <span className="text-[11px] text-text-faint">receita ainda não lançada — período pré-operacional</span>}
+      </div>
+      <table className="mt-4 w-full border-collapse text-[12.5px]">
+        <thead>
+          <tr className="text-left text-text-muted">
+            <th className="px-2 py-2 font-medium">Grupo</th>
+            <th className="px-2 py-2 text-right font-medium">{mesAtual}</th>
+            <th className="px-2 py-2 text-right font-medium">Acumulado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-t border-border-soft">
+            <td className="px-2 py-2.5">Faturamento</td>
+            <td className="px-2 py-2.5 text-right font-mono">{formatBRL(receitaMes)}</td>
+            <td className="px-2 py-2.5 text-right font-mono">{formatBRL(receitaAcumulada)}</td>
+          </tr>
+          {ORDEM_GRUPOS.filter((g) => porGrupo.get(g)!.acumulado > 0).map((g) => {
+            const v = porGrupo.get(g)!;
+            return (
+              <tr key={g} className="border-t border-border-soft">
+                <td className="flex items-center px-2 py-2.5">
+                  (–) {g}
+                  {GRUPO_TOOLTIP[g] && <InfoTooltip texto={GRUPO_TOOLTIP[g]} />}
+                </td>
+                <td className="px-2 py-2.5 text-right font-mono">{formatBRL(v.mes)}</td>
+                <td className="px-2 py-2.5 text-right font-mono">{formatBRL(v.acumulado)}</td>
+              </tr>
+            );
+          })}
+          <tr className="border-t-2 border-text bg-wine-soft">
+            <td className="flex items-center px-2 py-2.5 font-bold">
+              (=) EBITDA real
+              <InfoTooltip texto="EBITDA = lucro antes de juros, impostos, depreciação e amortização — aqui calculado só com o que já foi de fato faturado e gasto, sem projeção." />
+            </td>
+            <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaMes < 0 ? "text-danger" : "text-success"}`}>{formatBRL(ebitdaMes)}</td>
+            <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
+              {formatBRL(ebitdaAcumulado)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {(despesas ?? []).length === 0 && (
+        <p className="mt-4 text-[13px] text-text-muted">Nenhuma despesa lançada ainda — cadastre em Custos → Lançamentos.</p>
+      )}
+    </div>
+  );
+}
+
 type Agregado = { mes_referencia: string; receita: number; ebitdaProdutos: number; clientes: number; custosEmpresa: number; ebitda: number };
 
 type ResumoCenario = {
@@ -133,12 +279,7 @@ async function agregarPorCenario(
   return { linhas, cacMedio, breakEvenMes, totalInvestido, ebitdaAcumulado };
 }
 
-export default async function RelatoriosPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ a?: string; b?: string }>;
-}) {
-  const { a, b } = await searchParams;
+async function RelatorioPlanos({ a, b }: { a?: string; b?: string }) {
   const supabase = await createClient();
 
   const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base").order("created_at");
@@ -170,28 +311,17 @@ export default async function RelatoriosPage({
 
   const semDados = resumoA.linhas.length === 0 && resumoB.linhas.length === 0;
 
-  const mesesUnificados = [...new Set([...resumoA.linhas.map((l) => l.mes_referencia), ...resumoB.linhas.map((l) => l.mes_referencia)])].sort();
-  const linhaAPorMes = new Map(resumoA.linhas.map((l) => [l.mes_referencia, l]));
-  const linhaBPorMes = new Map(resumoB.linhas.map((l) => [l.mes_referencia, l]));
-
   return (
-    <div>
-      <div className="mb-7 flex items-center justify-between">
-        <div>
-          <h1 className="font-heading text-[22px] font-semibold">Relatório Comparativo</h1>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Resultado consolidado (todos os produtos) de um cenário contra outro
-          </p>
-        </div>
-        <Link
-          href="/relatorios/mensal"
-          className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
-        >
+    <>
+      <div className="mb-6 flex items-center justify-between">
+        <p className="text-[13px] text-text-muted">Resultado consolidado (todos os produtos) de um cenário contra outro</p>
+        <Link href="/relatorios/mensal" className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep">
           Detalhamento Mensal por Produto
         </Link>
       </div>
 
       <form method="get" className="mb-6 grid grid-cols-[1fr_auto_1fr] items-end gap-4">
+        <input type="hidden" name="aba" value="planos" />
         <div>
           <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Cenário A</label>
           <select name="a" defaultValue={cenarioA} className="input w-full">
@@ -220,15 +350,15 @@ export default async function RelatoriosPage({
 
       {semDados ? (
         <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
-          <p className="text-sm text-text-muted">
-            Nenhum dos dois cenários tem projeção calculada ainda — recalcule em Produtos primeiro.
-          </p>
+          <p className="text-sm text-text-muted">Nenhum dos dois cenários tem projeção calculada ainda — recalcule em Produtos primeiro.</p>
         </div>
       ) : (
         <>
           <div className="mb-5 rounded-xl border border-border bg-surface p-6">
             <div className="mb-1 flex items-center justify-between">
-              <h2 className="font-heading text-sm font-semibold">Receita consolidada — {nomeA} x {nomeB}</h2>
+              <h2 className="font-heading text-sm font-semibold">
+                Receita consolidada — {nomeA} x {nomeB}
+              </h2>
             </div>
             <div className="mb-3 flex items-center gap-4">
               <Legenda cor="var(--color-text-faint)" texto={nomeA} />
@@ -318,46 +448,13 @@ export default async function RelatoriosPage({
             </table>
           </div>
 
-          <div className="mb-5 grid grid-cols-2 items-start gap-5">
+          <div className="grid grid-cols-2 items-start gap-5">
             <AlocacaoInvestimento cenarioId={cenarioA} itens={alocacoesA ?? []} nomeCenario={nomeA} />
             <AlocacaoInvestimento cenarioId={cenarioB} itens={alocacoesB ?? []} nomeCenario={nomeB} />
           </div>
-
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <h2 className="mb-1 font-heading text-sm font-semibold">Clientes e faturamento mês a mês</h2>
-            <p className="mb-4 text-[11px] text-text-muted">Pronto para levar às apresentações de investimento</p>
-            <div className="max-h-[420px] overflow-y-auto overflow-x-auto">
-              <table className="w-full border-collapse text-[12px]">
-                <thead className="sticky top-0 bg-surface">
-                  <tr className="text-left text-text-muted">
-                    <td className="px-2 py-1.5 font-medium">Mês</td>
-                    <td className="px-2 py-1.5 text-right font-medium">Clientes ({nomeA})</td>
-                    <td className="px-2 py-1.5 text-right font-medium">Faturamento ({nomeA})</td>
-                    <td className="px-2 py-1.5 text-right font-medium">Clientes ({nomeB})</td>
-                    <td className="px-2 py-1.5 text-right font-medium">Faturamento ({nomeB})</td>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mesesUnificados.map((mes) => {
-                    const la = linhaAPorMes.get(mes);
-                    const lb = linhaBPorMes.get(mes);
-                    return (
-                      <tr key={mes} className="border-t border-border-soft">
-                        <td className="px-2 py-1.5 capitalize">{formatMes(mes)}</td>
-                        <td className="px-2 py-1.5 text-right font-mono">{la ? la.clientes.toLocaleString("pt-BR") : "—"}</td>
-                        <td className="px-2 py-1.5 text-right font-mono">{la ? formatBRL(la.receita) : "—"}</td>
-                        <td className="px-2 py-1.5 text-right font-mono">{lb ? lb.clientes.toLocaleString("pt-BR") : "—"}</td>
-                        <td className="px-2 py-1.5 text-right font-mono">{lb ? formatBRL(lb.receita) : "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </>
       )}
-    </div>
+    </>
   );
 }
 
