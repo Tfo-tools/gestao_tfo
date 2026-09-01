@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { AlocacaoInvestimento } from "./alocacao-investimento";
@@ -175,11 +176,19 @@ export default async function RelatoriosPage({
 
   return (
     <div>
-      <div className="mb-7">
-        <h1 className="font-heading text-[22px] font-semibold">Relatório Comparativo</h1>
-        <p className="mt-1 text-[13px] text-text-muted">
-          Resultado consolidado (todos os produtos) de um cenário contra outro
-        </p>
+      <div className="mb-7 flex items-center justify-between">
+        <div>
+          <h1 className="font-heading text-[22px] font-semibold">Relatório Comparativo</h1>
+          <p className="mt-1 text-[13px] text-text-muted">
+            Resultado consolidado (todos os produtos) de um cenário contra outro
+          </p>
+        </div>
+        <Link
+          href="/relatorios/mensal"
+          className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
+        >
+          Detalhamento Mensal por Produto
+        </Link>
       </div>
 
       <form method="get" className="mb-6 grid grid-cols-[1fr_auto_1fr] items-end gap-4">
