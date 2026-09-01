@@ -82,17 +82,18 @@ export default async function ProdutoDetailPage({
           <p className="mt-0.5 text-[11px] text-text-faint">
             Metas de crescimento e preço ficam aqui — custos (equipe, fixos e variáveis) ficam em Plano de Custos
           </p>
-          <DatasProduto
-            produtoId={id}
-            dataInicioDesenvolvimento={produto.data_inicio_desenvolvimento}
-            dataLancamentoEstimada={produto.data_lancamento_estimada}
-          />
         </div>
         <div className="flex items-center gap-3">
           {cenarioAtual && <CenarioSelector cenarios={cenarios ?? []} cenarioAtual={cenarioAtual} />}
           {cenarioAtual && <RecalcularButton produtoId={id} cenarioId={cenarioAtual} />}
         </div>
       </div>
+
+      <DatasProduto
+        produtoId={id}
+        dataInicioDesenvolvimento={produto.data_inicio_desenvolvimento}
+        dataLancamentoEstimada={produto.data_lancamento_estimada}
+      />
 
       <div className="mb-5">
         <SimulacaoResultado linhas={simulacao ?? []} />
