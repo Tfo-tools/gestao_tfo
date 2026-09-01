@@ -13,6 +13,10 @@ export type BetaInput = {
   quantidade: number;
   duracao_dias: number | null;
   bonificacao_meses: number | null;
+  /** Desconto aplicado por um período após a conversão (recompensa por ter testado cedo). */
+  condicao_especial_pct: number | null;
+  /** Duração, em meses, da condição especial após a conversão — depois disso paga o preço cheio normalmente. */
+  condicao_especial_meses: number | null;
 };
 
 export type FunilInput = {
@@ -196,6 +200,10 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
   let clientesAtivos = 0;
   let betaAtivos = 0;
   const adocaoModulos = new Map<number, number>();
+  // Clientes que converteram do beta e ainda estão dentro da janela de condição especial
+  // (desconto por tempo limitado) — cada entrada é um lote independente, escopado à fase/beta
+  // que a originou, sem acumular com outras condições de outras fases ou módulos.
+  let condicoesEspeciaisAtivas: { quantidade: number; desconto: number; mesFim: number }[] = [];
   const resultados: MesResultado[] = [];
 
   for (let i = 0; i < totalMeses; i++) {
@@ -248,6 +256,14 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       if (mesesAteFase === mesConversao && betaAtivos > 0) {
         conversaoBeta = betaConfig.quantidade;
         betaAtivos = Math.max(0, betaAtivos - betaConfig.quantidade);
+
+        if (betaConfig.condicao_especial_pct && betaConfig.condicao_especial_meses) {
+          condicoesEspeciaisAtivas.push({
+            quantidade: betaConfig.quantidade,
+            desconto: betaConfig.condicao_especial_pct,
+            mesFim: i + betaConfig.condicao_especial_meses,
+          });
+        }
       }
     }
 
@@ -257,7 +273,16 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     clientesAtivos = Math.max(0, clientesAtivos + novosClientes - perdidos);
 
     const arpu = calcularArpu(input.planos, fase.fase, mes, input.dataLancamentoEstimada);
-    const receitaPlanos = arpu * clientesAtivos * fatorProRata;
+
+    // Remove condições especiais já vencidas e desconta, do faturamento normal, os clientes
+    // ainda dentro da janela (pagam preço cheio menos o desconto combinado, só nesse período).
+    condicoesEspeciaisAtivas = condicoesEspeciaisAtivas.filter((c) => c.mesFim > i);
+    const descontoCondicaoEspecial = condicoesEspeciaisAtivas.reduce(
+      (acc, c) => acc + c.quantidade * arpu * c.desconto,
+      0,
+    );
+
+    const receitaPlanos = (arpu * clientesAtivos - descontoCondicaoEspecial) * fatorProRata;
 
     // Meses desde o lançamento comercial do produto — usado por reajustes e por módulos com gatilho por tempo.
     let mesesDesdeLancamentoProduto: number | null = null;

@@ -57,13 +57,15 @@ export async function salvarFase(
 
   const betaQuantidade = formData.get("beta_quantidade");
   if (betaQuantidade !== null && betaQuantidade !== "") {
+    const condicaoEspecialPct = formData.get("beta_condicao_especial_pct");
     const payload = {
       fase_produto_id: faseRow.id,
       quantidade: Number(betaQuantidade),
       duracao_dias: num("beta_duracao_dias"),
       tipo: str("beta_tipo") ?? "mvp_inicial",
       bonificacao_meses: num("beta_bonificacao_meses") ?? 0,
-      sem_custo_adicional: formData.get("beta_sem_custo") === "on",
+      condicao_especial_pct: condicaoEspecialPct !== null && condicaoEspecialPct !== "" ? Number(condicaoEspecialPct) / 100 : null,
+      condicao_especial_meses: num("beta_condicao_especial_meses"),
     };
     const { data: existingBeta } = await supabase
       .from("beta_testers_config")

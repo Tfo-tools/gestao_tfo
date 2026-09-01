@@ -17,7 +17,8 @@ type Beta = {
   duracao_dias: number | null;
   tipo: string;
   bonificacao_meses: number | null;
-  sem_custo_adicional: boolean;
+  condicao_especial_pct: number | null;
+  condicao_especial_meses: number | null;
 } | null;
 
 const initialState: ActionState = { error: null };
@@ -134,14 +135,15 @@ export function FaseCard({
         </Field>
 
         <div className="rounded-lg bg-bg px-4 py-3.5">
-          <div className="mb-3 text-[11.5px] font-semibold text-text-muted">
+          <div className="mb-3 flex items-center text-[11.5px] font-semibold text-text-muted">
             Beta testers (opcional, geralmente na Validação ou ao lançar melhorias)
+            <InfoTooltip texto="O beta tester não paga nada durante o teste + bonificação. Depois disso, converte em cliente pagante — se você definir uma condição especial abaixo, ele paga com desconto só durante o período informado; depois volta pro preço cheio normalmente." />
           </div>
           <div className="grid grid-cols-4 gap-3">
             <Field label="Quantidade">
               <input type="number" name="beta_quantidade" defaultValue={beta?.quantidade ?? ""} className="input" />
             </Field>
-            <Field label="Duração (dias)">
+            <Field label="Duração do teste (dias)">
               <input type="number" name="beta_duracao_dias" defaultValue={beta?.duracao_dias ?? ""} className="input" />
             </Field>
             <Field label="Tipo">
@@ -150,19 +152,37 @@ export function FaseCard({
                 <option value="melhoria">Melhoria</option>
               </select>
             </Field>
-            <Field label="Bonificação (meses grátis)">
+            <Field label="Bonificação (meses grátis extra)">
               <input type="number" name="beta_bonificacao_meses" defaultValue={beta?.bonificacao_meses ?? ""} className="input" />
             </Field>
           </div>
-          <label className="mt-3 flex items-center gap-2 text-[12px]">
-            <input
-              type="checkbox"
-              name="beta_sem_custo"
-              defaultChecked={beta?.sem_custo_adicional ?? true}
-              className="h-4 w-4 rounded border-border"
-            />
-            Sem custo adicional na assinatura durante o beta
-          </label>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Field
+              label="Condição especial pós-teste (% de desconto)"
+              tooltip="Opcional. Desconto que o beta tester mantém por um tempo limitado depois de virar cliente pagante — uma forma comum de recompensar quem testou cedo sem dar desconto pra sempre. Deixe em branco para ele pagar o preço cheio assim que converter."
+            >
+              <input
+                type="number"
+                step="0.01"
+                name="beta_condicao_especial_pct"
+                defaultValue={beta?.condicao_especial_pct != null ? (beta.condicao_especial_pct * 100).toFixed(2) : ""}
+                placeholder="Ex: 30"
+                className="input"
+              />
+            </Field>
+            <Field
+              label="Duração da condição especial (meses)"
+              tooltip="Por quantos meses, depois de converter, o beta tester paga com esse desconto — depois disso passa a pagar o preço cheio, igual aos demais clientes."
+            >
+              <input
+                type="number"
+                name="beta_condicao_especial_meses"
+                defaultValue={beta?.condicao_especial_meses ?? ""}
+                placeholder="Ex: 6"
+                className="input"
+              />
+            </Field>
+          </div>
         </div>
 
         {state.error && (
