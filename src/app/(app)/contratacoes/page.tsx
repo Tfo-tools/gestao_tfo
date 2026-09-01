@@ -67,6 +67,20 @@ export default async function ContratacoesPage({
         </div>
       </div>
 
+      <div className="mb-6 rounded-lg border border-primary-fill bg-primary-soft px-4 py-3 text-[12.5px] text-primary-deep">
+        <strong>Para SDR, Coordenador e Suporte, não cadastre aqui.</strong> Esse formulário abaixo é só pra
+        contratações avulsas fora desse fluxo (P&amp;D, G&amp;A etc.) — pra vendas/suporte, a necessidade é calculada
+        automaticamente e você compara o custo de CLT vs. PJ vs. Empresa em{" "}
+        <Link href="/contratacoes/modelos" className="underline">
+          Modelos de Contratação
+        </Link>{" "}
+        e escolhe o que usar em{" "}
+        <Link href="/contratacoes/necessidade" className="underline">
+          Necessidade de Contratação
+        </Link>
+        .
+      </div>
+
       <div className="grid grid-cols-[420px_1fr] items-start gap-5">
         <ContratacaoForm
           cenarios={cenarios ?? []}

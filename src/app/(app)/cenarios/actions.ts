@@ -66,9 +66,8 @@ export async function criarCenario(
 
       if (!novaFase) continue;
 
-      const [{ data: betaOrigem }, { data: funilOrigem }, { data: fixosOrigem }, { data: variaveisOrigem }, { data: alocacoesOrigem }] =
+      const [{ data: funilOrigem }, { data: fixosOrigem }, { data: variaveisOrigem }, { data: alocacoesOrigem }] =
         await Promise.all([
-          supabase.from("beta_testers_config").select("*").eq("fase_produto_id", fase.id),
           supabase.from("premissas_funil").select("*").eq("fase_produto_id", fase.id),
           supabase
             .from("plano_custos_fixos")
@@ -84,17 +83,6 @@ export async function criarCenario(
             .eq("fase_produto_id", fase.id),
         ]);
 
-      for (const beta of betaOrigem ?? []) {
-        await supabase.from("beta_testers_config").insert({
-          fase_produto_id: novaFase.id,
-          quantidade: beta.quantidade,
-          duracao_dias: beta.duracao_dias,
-          tipo: beta.tipo,
-          bonificacao_meses: beta.bonificacao_meses,
-          sem_custo_adicional: beta.sem_custo_adicional,
-        });
-      }
-
       for (const funil of funilOrigem ?? []) {
         await supabase.from("premissas_funil").insert({
           fase_produto_id: novaFase.id,
@@ -102,6 +90,7 @@ export async function criarCenario(
           capacidade_vendedor_mes: funil.capacidade_vendedor_mes,
           span_of_control: funil.span_of_control,
           custo_hora_sdr: funil.custo_hora_sdr,
+          horas_suporte_por_cliente_mes: funil.horas_suporte_por_cliente_mes,
         });
       }
 
@@ -133,6 +122,35 @@ export async function criarCenario(
       await supabase
         .from("contratacoes")
         .insert(contratacoesOrigem.map((c) => ({ ...c, cenario_id: novoCenario.id })));
+    }
+
+    const { data: betasOrigem } = await supabase
+      .from("beta_testers_config")
+      .select("produto_id, quantidade, data_inicio, data_fim, tipo, condicao_especial_pct, condicao_especial_meses")
+      .eq("cenario_id", duplicarDe);
+
+    if (betasOrigem && betasOrigem.length > 0) {
+      await supabase.from("beta_testers_config").insert(betasOrigem.map((b) => ({ ...b, cenario_id: novoCenario.id })));
+    }
+
+    const { data: custosEmpresaOrigem } = await supabase
+      .from("custos_empresa")
+      .select("item, plano_contas_id, tipo_custo, valor_mensal, data_inicio, data_fim, parametros, observacoes")
+      .eq("cenario_id", duplicarDe);
+
+    if (custosEmpresaOrigem && custosEmpresaOrigem.length > 0) {
+      await supabase.from("custos_empresa").insert(custosEmpresaOrigem.map((c) => ({ ...c, cenario_id: novoCenario.id })));
+    }
+
+    const { data: alocacoesModeloOrigem } = await supabase
+      .from("alocacao_modelo_contratacao")
+      .select("produto_id, cargo, modelo_id, quantidade, data_inicio, data_fim")
+      .eq("cenario_id", duplicarDe);
+
+    if (alocacoesModeloOrigem && alocacoesModeloOrigem.length > 0) {
+      await supabase
+        .from("alocacao_modelo_contratacao")
+        .insert(alocacoesModeloOrigem.map((a) => ({ ...a, cenario_id: novoCenario.id })));
     }
   }
 

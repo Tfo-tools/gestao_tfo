@@ -55,33 +55,52 @@ export async function salvarFase(
     return { error: "Não foi possível salvar a fase." };
   }
 
-  const betaQuantidade = formData.get("beta_quantidade");
-  if (betaQuantidade !== null && betaQuantidade !== "") {
-    const condicaoEspecialPct = formData.get("beta_condicao_especial_pct");
-    const payload = {
-      fase_produto_id: faseRow.id,
-      quantidade: Number(betaQuantidade),
-      duracao_dias: num("beta_duracao_dias"),
-      tipo: str("beta_tipo") ?? "mvp_inicial",
-      bonificacao_meses: num("beta_bonificacao_meses") ?? 0,
-      condicao_especial_pct: condicaoEspecialPct !== null && condicaoEspecialPct !== "" ? Number(condicaoEspecialPct) / 100 : null,
-      condicao_especial_meses: num("beta_condicao_especial_meses"),
-    };
-    const { data: existingBeta } = await supabase
-      .from("beta_testers_config")
-      .select("id")
-      .eq("fase_produto_id", faseRow.id)
-      .maybeSingle();
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
 
-    if (existingBeta) {
-      await supabase.from("beta_testers_config").update(payload).eq("id", existingBeta.id);
-    } else {
-      await supabase.from("beta_testers_config").insert(payload);
-    }
+export async function criarBetaProduto(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const produto_id = String(formData.get("produto_id") || "");
+  const cenario_id = String(formData.get("cenario_id") || "");
+  const quantidade = Number(formData.get("quantidade") || 0);
+  const data_inicio = String(formData.get("data_inicio") || "") || null;
+  const data_fim = String(formData.get("data_fim") || "") || null;
+  const tipo = String(formData.get("tipo") || "mvp_inicial");
+  const condicaoEspecialPct = formData.get("condicao_especial_pct");
+  const condicao_especial_pct = condicaoEspecialPct !== null && condicaoEspecialPct !== "" ? Number(condicaoEspecialPct) / 100 : null;
+  const condicao_especial_meses = formData.get("condicao_especial_meses") ? Number(formData.get("condicao_especial_meses")) : null;
+
+  if (!produto_id || !cenario_id || !quantidade) {
+    return { error: "Preencha a quantidade de beta testers." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("beta_testers_config").insert({
+    produto_id,
+    cenario_id,
+    quantidade,
+    data_inicio,
+    data_fim,
+    tipo,
+    condicao_especial_pct,
+    condicao_especial_meses,
+  });
+
+  if (error) {
+    return { error: "Não foi possível salvar o beta." };
   }
 
   revalidatePath(`/produtos/${produto_id}`);
   return { error: null, success: true };
+}
+
+export async function excluirBetaProduto(id: string, produtoId: string) {
+  const supabase = await createClient();
+  await supabase.from("beta_testers_config").delete().eq("id", id);
+  revalidatePath(`/produtos/${produtoId}`);
 }
 
 export async function criarPlano(

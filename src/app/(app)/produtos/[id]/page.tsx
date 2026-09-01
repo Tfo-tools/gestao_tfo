@@ -57,20 +57,16 @@ export default async function ProdutoDetailPage({
   const cenarioAtual =
     cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
 
-  const { data: fases } = await supabase
-    .from("fases_produto")
-    .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, observacoes")
-    .eq("produto_id", id)
-    .eq("cenario_id", cenarioAtual);
-
-  const faseIds = (fases ?? []).map((f) => f.id);
-  const { data: betas } =
-    faseIds.length > 0
-      ? await supabase.from("beta_testers_config").select("*").in("fase_produto_id", faseIds)
-      : { data: [] };
+  const [{ data: fases }, { data: betas }] = await Promise.all([
+    supabase
+      .from("fases_produto")
+      .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, observacoes")
+      .eq("produto_id", id)
+      .eq("cenario_id", cenarioAtual),
+    supabase.from("beta_testers_config").select("*").eq("produto_id", id).eq("cenario_id", cenarioAtual),
+  ]);
 
   const faseByValue = new Map((fases ?? []).map((f) => [f.fase, f]));
-  const betaByFaseId = new Map((betas ?? []).map((b) => [b.fase_produto_id, b]));
 
   const primeiraVazia = FASES.findIndex((f) => !faseByValue.get(f.value)?.data_inicio);
 
@@ -113,11 +109,10 @@ export default async function ProdutoDetailPage({
         <SimulacaoResultado linhas={simulacao ?? []} />
       </div>
 
-      <div className="grid grid-cols-[340px_1fr] items-start gap-5">
+      <div className="grid grid-cols-[480px_1fr] items-start gap-5">
         <div className="flex flex-col gap-2.5">
           {FASES.map((f, i) => {
             const dados = faseByValue.get(f.value) ?? null;
-            const beta = dados ? (betaByFaseId.get(dados.id) ?? null) : null;
             return (
               <FaseCard
                 key={f.value}
@@ -127,7 +122,6 @@ export default async function ProdutoDetailPage({
                 label={f.label}
                 ordem={i + 1}
                 dados={dados}
-                beta={beta}
                 defaultOpen={i === (primeiraVazia === -1 ? 0 : primeiraVazia)}
               />
             );
@@ -135,7 +129,14 @@ export default async function ProdutoDetailPage({
         </div>
 
         <div className="flex flex-col gap-5">
-          <PlanosPrecificacao produtoId={id} planos={planos ?? []} precosFase={precosFase ?? []} />
+          <PlanosPrecificacao
+            produtoId={id}
+            cenarioId={cenarioAtual}
+            planos={planos ?? []}
+            precosFase={precosFase ?? []}
+            fases={(fases ?? []).map((f) => ({ fase: f.fase, data_inicio: f.data_inicio, data_fim: f.data_fim }))}
+            betaTesters={betas ?? []}
+          />
           <ModulosProduto produtoId={id} modulos={modulosComBeta} />
         </div>
       </div>

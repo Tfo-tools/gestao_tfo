@@ -1,8 +1,16 @@
 "use client";
 
 import { useActionState, useRef, useState, useTransition } from "react";
-import { criarPlano, criarPrecoFase, excluirPlano, excluirPrecoFase, type ActionState } from "../actions";
-import { FASES } from "@/lib/fases";
+import {
+  criarPlano,
+  criarPrecoFase,
+  excluirPlano,
+  excluirPrecoFase,
+  criarBetaProduto,
+  excluirBetaProduto,
+  type ActionState,
+} from "../actions";
+import { FASES, type FaseValue } from "@/lib/fases";
 import { InfoTooltip } from "@/components/info-tooltip";
 
 type Plano = {
@@ -19,6 +27,17 @@ type Plano = {
 
 type PrecoFase = { id: string; plano_id: string; fase: string; preco: number };
 
+type FaseComData = { fase: FaseValue; data_inicio: string | null; data_fim: string | null };
+
+type BetaProduto = {
+  id: string;
+  quantidade: number;
+  data_inicio: string | null;
+  data_fim: string | null;
+  condicao_especial_pct: number | null;
+  condicao_especial_meses: number | null;
+};
+
 const initialState: ActionState = { error: null };
 
 function formatBRL(v: number) {
@@ -29,12 +48,18 @@ const FASE_LABEL: Record<string, string> = Object.fromEntries(FASES.map((f) => [
 
 export function PlanosPrecificacao({
   produtoId,
+  cenarioId,
   planos,
   precosFase,
+  fases,
+  betaTesters,
 }: {
   produtoId: string;
+  cenarioId: string;
   planos: Plano[];
   precosFase: PrecoFase[];
+  fases: FaseComData[];
+  betaTesters: BetaProduto[];
 }) {
   const [state, formAction, pending] = useActionState(criarPlano, initialState);
   const formRef = useRef<HTMLFormElement>(null);
@@ -177,6 +202,142 @@ export function PlanosPrecificacao({
           {pending ? "Adicionando…" : "+ Adicionar plano"}
         </button>
       </form>
+
+      <BetaProdutoSection produtoId={produtoId} cenarioId={cenarioId} fases={fases} itens={betaTesters} />
+    </div>
+  );
+}
+
+function faseNaData(fases: FaseComData[], dataIso: string | null): string | null {
+  if (!dataIso) return null;
+  const data = new Date(dataIso + "T00:00:00");
+  const encontrada = fases.find((f) => {
+    if (!f.data_inicio) return false;
+    const inicio = new Date(f.data_inicio + "T00:00:00");
+    const fim = f.data_fim ? new Date(f.data_fim + "T00:00:00") : null;
+    return data >= inicio && (!fim || data <= fim);
+  });
+  return encontrada ? (FASE_LABEL[encontrada.fase] ?? encontrada.fase) : null;
+}
+
+function formatDate(iso: string | null) {
+  return iso ? new Date(iso + "T00:00:00").toLocaleDateString("pt-BR") : "—";
+}
+
+function BetaProdutoSection({
+  produtoId,
+  cenarioId,
+  fases,
+  itens,
+}: {
+  produtoId: string;
+  cenarioId: string;
+  fases: FaseComData[];
+  itens: BetaProduto[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [state, formAction, pending] = useActionState(criarBetaProduto, initialState);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <div className="mt-4 rounded-lg bg-bg px-4 py-3.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span className="flex items-center text-[11.5px] font-semibold text-text-muted">
+          Beta testers do produto {itens.length > 0 ? `(${itens.length})` : ""}
+          <InfoTooltip texto="Testam de graça ANTES do lançamento comercial do produto — não são pagantes ainda, é a fase de validação com clientes reais (diferente da conversa informal com profissionais da área, que nem entra aqui). O sistema mostra automaticamente em qual fase cada teste caiu, pela data. No mês do lançamento, todo mundo converte de uma vez — com desconto por um tempo (se configurado) ou preço cheio direto." />
+        </span>
+        <span className="text-text-faint">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="mt-3 flex flex-col gap-2">
+          {itens.length === 0 && <p className="text-[11px] text-text-faint">Nenhum beta cadastrado ainda.</p>}
+          {itens.map((b) => {
+            const faseNoInicio = faseNaData(fases, b.data_inicio);
+            return (
+              <div key={b.id} className="rounded-md border border-border-soft bg-surface px-2.5 py-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11.5px]">
+                    {b.quantidade} pessoa(s) · {formatDate(b.data_inicio)} → {formatDate(b.data_fim)}
+                    {faseNoInicio && <span className="ml-1.5 text-text-faint">({faseNoInicio})</span>}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => startTransition(() => excluirBetaProduto(b.id, produtoId))}
+                    className="text-[11px] text-danger"
+                  >
+                    ×
+                  </button>
+                </div>
+                {b.condicao_especial_pct && (
+                  <div className="mt-0.5 text-[10.5px] text-text-faint">
+                    {(b.condicao_especial_pct * 100).toFixed(0)}% off por {b.condicao_especial_meses} meses a partir do lançamento
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <form
+            ref={formRef}
+            action={async (fd) => {
+              await formAction(fd);
+              formRef.current?.reset();
+            }}
+            className="flex flex-col gap-2 border-t border-border-soft pt-3"
+          >
+            <input type="hidden" name="produto_id" value={produtoId} />
+            <input type="hidden" name="cenario_id" value={cenarioId} />
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className="mb-1 block text-[10px] text-text-faint">Quantidade</label>
+                <input name="quantidade" type="number" min="1" className="input w-[80px]" required />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] text-text-faint">Início do teste</label>
+                <input name="data_inicio" type="date" className="input w-[140px]" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] text-text-faint">Fim do teste</label>
+                <input name="data_fim" type="date" className="input w-[140px]" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] text-text-faint">Tipo</label>
+                <select name="tipo" defaultValue="mvp_inicial" className="input w-[130px]">
+                  <option value="mvp_inicial">MVP inicial</option>
+                  <option value="melhoria">Melhoria</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className="mb-1 flex items-center text-[10px] text-text-faint">
+                  Desconto no lançamento (%)
+                  <InfoTooltip texto="Opcional. No mês do lançamento comercial, esses beta testers pagam com esse desconto por um tempo — depois voltam ao preço cheio. Deixe em branco pra cobrar preço cheio assim que lançar." />
+                </label>
+                <input name="condicao_especial_pct" type="number" step="0.01" placeholder="Ex: 20" className="input w-[130px]" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] text-text-faint">Duração (meses)</label>
+                <input name="condicao_especial_meses" type="number" placeholder="Ex: 6" className="input w-[100px]" />
+              </div>
+              <button
+                type="submit"
+                disabled={pending}
+                className="rounded-lg border border-border px-3 py-2 text-[11px] font-medium text-primary-deep disabled:opacity-60"
+              >
+                {pending ? "…" : "+ Adicionar"}
+              </button>
+            </div>
+          </form>
+          {state.error && <p className="text-[10.5px] text-danger">{state.error}</p>}
+        </div>
+      )}
     </div>
   );
 }

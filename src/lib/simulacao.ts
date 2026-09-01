@@ -9,13 +9,13 @@ export type FaseInput = {
 };
 
 export type BetaInput = {
-  fase: FaseValue;
   quantidade: number;
-  duracao_dias: number | null;
-  bonificacao_meses: number | null;
-  /** Desconto aplicado por um período após a conversão (recompensa por ter testado cedo). */
+  /** Informativo: quando o teste começa/termina — sempre antes do lançamento comercial. */
+  data_inicio: string | null;
+  data_fim: string | null;
+  /** Desconto aplicado por um período a partir do lançamento comercial (recompensa por ter testado cedo). */
   condicao_especial_pct: number | null;
-  /** Duração, em meses, da condição especial após a conversão — depois disso paga o preço cheio normalmente. */
+  /** Duração, em meses, da condição especial a partir do lançamento — depois disso paga o preço cheio normalmente. */
   condicao_especial_meses: number | null;
 };
 
@@ -258,26 +258,32 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       }
     }
 
-    // Beta testers: entram no início da fase, convertem em pagantes após teste + bonificação.
-    const betaConfig = input.betas.find((b) => b.fase === fase.fase);
-    let conversaoBeta = 0;
-    if (betaConfig && fase.data_inicio) {
-      const inicioFase = new Date(fase.data_inicio + "T00:00:00");
-      const mesesAteFase = (mes.getFullYear() - inicioFase.getFullYear()) * 12 + (mes.getMonth() - inicioFase.getMonth());
-      const mesesTeste = Math.ceil((betaConfig.duracao_dias ?? 0) / 30);
-      const mesConversao = mesesTeste + (betaConfig.bonificacao_meses ?? 0);
-      if (mesesAteFase === 0) betaAtivos += betaConfig.quantidade;
-      if (mesesAteFase === mesConversao && betaAtivos > 0) {
-        conversaoBeta = betaConfig.quantidade;
-        betaAtivos = Math.max(0, betaAtivos - betaConfig.quantidade);
+    // Meses desde o lançamento comercial do produto — usado pelo beta, por reajustes e por
+    // módulos com gatilho por tempo.
+    let mesesDesdeLancamentoProduto: number | null = null;
+    if (input.dataLancamentoEstimada) {
+      const lanc = new Date(input.dataLancamentoEstimada + "T00:00:00");
+      mesesDesdeLancamentoProduto = (mes.getFullYear() - lanc.getFullYear()) * 12 + (mes.getMonth() - lanc.getMonth());
+    }
 
-        if (betaConfig.condicao_especial_pct && betaConfig.condicao_especial_meses) {
+    // Beta testers do produto: testam de graça antes do lançamento comercial (data_inicio/data_fim
+    // são só informativas) e convertem todos juntos no mês exato do lançamento — com desconto por
+    // um período (se configurado) ou preço cheio direto.
+    let conversaoBeta = 0;
+    if (mesesDesdeLancamentoProduto === 0) {
+      for (const beta of input.betas) {
+        conversaoBeta += beta.quantidade;
+        if (beta.condicao_especial_pct && beta.condicao_especial_meses) {
           condicoesEspeciaisAtivas.push({
-            quantidade: betaConfig.quantidade,
-            desconto: betaConfig.condicao_especial_pct,
-            mesFim: i + betaConfig.condicao_especial_meses,
+            quantidade: beta.quantidade,
+            desconto: beta.condicao_especial_pct,
+            mesFim: i + beta.condicao_especial_meses,
           });
         }
+      }
+    } else if (mesesDesdeLancamentoProduto != null && mesesDesdeLancamentoProduto < 0) {
+      for (const beta of input.betas) {
+        if (beta.data_inicio && new Date(beta.data_inicio + "T00:00:00") <= mes) betaAtivos += beta.quantidade;
       }
     }
 
@@ -297,13 +303,6 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     );
 
     const receitaPlanos = (arpu * clientesAtivos - descontoCondicaoEspecial) * fatorProRata;
-
-    // Meses desde o lançamento comercial do produto — usado por reajustes e por módulos com gatilho por tempo.
-    let mesesDesdeLancamentoProduto: number | null = null;
-    if (input.dataLancamentoEstimada) {
-      const lanc = new Date(input.dataLancamentoEstimada + "T00:00:00");
-      mesesDesdeLancamentoProduto = (mes.getFullYear() - lanc.getFullYear()) * 12 + (mes.getMonth() - lanc.getMonth());
-    }
 
     // Receita de módulos add-on: ativa por fase do ciclo de vida OU por tempo desde o lançamento
     // (ex: melhorias do Fashion Mind, 12/24 meses após o MVP), com adesão inicial sobre a base

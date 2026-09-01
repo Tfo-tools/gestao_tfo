@@ -58,8 +58,9 @@ export async function recalcularSimulacao(
   ] = await Promise.all([
       supabase
         .from("beta_testers_config")
-        .select("fase_produto_id, quantidade, duracao_dias, bonificacao_meses, condicao_especial_pct, condicao_especial_meses")
-        .in("fase_produto_id", faseIds),
+        .select("quantidade, data_inicio, data_fim, condicao_especial_pct, condicao_especial_meses")
+        .eq("produto_id", produtoId)
+        .eq("cenario_id", cenarioId),
       supabase.from("premissas_funil").select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control").in("fase_produto_id", faseIds),
       supabase
         .from("contratacoes")
@@ -126,10 +127,9 @@ export async function recalcularSimulacao(
       taxa_churn_mensal: f.taxa_churn_mensal,
     })),
     betas: (betas ?? []).map((b) => ({
-      fase: faseValueById.get(b.fase_produto_id)!,
       quantidade: b.quantidade,
-      duracao_dias: b.duracao_dias,
-      bonificacao_meses: b.bonificacao_meses,
+      data_inicio: b.data_inicio,
+      data_fim: b.data_fim,
       condicao_especial_pct: b.condicao_especial_pct,
       condicao_especial_meses: b.condicao_especial_meses,
     })),
