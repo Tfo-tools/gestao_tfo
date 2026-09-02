@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { atualizarDespesa, excluirDespesa, type DespesaFormState } from "../actions";
 import { AnexoButton } from "./anexo-button";
+import { ParcelasDespesa, type Parcela } from "./parcelas-despesa";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
 type Produto = { id: string; nome: string };
@@ -19,6 +20,7 @@ export type DespesaRowData = {
   plano_contas: { codigo: string; conta: string } | null;
   despesa_produtos: { produtos: { id: string; nome: string } | null }[];
   anexos_despesa: Anexo[];
+  despesa_parcelas: Parcela[];
 };
 
 function formatBRL(value: number) {
@@ -44,6 +46,7 @@ export function DespesaRow({
   fechado: boolean;
 }) {
   const [editando, setEditando] = useState(false);
+  const [mostrandoParcelas, setMostrandoParcelas] = useState(false);
   const [state, formAction, pending] = useActionState(atualizarDespesa, initialState);
   const [excluindo, setExcluindo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
@@ -154,6 +157,7 @@ export function DespesaRow({
   }
 
   return (
+    <>
     <tr className="border-t border-border-soft">
       <td className="px-2 py-2.5 font-mono">{formatDate(despesa.data_gasto)}</td>
       <td className="px-2 py-2.5">{despesa.plano_contas ? `${despesa.plano_contas.codigo} — ${despesa.plano_contas.conta}` : "—"}</td>
@@ -192,6 +196,13 @@ export function DespesaRow({
               </button>
               <button
                 type="button"
+                onClick={() => setMostrandoParcelas((v) => !v)}
+                className="text-[11.5px] font-medium text-primary-deep hover:text-wine"
+              >
+                {despesa.despesa_parcelas.length > 0 ? `Parcelas (${despesa.despesa_parcelas.length})` : "Parcelar"}
+              </button>
+              <button
+                type="button"
                 disabled={excluindo}
                 onClick={async () => {
                   if (!confirm("Excluir esse lançamento?")) return;
@@ -213,6 +224,19 @@ export function DespesaRow({
         {erroExclusao && <p className="mt-1 text-[10.5px] text-danger">{erroExclusao}</p>}
       </td>
     </tr>
+    {mostrandoParcelas && (
+      <tr className="border-t border-border-soft">
+        <td colSpan={8} className="px-2 py-3">
+          <ParcelasDespesa
+            despesaId={despesa.id}
+            valorTotalDespesa={Number(despesa.valor_total)}
+            parcelas={despesa.despesa_parcelas}
+            pagadores={pagadores}
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

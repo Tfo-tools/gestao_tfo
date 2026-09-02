@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { DespesaRow, type DespesaRowData } from "./despesa-row";
 import { FecharMesButton } from "./fechar-mes-button";
+import { ParcelaPendenteRow } from "./parcela-pendente-row";
 
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -27,23 +28,30 @@ export default async function ExtratoPage({
   const { mes, desde, ate, produto, comprovado, pagador, conta, descricao } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }] = await Promise.all([
-    supabase.from("produtos").select("id, nome").order("nome"),
-    conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
-    supabase.from("plano_contas").select("id, codigo, conta").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
-    supabase.from("profiles").select("nome").order("nome"),
-    supabase.from("meses_fechados").select("mes"),
-  ]);
+  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: parcelasPendentesRaw }] =
+    await Promise.all([
+      supabase.from("produtos").select("id, nome").order("nome"),
+      conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
+      supabase.from("plano_contas").select("id, codigo, conta").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
+      supabase.from("profiles").select("nome").order("nome"),
+      supabase.from("meses_fechados").select("mes"),
+      supabase
+        .from("despesa_parcelas")
+        .select("id, numero_parcela, valor, data_prevista, pagador, despesas(descricao, plano_contas:plano_contas_id(conta))")
+        .eq("status", "prevista")
+        .order("data_prevista", { ascending: true }),
+    ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
+  const hojeIso = new Date().toISOString().slice(0, 10);
 
   let query = supabase
     .from("despesas")
     .select(
       produto
-        ? "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo)"
-        : "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo)",
+        ? "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*)"
+        : "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*)",
     )
     .order("data_gasto", { ascending: false });
 
@@ -65,11 +73,26 @@ export default async function ExtratoPage({
   // Rateio entre sócias — sobre o MESMO recorte filtrado acima (período, produto, descrição...),
   // pra dar pra isolar um evento/feira específico em vez de sempre olhar o total acumulado. Só o
   // que saiu do bolso de cada uma entra; pago pela "Empresa" (cartão/conta PJ) fica de fora,
-  // porque a empresa já cobriu direto, não há diferença a repassar.
+  // porque a empresa já cobriu direto, não há diferença a repassar. Despesa parcelada (ex: feira
+  // paga em várias vezes) não entra pelo pagador único da despesa — o valor total já conta inteiro
+  // no resultado, mas o rateio é pelas parcelas efetivamente pagas por cada uma, não pelo total.
   const pessoasSet = new Set(pagadores);
   const porPagador = new Map<string, number>();
   let totalOutros = 0;
+  let totalParceladoPendente = 0;
   for (const d of despesas ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parcelas = (d.despesa_parcelas as any[]) ?? [];
+    if (parcelas.length > 0) {
+      for (const p of parcelas) {
+        if (p.status === "paga" && p.pagador && pessoasSet.has(p.pagador)) {
+          porPagador.set(p.pagador, (porPagador.get(p.pagador) ?? 0) + Number(p.valor));
+        } else if (p.status !== "paga") {
+          totalParceladoPendente += Number(p.valor);
+        }
+      }
+      continue;
+    }
     if (!d.pagador || d.pagador === "Empresa" || !pessoasSet.has(d.pagador)) {
       totalOutros += Number(d.valor_total);
       continue;
@@ -93,6 +116,32 @@ export default async function ExtratoPage({
 
   return (
     <div className="flex flex-col gap-5">
+      {(parcelasPendentesRaw ?? []).length > 0 && (
+        <div className="rounded-xl border border-border bg-surface p-6">
+          <h2 className="mb-1 font-heading text-sm font-semibold">Parcelamentos em aberto</h2>
+          <p className="mb-4 text-[11.5px] text-text-muted">Lembrete das próximas parcelas a pagar entre sócias — mais próxima primeiro.</p>
+          <div className="flex flex-col gap-2">
+            {(parcelasPendentesRaw ?? []).map((p) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const desp = p.despesas as any;
+              return (
+                <ParcelaPendenteRow
+                  key={p.id}
+                  id={p.id}
+                  descricao={desp?.descricao ?? desp?.plano_contas?.conta ?? "Despesa"}
+                  numeroParcela={p.numero_parcela}
+                  valor={Number(p.valor)}
+                  dataPrevista={p.data_prevista}
+                  pagadorPrevisto={p.pagador}
+                  pagadores={pagadores}
+                  atrasada={p.data_prevista < hojeIso}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {linhasPagador.length > 0 && totalGeral > 0 && (
         <div className="rounded-xl border border-border bg-surface p-6">
           <h2 className="mb-1 font-heading text-sm font-semibold">Rateio entre sócias</h2>
@@ -136,6 +185,11 @@ export default async function ExtratoPage({
           {totalOutros > 0 && (
             <p className="mt-3 text-[11px] text-text-faint">
               {formatBRL(totalOutros)} pagos pela empresa (ou sem pagador definido) ficaram fora dessa conta.
+            </p>
+          )}
+          {totalParceladoPendente > 0 && (
+            <p className="mt-1 text-[11px] text-text-faint">
+              {formatBRL(totalParceladoPendente)} em parcelas ainda não pagas — entram no rateio só quando marcadas como pagas.
             </p>
           )}
         </div>

@@ -192,6 +192,60 @@ export async function reabrirMes(mes: string): Promise<{ error: string | null }>
   return { error: null };
 }
 
+export type ParcelaFormState = { error: string | null; success?: boolean };
+
+export async function criarParcelaDespesa(
+  _prevState: ParcelaFormState,
+  formData: FormData,
+): Promise<ParcelaFormState> {
+  const supabase = await createClient();
+
+  const despesa_id = String(formData.get("despesa_id") || "");
+  const numero_parcela = Number(formData.get("numero_parcela") || 1);
+  const valor = Number(formData.get("valor") || 0);
+  const data_prevista = String(formData.get("data_prevista") || "");
+  const pagador = String(formData.get("pagador") || "").trim() || null;
+
+  if (!despesa_id || !valor || !data_prevista) {
+    return { error: "Preencha valor e data prevista." };
+  }
+
+  const { error } = await supabase.from("despesa_parcelas").insert({
+    despesa_id,
+    numero_parcela,
+    valor,
+    data_prevista,
+    pagador,
+  });
+
+  if (error) return { error: "Não foi possível salvar a parcela." };
+
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos");
+  return { error: null, success: true };
+}
+
+export async function marcarParcelaPaga(id: string, paga: boolean, pagador: string | null) {
+  const supabase = await createClient();
+  await supabase
+    .from("despesa_parcelas")
+    .update({
+      status: paga ? "paga" : "prevista",
+      paga_em: paga ? new Date().toISOString().slice(0, 10) : null,
+      ...(paga && pagador ? { pagador } : {}),
+    })
+    .eq("id", id);
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos");
+}
+
+export async function excluirParcelaDespesa(id: string) {
+  const supabase = await createClient();
+  await supabase.from("despesa_parcelas").delete().eq("id", id);
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos");
+}
+
 export async function getSignedUrl(path: string) {
   const supabase = await createClient();
   const { data, error } = await supabase.storage
