@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useRef, useState, useTransition } from "react";
 import {
   alternarVinculoCenario,
@@ -264,6 +265,12 @@ function ValuationSection({
             {valuationPending ? "…" : "Salvar valuation"}
           </button>
           {valuationState.error && <p className="w-full text-[11px] text-danger">{valuationState.error}</p>}
+          <p className="mt-2 w-full text-[11px] text-text-muted">
+            Não sabe qual pré-money usar?{" "}
+            <Link href={`/fomento/${programa.id}/valuation`} className="font-medium text-primary-deep underline">
+              Estimar com o Método Berkus →
+            </Link>
+          </p>
         </form>
       ) : (
         <>
@@ -272,6 +279,9 @@ function ValuationSection({
             <span>Pós-money: {formatBRL(Number(programa.valuation_post_money))}</span>
             <span>Aporte em: {formatDate(programa.data_aporte)}</span>
           </div>
+          <Link href={`/fomento/${programa.id}/valuation`} className="mb-3 inline-block text-[11px] font-medium text-primary-deep underline">
+            Refazer estimativa (Berkus) / ver histórico →
+          </Link>
 
           {!retorno.temValuation ? (
             <p className="mb-3 text-[11.5px] text-text-faint">Sem dados suficientes pra calcular retorno ainda.</p>
