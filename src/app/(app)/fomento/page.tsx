@@ -5,11 +5,12 @@ import { ProgramaCard } from "./programa-card";
 export default async function FomentoPage() {
   const supabase = await createClient();
 
-  const [{ data: programas }, { data: parcelas }, { data: cenarios }, { data: vinculos }] = await Promise.all([
+  const [{ data: programas }, { data: parcelas }, { data: cenarios }, { data: vinculos }, { data: reavaliacoes }] = await Promise.all([
     supabase.from("programas_investimento").select("*").order("created_at"),
     supabase.from("parcelas_investimento").select("*").order("numero_parcela"),
     supabase.from("cenarios").select("id, nome").order("created_at"),
     supabase.from("cenario_programas").select("cenario_id, programa_id"),
+    supabase.from("reavaliacoes_valuation").select("*").order("data_referencia"),
   ]);
 
   const parcelasByPrograma = new Map<string, typeof parcelas>();
@@ -17,6 +18,13 @@ export default async function FomentoPage() {
     const atual = parcelasByPrograma.get(p.programa_id) ?? [];
     atual.push(p);
     parcelasByPrograma.set(p.programa_id, atual);
+  }
+
+  const reavaliacoesByPrograma = new Map<string, typeof reavaliacoes>();
+  for (const r of reavaliacoes ?? []) {
+    const atual = reavaliacoesByPrograma.get(r.programa_id) ?? [];
+    atual.push(r);
+    reavaliacoesByPrograma.set(r.programa_id, atual);
   }
 
   const vinculosByPrograma = new Map<string, string[]>();
@@ -47,6 +55,7 @@ export default async function FomentoPage() {
             parcelas={parcelasByPrograma.get(p.id) ?? []}
             cenarios={cenarios ?? []}
             cenariosVinculados={vinculosByPrograma.get(p.id) ?? []}
+            reavaliacoes={reavaliacoesByPrograma.get(p.id) ?? []}
           />
         ))}
         {(programas ?? []).length === 0 && (

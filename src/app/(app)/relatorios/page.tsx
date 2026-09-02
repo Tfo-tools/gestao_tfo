@@ -4,6 +4,7 @@ import { InfoTooltip } from "@/components/info-tooltip";
 import { AlocacaoInvestimento } from "./alocacao-investimento";
 import { agregarPorCenario, computeMetricas, type Agregado, type Metricas } from "@/lib/relatorios-cenario";
 import { grupoLabelDe } from "@/lib/grupo-dre";
+import { calcularRetornoPrograma, agregarRetornoProgramas } from "@/lib/retorno-investidor";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -333,6 +334,44 @@ async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; ini
     investimentoPorMes.set(mesKey, (investimentoPorMes.get(mesKey) ?? 0) + Number(p.valor));
   }
 
+  // Retorno do investidor via diluição de equity (MOIC/ROI/TIR) — só programas que não são
+  // fomento (subvenção não tem cap table) e que já têm valuation pós-money cadastrado.
+  const { data: programasComValuation } =
+    programaIds.length > 0
+      ? await supabase
+          .from("programas_investimento")
+          .select("id, tipo, valor_total, valuation_post_money, data_aporte")
+          .in("id", programaIds)
+          .neq("tipo", "fomento")
+      : { data: [] };
+  const idsElegiveis = ((programasComValuation ?? []) as { id: string }[]).map((p) => p.id);
+  const { data: reavaliacoesRaw } =
+    idsElegiveis.length > 0
+      ? await supabase
+          .from("reavaliacoes_valuation")
+          .select("programa_id, data_referencia, novo_valuation, fator_diluicao")
+          .in("programa_id", idsElegiveis)
+      : { data: [] };
+  const reavaliacoesPorPrograma = new Map<string, { data_referencia: string; novo_valuation: number; fator_diluicao: number }[]>();
+  for (const r of (reavaliacoesRaw ?? []) as { programa_id: string; data_referencia: string; novo_valuation: number; fator_diluicao: number }[]) {
+    const atual = reavaliacoesPorPrograma.get(r.programa_id) ?? [];
+    atual.push(r);
+    reavaliacoesPorPrograma.set(r.programa_id, atual);
+  }
+  const retornoInvestidor = agregarRetornoProgramas(
+    ((programasComValuation ?? []) as { id: string; valor_total: number; valuation_post_money: number | null; data_aporte: string | null }[]).map(
+      (p) => ({
+        valorInvestido: Number(p.valor_total),
+        retorno: calcularRetornoPrograma({
+          valor_investido: Number(p.valor_total),
+          valuation_post_money: p.valuation_post_money != null ? Number(p.valuation_post_money) : null,
+          data_aporte: p.data_aporte,
+          reavaliacoes: reavaliacoesPorPrograma.get(p.id) ?? [],
+        }),
+      }),
+    ),
+  );
+
   // Período de análise: todo o horizonte simulado por padrão, recortado pro intervalo de mês
   // escolhido — mes_referencia é sempre "AAAA-MM-01", os inputs <input type="month"> mandam
   // "AAAA-MM", então completamos com "-01" pra comparar.
@@ -343,6 +382,7 @@ async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; ini
   const linhasPeriodo = resumo.linhas.filter((l) => l.mes_referencia >= inicioEfetivo && l.mes_referencia <= fimEfetivo);
 
   const metricas = computeMetricas(linhasPeriodo, resumo.totalInvestido);
+  const totalAportesPeriodo = linhasPeriodo.reduce((s, l) => s + (investimentoPorMes.get(l.mes_referencia) ?? 0), 0);
 
   const semDados = resumo.linhas.length === 0;
 
@@ -390,12 +430,14 @@ async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; ini
             nome={nome}
             metricas={metricas}
             totalInvestido={resumo.totalInvestido}
+            retornoInvestidor={retornoInvestidor}
             cenarioId={cenarioId}
             inicio={inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "")}
             fim={fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "")}
           />
           <IndicadoresPeriodo
             metricas={metricas}
+            totalAportesPeriodo={totalAportesPeriodo}
             cenarioId={cenarioId}
             inicio={inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "")}
             fim={fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "")}
@@ -412,6 +454,7 @@ function MetricasInvestidor({
   nome,
   metricas,
   totalInvestido,
+  retornoInvestidor,
   cenarioId,
   inicio,
   fim,
@@ -419,6 +462,7 @@ function MetricasInvestidor({
   nome: string;
   metricas: Metricas;
   totalInvestido: number;
+  retornoInvestidor: ReturnType<typeof agregarRetornoProgramas>;
   cenarioId: string;
   inicio: string;
   fim: string;
@@ -480,14 +524,24 @@ function MetricasInvestidor({
         />
         <Metrica
           href={hrefDetalhe("retorno_investimento")}
-          label="Retorno do investimento (ROI)"
+          label="Capital coberto por caixa próprio"
           valor={totalInvestido > 0 && metricas.roiPct != null ? `${metricas.roiPct.toFixed(0)}%` : "sem captação vinculada"}
           detalhe={
             totalInvestido > 0
-              ? `${formatBRL(metricas.investimentoRecuperado)} recuperados${
+              ? `${formatBRL(metricas.investimentoRecuperado)} de caixa gerado${
                   metricas.paybackMes ? ` até ${formatMes(metricas.paybackMes)}` : fim ? ` até ${formatMes(`${fim}-01`)}` : ""
                 }`
               : "cenário sem captação que exija retorno (fomento não entra nessa conta)"
+          }
+        />
+        <Metrica
+          href="/fomento"
+          label="Retorno do investidor (equity)"
+          valor={retornoInvestidor.temValuation && retornoInvestidor.roiPct != null ? `${retornoInvestidor.roiPct.toFixed(0)}%` : "sem valuation cadastrado"}
+          detalhe={
+            retornoInvestidor.temValuation
+              ? `MOIC ${retornoInvestidor.moic?.toFixed(2)}x${retornoInvestidor.tirPct != null ? ` · TIR ${retornoInvestidor.tirPct.toFixed(1)}% a.a.` : ""}`
+              : "cadastre o valuation em Fomento pra calcular"
           }
         />
       </div>
@@ -507,11 +561,13 @@ function Metrica({ href, label, valor, detalhe }: { href: string; label: string;
 
 function IndicadoresPeriodo({
   metricas,
+  totalAportesPeriodo,
   cenarioId,
   inicio,
   fim,
 }: {
   metricas: Metricas;
+  totalAportesPeriodo: number;
   cenarioId: string;
   inicio: string;
   fim: string;
@@ -547,6 +603,13 @@ function IndicadoresPeriodo({
             <td className={`px-2 py-2.5 text-right font-mono font-semibold ${metricas.ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
               {formatBRL(metricas.ebitdaAcumulado)}
             </td>
+          </tr>
+          <tr className="border-t border-border-soft">
+            <td className="flex items-center px-2 py-2.5 text-text-muted">
+              5. Aportes e Investimentos (Capital)
+              <InfoTooltip texto="Fora da DRE — não abate do EBITDA acima. Mostra só que houve captação de capital nesse período (parcelas de fomento/investimento/mútuo/empréstimo previstas ou recebidas para o cenário)." />
+            </td>
+            <td className="px-2 py-2.5 text-right font-mono text-text-muted">{formatBRL(totalAportesPeriodo)}</td>
           </tr>
           <tr className="border-t border-border-soft">
             <td className="px-2 py-2.5">Clientes ativos (início → fim do período)</td>

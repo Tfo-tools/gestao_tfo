@@ -89,6 +89,75 @@ export async function excluirParcela(id: string) {
   revalidatePath("/fomento");
 }
 
+export async function atualizarValuationPrograma(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = String(formData.get("programa_id") || "");
+  const valuation_pre_money = Number(formData.get("valuation_pre_money") || 0);
+  const data_aporte = String(formData.get("data_aporte") || "") || null;
+
+  if (!id || !valuation_pre_money) {
+    return { error: "Informe o valuation pré-money." };
+  }
+
+  const supabase = await createClient();
+  const { data: programa } = await supabase.from("programas_investimento").select("valor_total").eq("id", id).single();
+  if (!programa) return { error: "Programa não encontrado." };
+
+  const valuation_post_money = valuation_pre_money + Number(programa.valor_total);
+
+  const { error } = await supabase
+    .from("programas_investimento")
+    .update({ valuation_pre_money, valuation_post_money, data_aporte })
+    .eq("id", id);
+
+  if (error) return { error: "Não foi possível salvar o valuation." };
+
+  revalidatePath("/fomento");
+  revalidatePath("/relatorios");
+  return { error: null, success: true };
+}
+
+export async function criarReavaliacao(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const programa_id = String(formData.get("programa_id") || "");
+  const data_referencia = String(formData.get("data_referencia") || "");
+  const novo_valuation = Number(formData.get("novo_valuation") || 0);
+  const fator_diluicao = Number(formData.get("fator_diluicao") || 0) / 100;
+  const tipo_evento = String(formData.get("tipo_evento") || "reavaliacao");
+  const observacoes = String(formData.get("observacoes") || "").trim() || null;
+
+  if (!programa_id || !data_referencia || !novo_valuation) {
+    return { error: "Preencha data e novo valuation." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("reavaliacoes_valuation").insert({
+    programa_id,
+    data_referencia,
+    novo_valuation,
+    fator_diluicao,
+    tipo_evento,
+    observacoes,
+  });
+
+  if (error) return { error: "Não foi possível salvar a reavaliação." };
+
+  revalidatePath("/fomento");
+  revalidatePath("/relatorios");
+  return { error: null, success: true };
+}
+
+export async function excluirReavaliacao(id: string) {
+  const supabase = await createClient();
+  await supabase.from("reavaliacoes_valuation").delete().eq("id", id);
+  revalidatePath("/fomento");
+  revalidatePath("/relatorios");
+}
+
 export async function alternarVinculoCenario(programaId: string, cenarioId: string, vincular: boolean) {
   const supabase = await createClient();
   if (vincular) {
@@ -101,4 +170,5 @@ export async function alternarVinculoCenario(programaId: string, cenarioId: stri
       .eq("programa_id", programaId);
   }
   revalidatePath("/fomento");
+  revalidatePath("/relatorios");
 }
