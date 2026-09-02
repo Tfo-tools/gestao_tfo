@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { AnexoButton } from "./anexo-button";
+import { DespesaRow, type DespesaRowData } from "./despesa-row";
+import { FecharMesButton } from "./fechar-mes-button";
 
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -17,11 +18,18 @@ export default async function ExtratoPage({
   const { mes, desde, ate, produto, comprovado, pagador, conta } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: produtos }, { data: todasDespesas }, { data: contaAtual }] = await Promise.all([
-    supabase.from("produtos").select("id, nome").order("nome"),
-    supabase.from("despesas").select("pagador, valor_total"),
-    conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
-  ]);
+  const [{ data: produtos }, { data: todasDespesas }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }] =
+    await Promise.all([
+      supabase.from("produtos").select("id, nome").order("nome"),
+      supabase.from("despesas").select("pagador, valor_total"),
+      conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
+      supabase.from("plano_contas").select("id, codigo, conta").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
+      supabase.from("profiles").select("nome").order("nome"),
+      supabase.from("meses_fechados").select("mes"),
+    ]);
+
+  const pagadores = (profiles ?? []).map((p) => p.nome);
+  const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
 
   // Peso por sócia: sobre o total geral, independente dos filtros abaixo.
   const porPagador = new Map<string, number>();
@@ -36,7 +44,7 @@ export default async function ExtratoPage({
   let query = supabase
     .from("despesas")
     .select(
-      "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome), anexos_despesa(caminho_arquivo, nome_arquivo)",
+      "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, produto_id, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome), anexos_despesa(caminho_arquivo, nome_arquivo)",
     )
     .order("data_gasto", { ascending: false });
 
@@ -122,13 +130,21 @@ export default async function ExtratoPage({
         )}
         <div className="mb-5 flex items-center justify-between">
           <h2 className="font-heading text-sm font-semibold">Extrato de despesas</h2>
-          <a
-            href={`/custos/extrato/export?${exportQs.toString()}`}
-            className="rounded-lg border border-border px-3.5 py-2 text-[12px] text-text-muted hover:text-text"
-          >
-            Exportar CSV
-          </a>
+          <div className="flex items-center gap-2">
+            {mes && <FecharMesButton mes={mes} fechado={mesesFechados.has(mes)} />}
+            <a
+              href={`/custos/extrato/export?${exportQs.toString()}`}
+              className="rounded-lg border border-border px-3.5 py-2 text-[12px] text-text-muted hover:text-text"
+            >
+              Exportar CSV
+            </a>
+          </div>
         </div>
+        {!mes && (
+          <p className="mb-4 text-[11px] text-text-faint">
+            Pra fechar um mês (travar contra edição/exclusão), filtre por um mês específico acima.
+          </p>
+        )}
 
         <form className="mb-5 flex flex-wrap items-end gap-3" method="get">
           <div>
@@ -187,40 +203,16 @@ export default async function ExtratoPage({
               </tr>
             </thead>
             <tbody>
-              {(despesas ?? []).map((d) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const conta = d.plano_contas as any;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const produtoRow = d.produtos as any;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const anexos = (d.anexos_despesa as any[]) ?? [];
-                return (
-                  <tr key={d.id} className="border-t border-border-soft">
-                    <td className="px-2 py-2.5 font-mono">{formatDate(d.data_gasto)}</td>
-                    <td className="px-2 py-2.5">{conta ? `${conta.codigo} — ${conta.conta}` : "—"}</td>
-                    <td className="px-2 py-2.5 text-text-muted">{produtoRow?.nome ?? "—"}</td>
-                    <td className="px-2 py-2.5 text-text-muted">{d.pagador ?? "—"}</td>
-                    <td className="px-2 py-2.5 text-text-muted">{d.descricao ?? "—"}</td>
-                    <td className="px-2 py-2.5 text-right font-mono">{formatBRL(Number(d.valor_total))}</td>
-                    <td className="px-2 py-2.5 text-center">
-                      <span
-                        className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${
-                          d.comprovado ? "bg-success-soft text-success" : "bg-danger-soft text-danger"
-                        }`}
-                      >
-                        {d.comprovado ? "Comprovado" : "Pendente"}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2.5">
-                      {anexos[0] ? (
-                        <AnexoButton path={anexos[0].caminho_arquivo} />
-                      ) : (
-                        <span className="text-text-faint">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {(despesas ?? []).map((d) => (
+                <DespesaRow
+                  key={d.id}
+                  despesa={d as unknown as DespesaRowData}
+                  planoContas={planoContas ?? []}
+                  produtos={produtos ?? []}
+                  pagadores={pagadores}
+                  fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
+                />
+              ))}
             </tbody>
           </table>
         )}

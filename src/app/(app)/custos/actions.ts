@@ -5,6 +5,19 @@ import { createClient } from "@/lib/supabase/server";
 
 export type DespesaFormState = { error: string | null; success?: boolean };
 
+function inicioDoMes(dataIso: string) {
+  return `${dataIso.slice(0, 7)}-01`;
+}
+
+async function mesFechado(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  dataGasto: string,
+): Promise<boolean> {
+  const { data } = await supabase.from("meses_fechados").select("mes").eq("mes", inicioDoMes(dataGasto)).maybeSingle();
+  return !!data;
+}
+
 export async function criarDespesa(
   _prevState: DespesaFormState,
   formData: FormData,
@@ -22,6 +35,10 @@ export async function criarDespesa(
 
   if (!data_gasto || !plano_contas_id || !valor_total) {
     return { error: "Preencha data, categoria e valor." };
+  }
+
+  if (await mesFechado(supabase, data_gasto)) {
+    return { error: "Esse mês já foi fechado — reabra em Extrato antes de lançar algo nele." };
   }
 
   const {
@@ -68,6 +85,87 @@ export async function criarDespesa(
   revalidatePath("/custos/extrato");
   revalidatePath("/");
   return { error: null, success: true };
+}
+
+export async function atualizarDespesa(
+  _prevState: DespesaFormState,
+  formData: FormData,
+): Promise<DespesaFormState> {
+  const supabase = await createClient();
+
+  const id = String(formData.get("id") || "");
+  const data_gasto = String(formData.get("data_gasto") || "");
+  const plano_contas_id = String(formData.get("plano_contas_id") || "");
+  const produto_id = String(formData.get("produto_id") || "") || null;
+  const valor_total = Number(formData.get("valor_total") || 0);
+  const descricao = String(formData.get("descricao") || "") || null;
+  const comprovado = formData.get("comprovado") === "on";
+  const pagador = String(formData.get("pagador") || "").trim() || null;
+
+  if (!id || !data_gasto || !plano_contas_id || !valor_total) {
+    return { error: "Preencha data, categoria e valor." };
+  }
+
+  const { data: atual } = await supabase.from("despesas").select("data_gasto").eq("id", id).single();
+  if (!atual) return { error: "Despesa não encontrada." };
+
+  if ((await mesFechado(supabase, atual.data_gasto)) || (await mesFechado(supabase, data_gasto))) {
+    return { error: "Esse mês está fechado — reabra em Extrato antes de editar." };
+  }
+
+  const { error } = await supabase
+    .from("despesas")
+    .update({ data_gasto, plano_contas_id, produto_id, valor_total, descricao, comprovado, pagador })
+    .eq("id", id);
+
+  if (error) return { error: "Não foi possível salvar a alteração." };
+
+  revalidatePath("/custos");
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos/recorrentes");
+  revalidatePath("/");
+  return { error: null, success: true };
+}
+
+export async function excluirDespesa(id: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+
+  const { data: atual } = await supabase.from("despesas").select("data_gasto").eq("id", id).single();
+  if (!atual) return { error: "Despesa não encontrada." };
+  if (await mesFechado(supabase, atual.data_gasto)) {
+    return { error: "Esse mês está fechado — reabra em Extrato antes de excluir." };
+  }
+
+  const { error } = await supabase.from("despesas").delete().eq("id", id);
+  if (error) return { error: "Não foi possível excluir." };
+
+  revalidatePath("/custos");
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos/recorrentes");
+  revalidatePath("/");
+  return { error: null };
+}
+
+export async function fecharMes(mes: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from("meses_fechados").insert({ mes: `${mes}-01`, fechado_por: user?.id ?? null });
+  if (error) return { error: "Não foi possível fechar o mês." };
+
+  revalidatePath("/custos/extrato");
+  return { error: null };
+}
+
+export async function reabrirMes(mes: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("meses_fechados").delete().eq("mes", `${mes}-01`);
+  if (error) return { error: "Não foi possível reabrir o mês." };
+
+  revalidatePath("/custos/extrato");
+  return { error: null };
 }
 
 export async function getSignedUrl(path: string) {
