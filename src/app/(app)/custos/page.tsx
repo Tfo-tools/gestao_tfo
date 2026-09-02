@@ -1,18 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { DespesaForm } from "./despesa-form";
+import { DespesaRow, type DespesaRowData } from "./extrato/despesa-row";
 
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function formatDate(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
-}
-
 export default async function LancamentosPage() {
   const supabase = await createClient();
 
-  const [{ data: planoContas }, { data: produtos }, { data: despesas }, { data: profiles }, { data: todasDespesasContas }] =
+  const [{ data: planoContas }, { data: produtos }, { data: despesas }, { data: profiles }, { data: todasDespesasContas }, { data: mesesFechadosRaw }] =
     await Promise.all([
       supabase
         .from("plano_contas")
@@ -23,15 +20,17 @@ export default async function LancamentosPage() {
       supabase
         .from("despesas")
         .select(
-          "id, data_gasto, valor_total, comprovado, pagador, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome)",
+          "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, produto_id, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome), anexos_despesa(caminho_arquivo, nome_arquivo)",
         )
         .order("data_gasto", { ascending: false })
         .limit(15),
       supabase.from("profiles").select("nome").order("nome"),
       supabase.from("despesas").select("plano_contas_id"),
+      supabase.from("meses_fechados").select("mes"),
     ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
+  const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
 
   const usoPorConta: Record<string, number> = {};
   for (const d of todasDespesasContas ?? []) {
@@ -55,35 +54,23 @@ export default async function LancamentosPage() {
                 <th className="px-2 py-1.5 font-medium">Categoria</th>
                 <th className="px-2 py-1.5 font-medium">Produto</th>
                 <th className="px-2 py-1.5 font-medium">Pagador</th>
+                <th className="px-2 py-1.5 font-medium">Descrição</th>
                 <th className="px-2 py-1.5 text-right font-medium">Valor</th>
                 <th className="px-2 py-1.5 text-center font-medium">Status</th>
+                <th className="px-2 py-1.5 font-medium">Comprovante / Ações</th>
               </tr>
             </thead>
             <tbody>
-              {(despesas ?? []).map((d) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const conta = d.plano_contas as any;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const produto = d.produtos as any;
-                return (
-                  <tr key={d.id} className="border-t border-border-soft">
-                    <td className="px-2 py-2.5 font-mono">{formatDate(d.data_gasto)}</td>
-                    <td className="px-2 py-2.5">{conta ? `${conta.codigo} — ${conta.conta}` : "—"}</td>
-                    <td className="px-2 py-2.5 text-text-muted">{produto?.nome ?? "—"}</td>
-                    <td className="px-2 py-2.5 text-text-muted">{d.pagador ?? "—"}</td>
-                    <td className="px-2 py-2.5 text-right font-mono">{formatBRL(Number(d.valor_total))}</td>
-                    <td className="px-2 py-2.5 text-center">
-                      <span
-                        className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${
-                          d.comprovado ? "bg-success-soft text-success" : "bg-danger-soft text-danger"
-                        }`}
-                      >
-                        {d.comprovado ? "Comprovado" : "Pendente"}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {(despesas ?? []).map((d) => (
+                <DespesaRow
+                  key={d.id}
+                  despesa={d as unknown as DespesaRowData}
+                  planoContas={planoContas ?? []}
+                  produtos={produtos ?? []}
+                  pagadores={pagadores}
+                  fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
+                />
+              ))}
             </tbody>
           </table>
         )}
