@@ -143,7 +143,8 @@ function TabelaIndicador({
     return (
       <>
         <p className="mb-3 text-[12px] text-text-muted">
-          DRE em cascata: Receita (–) COGS (–) Impostos (=) Margem Bruta (–) S&amp;M (–) P&amp;D (–) G&amp;A (=) EBITDA.
+          DRE em cascata: Receita (–) COGS (–) Impostos (=) Margem Bruta (–) S&amp;M (–) P&amp;D (–) G&amp;A (=) EBITDA. Clique num
+          mês pra ver os lançamentos reais dele, pra conferência.
         </p>
         <Table
           head={["Mês", "Receita", "COGS", "Impostos", "Margem Bruta", "S&M", "P&D", "G&A", "EBITDA"]}
@@ -162,6 +163,7 @@ function TabelaIndicador({
               formatBRL(l.ebitda),
             ];
           })}
+          hrefFor={(_row, i) => `/custos/extrato?desde=${linhas[i].mes_referencia.slice(0, 7)}&ate=${linhas[i].mes_referencia.slice(0, 7)}`}
           total={[
             "Total do período",
             formatBRL(totalReceita),
@@ -285,11 +287,13 @@ function Table({
   rows,
   total,
   destaqueMes,
+  hrefFor,
 }: {
   head: string[];
   rows: string[][];
   total?: string[];
   destaqueMes?: string | null;
+  hrefFor?: (row: string[], index: number) => string;
 }) {
   return (
     <div className="max-h-[520px] overflow-y-auto overflow-x-auto">
@@ -305,12 +309,23 @@ function Table({
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className={`border-t border-border-soft ${destaqueMes && row[0] === formatMes(destaqueMes) ? "bg-wine-soft" : ""}`}>
-              {row.map((cell, j) => (
-                <td key={j} className={j === 0 ? "px-2 py-1.5 capitalize" : "px-2 py-1.5 text-right font-mono"}>
-                  {cell}
-                </td>
-              ))}
+            <tr
+              key={i}
+              className={`border-t border-border-soft ${destaqueMes && row[0] === formatMes(destaqueMes) ? "bg-wine-soft" : ""} ${hrefFor ? "cursor-pointer hover:bg-bg" : ""}`}
+            >
+              {row.map((cell, j) =>
+                hrefFor ? (
+                  <td key={j} className={j === 0 ? "px-2 py-1.5 capitalize" : "px-2 py-1.5 text-right font-mono"}>
+                    <Link href={hrefFor(row, i)} className="block">
+                      {cell}
+                    </Link>
+                  </td>
+                ) : (
+                  <td key={j} className={j === 0 ? "px-2 py-1.5 capitalize" : "px-2 py-1.5 text-right font-mono"}>
+                    {cell}
+                  </td>
+                ),
+              )}
             </tr>
           ))}
         </tbody>

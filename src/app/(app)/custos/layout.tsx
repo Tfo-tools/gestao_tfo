@@ -1,6 +1,11 @@
+import { createClient } from "@/lib/supabase/server";
+import { materializarDespesasRecorrentes } from "@/lib/despesas-recorrentes";
 import { CustosTabs } from "./tabs";
 
-export default function CustosLayout({ children }: { children: React.ReactNode }) {
+export default async function CustosLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient();
+  await materializarDespesasRecorrentes(supabase);
+
   return (
     <div>
       <div className="mb-5">

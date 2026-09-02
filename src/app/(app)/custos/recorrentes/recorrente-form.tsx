@@ -1,13 +1,13 @@
 "use client";
 
 import { useActionState, useMemo, useRef, useState } from "react";
-import { criarDespesa, type DespesaFormState } from "./actions";
+import { criarRecorrente, type RecorrenteFormState } from "./actions";
 import { grupoDeConta, GRUPO_LABELS } from "@/lib/grupo-dre";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
 type Produto = { id: string; nome: string };
 
-const initialState: DespesaFormState = { error: null };
+const initialState: RecorrenteFormState = { error: null };
 
 const OUTROS_GRUPO_LABEL: Record<string, string> = {
   financeiro: "Financeiro (juros, tarifas, câmbio)",
@@ -25,18 +25,16 @@ function labelGrupo(grupo: string): string {
 
 const ORDEM_GRUPOS_AMPLO = ["cogs", "sm", "pd", "ga", "financeiro", "ativo"];
 
-export function DespesaForm({
+export function RecorrenteForm({
   planoContas,
   produtos,
   pagadores,
-  usoPorConta,
 }: {
   planoContas: PlanoContas[];
   produtos: Produto[];
   pagadores: string[];
-  usoPorConta: Record<string, number>;
 }) {
-  const [state, formAction, pending] = useActionState(criarDespesa, initialState);
+  const [state, formAction, pending] = useActionState(criarRecorrente, initialState);
   const formRef = useRef<HTMLFormElement>(null);
   const [grupo, setGrupo] = useState("");
 
@@ -45,15 +43,17 @@ export function DespesaForm({
     return ORDEM_GRUPOS_AMPLO.filter((g) => presentes.has(g));
   }, [planoContas]);
 
-  const contasDoGrupo = useMemo(() => {
-    return planoContas
-      .filter((c) => grupoAmploDe(c) === grupo)
-      .sort((a, b) => (usoPorConta[b.id] ?? 0) - (usoPorConta[a.id] ?? 0) || a.conta.localeCompare(b.conta));
-  }, [planoContas, grupo, usoPorConta]);
+  const contasDoGrupo = useMemo(
+    () => planoContas.filter((c) => grupoAmploDe(c) === grupo).sort((a, b) => a.conta.localeCompare(b.conta)),
+    [planoContas, grupo],
+  );
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-5 font-heading text-[14.5px] font-semibold">Novo lançamento</h2>
+      <h2 className="mb-1 font-heading text-[14.5px] font-semibold">Nova despesa recorrente</h2>
+      <p className="mb-5 text-[11.5px] text-text-muted">
+        Configure uma vez — todo mês o sistema lança essa despesa automaticamente e só falta anexar a NF/recibo.
+      </p>
       <form
         ref={formRef}
         action={async (formData) => {
@@ -63,23 +63,8 @@ export function DespesaForm({
         }}
         className="flex flex-col gap-3.5"
       >
-        <Field label="Data do gasto">
-          <input
-            name="data_gasto"
-            type="date"
-            required
-            defaultValue={new Date().toISOString().slice(0, 10)}
-            className="input"
-          />
-        </Field>
-
         <Field label="1. Que tipo de gasto é esse?">
-          <select
-            value={grupo}
-            onChange={(e) => setGrupo(e.target.value)}
-            required
-            className="input"
-          >
+          <select value={grupo} onChange={(e) => setGrupo(e.target.value)} required className="input">
             <option value="">Selecione…</option>
             {grupos.map((g) => (
               <option key={g} value={g}>
@@ -111,9 +96,13 @@ export function DespesaForm({
           </select>
         </Field>
 
-        <Field label="Pagador">
-          <select name="pagador" required className="input">
-            <option value="">Quem pagou?</option>
+        <Field label="Descrição">
+          <input name="descricao" type="text" required className="input" placeholder="Ex: Assinatura AWS" />
+        </Field>
+
+        <Field label="Pagador (opcional)">
+          <select name="pagador" className="input">
+            <option value="">Quem paga?</option>
             {pagadores.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -123,52 +112,28 @@ export function DespesaForm({
           </select>
         </Field>
 
-        <Field label="Valor total">
-          <input
-            name="valor_total"
-            type="number"
-            step="0.01"
-            min="0"
-            required
-            placeholder="0,00"
-            className="input"
-          />
+        <Field label="Valor mensal">
+          <input name="valor" type="number" step="0.01" min="0" required placeholder="0,00" className="input" />
         </Field>
 
-        <Field label="Descrição (opcional)">
-          <input name="descricao" type="text" className="input" placeholder="Ex: campanha Meta Ads agosto" />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Dia do mês do lançamento">
+            <input name="dia_do_mes" type="number" min="1" max="28" defaultValue={5} required className="input" />
+          </Field>
+          <Field label="Começa em">
+            <input name="data_inicio" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required className="input" />
+          </Field>
+        </div>
 
-        <Field label="Comprovante (NF ou recibo)">
-          <input
-            name="comprovante"
-            type="file"
-            accept="image/*,application/pdf"
-            className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
-          />
-          <p className="mt-1 text-[10.5px] text-text-faint">No celular, dá pra tirar a foto na hora ou escolher da galeria/arquivos.</p>
-        </Field>
-
-        <label className="flex items-center gap-2 pt-1 text-[12px]">
-          <input name="comprovado" type="checkbox" className="h-4 w-4 rounded border-border" />
-          Marcar como comprovado (auditado internamente)
-        </label>
-
-        {state.error && (
-          <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>
-        )}
-        {state.success && (
-          <p className="rounded-lg bg-success-soft px-3 py-2 text-xs text-success">
-            Despesa lançada.
-          </p>
-        )}
+        {state.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>}
+        {state.success && <p className="rounded-lg bg-success-soft px-3 py-2 text-xs text-success">Despesa recorrente criada.</p>}
 
         <button
           type="submit"
           disabled={pending}
           className="mt-1 rounded-lg bg-wine-deep px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
         >
-          {pending ? "Salvando…" : "Lançar despesa"}
+          {pending ? "Salvando…" : "Criar recorrência"}
         </button>
       </form>
     </div>

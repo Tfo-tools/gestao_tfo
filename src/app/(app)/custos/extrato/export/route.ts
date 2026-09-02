@@ -10,6 +10,9 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { searchParams } = new URL(request.url);
   const mes = searchParams.get("mes");
+  const desde = searchParams.get("desde");
+  const ate = searchParams.get("ate");
+  const conta = searchParams.get("conta");
   const produto = searchParams.get("produto");
   const comprovado = searchParams.get("comprovado");
   const pagador = searchParams.get("pagador");
@@ -27,7 +30,15 @@ export async function GET(request: NextRequest) {
     query = query
       .gte("data_gasto", `${mes}-01`)
       .lt("data_gasto", `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
+  } else {
+    if (desde) query = query.gte("data_gasto", `${desde}-01`);
+    if (ate) {
+      const [y, m] = ate.split("-").map(Number);
+      const next = new Date(y, m, 1);
+      query = query.lt("data_gasto", `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
+    }
   }
+  if (conta) query = query.eq("plano_contas_id", conta);
   if (produto) query = query.eq("produto_id", produto);
   if (comprovado === "sim") query = query.eq("comprovado", true);
   if (comprovado === "nao") query = query.eq("comprovado", false);

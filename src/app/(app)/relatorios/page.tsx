@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { AlocacaoInvestimento } from "./alocacao-investimento";
 import { agregarPorCenario, computeMetricas, type Agregado, type Metricas } from "@/lib/relatorios-cenario";
+import { grupoLabelDe } from "@/lib/grupo-dre";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -53,17 +54,7 @@ const GRUPO_TOOLTIP: Record<string, string> = {
   "G&A": "General & Administrative (Geral e Administrativo): custos de gestão da empresa — ex: contabilidade, jurídico, administrativo.",
 };
 
-function grupoDe(codigo: string, tipo: string): string {
-  if (tipo === "cogs") return "COGS";
-  if (codigo.startsWith("4.2.1")) return "S&M";
-  if (codigo.startsWith("4.2.2")) return "P&D";
-  if (codigo.startsWith("4.2.3") || codigo.startsWith("4.2.4")) return "G&A";
-  if (tipo === "financeiro") return "Financeiro";
-  if (tipo === "ativo") return "Ativos";
-  return "Outros";
-}
-
-const ORDEM_GRUPOS = ["COGS", "S&M", "P&D", "G&A", "Financeiro", "Ativos", "Outros"];
+const grupoDe = grupoLabelDe;
 
 type DespesaGrupoRow = {
   data_gasto: string;
@@ -142,7 +133,14 @@ async function RelatorioReal() {
           </thead>
           <tbody>
             <LinhaDreReal label="Receita Operacional Bruta" mes={receitaMes} acumulado={receitaAcumulada} />
-            <LinhaDreReal label="(–) Custo dos Serviços Prestados (COGS)" mes={cogsMes} acumulado={cogsAcum} negativo tooltip={GRUPO_TOOLTIP.COGS} />
+            <LinhaDreReal
+              label="(–) Custo dos Serviços Prestados (COGS)"
+              mes={cogsMes}
+              acumulado={cogsAcum}
+              negativo
+              tooltip={GRUPO_TOOLTIP.COGS}
+              href="/relatorios/linha?grupo=cogs"
+            />
             <LinhaDreReal
               label="(–) Deduções e Impostos sobre Receita"
               mes={impostosMes}
@@ -151,12 +149,35 @@ async function RelatorioReal() {
               tooltip="DAS do Simples Nacional — calculado de verdade assim que houver receita real lançada mês a mês (tela Vendas)."
             />
             <LinhaDreReal label="(=) Margem Bruta" mes={margemBrutaMes} acumulado={margemBrutaAcum} total />
-            <LinhaDreReal label="(–) Vendas e Marketing (S&M)" mes={smMes} acumulado={smAcum} negativo tooltip={GRUPO_TOOLTIP["S&M"]} />
-            <LinhaDreReal label="(–) Pesquisa e Desenvolvimento (P&D)" mes={pdMes} acumulado={pdAcum} negativo tooltip={GRUPO_TOOLTIP["P&D"]} />
-            <LinhaDreReal label="(–) Geral e Administrativo (G&A)" mes={gaMes} acumulado={gaAcum} negativo tooltip={GRUPO_TOOLTIP["G&A"]} />
+            <LinhaDreReal
+              label="(–) Vendas e Marketing (S&M)"
+              mes={smMes}
+              acumulado={smAcum}
+              negativo
+              tooltip={GRUPO_TOOLTIP["S&M"]}
+              href="/relatorios/linha?grupo=sm"
+            />
+            <LinhaDreReal
+              label="(–) Pesquisa e Desenvolvimento (P&D)"
+              mes={pdMes}
+              acumulado={pdAcum}
+              negativo
+              tooltip={GRUPO_TOOLTIP["P&D"]}
+              href="/relatorios/linha?grupo=pd"
+            />
+            <LinhaDreReal
+              label="(–) Geral e Administrativo (G&A)"
+              mes={gaMes}
+              acumulado={gaAcum}
+              negativo
+              tooltip={GRUPO_TOOLTIP["G&A"]}
+              href="/relatorios/linha?grupo=ga"
+            />
             <tr className="border-t-2 border-text bg-wine-soft">
               <td className="flex items-center px-2 py-2.5 font-bold">
-                (=) EBITDA real
+                <Link href="/relatorios/linha" className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
+                  (=) EBITDA real — ver detalhamento →
+                </Link>
                 <InfoTooltip texto="EBITDA = lucro antes de juros, impostos, depreciação e amortização — aqui calculado só com o que já foi de fato faturado e gasto, sem projeção." />
               </td>
               <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaMes < 0 ? "text-danger" : "text-success"}`}>{formatBRL(ebitdaMes)}</td>
@@ -206,6 +227,7 @@ function LinhaDreReal({
   negativo,
   total,
   tooltip,
+  href,
 }: {
   label: string;
   mes: number;
@@ -213,11 +235,18 @@ function LinhaDreReal({
   negativo?: boolean;
   total?: boolean;
   tooltip?: string;
+  href?: string;
 }) {
   return (
     <tr className={`border-t border-border-soft ${total ? "bg-bg font-semibold" : ""}`}>
       <td className="flex items-center px-2 py-2.5">
-        {label}
+        {href ? (
+          <Link href={href} className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
+            {label} →
+          </Link>
+        ) : (
+          label
+        )}
         {tooltip && <InfoTooltip texto={tooltip} />}
       </td>
       <td className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}>
@@ -482,13 +511,17 @@ function IndicadoresPeriodo({
   fim: string;
 }) {
   const hrefEbitda = `/relatorios/detalhe?indicador=margem_operacional&cenario=${cenarioId}&inicio=${inicio}&fim=${fim}`;
+  const hrefLinha = (grupo: string) => `/relatorios/linha?grupo=${grupo}&cenario=${cenarioId}&inicio=${inicio}&fim=${fim}`;
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
       <h2 className="mb-4 font-heading text-sm font-semibold">DRE do período selecionado</h2>
+      <p className="mb-3 text-[11px] text-text-muted">
+        Os valores aqui são a projeção do cenário; clique numa linha pra ver os lançamentos reais já feitos nessas contas, pra conferência.
+      </p>
       <table className="w-full border-collapse text-[12.5px]">
         <tbody>
           <DreLinha label="Receita Operacional Bruta" valor={metricas.receitaAcumulada} />
-          <DreLinha label="(–) Custo dos Serviços Prestados (COGS)" valor={-metricas.cogsAcumulado} negativo />
+          <DreLinha label="(–) Custo dos Serviços Prestados (COGS)" valor={-metricas.cogsAcumulado} negativo href={hrefLinha("cogs")} />
           <DreLinha
             label="(–) Deduções e Impostos sobre Receita"
             valor={-metricas.impostosAcumulados}
@@ -496,9 +529,9 @@ function IndicadoresPeriodo({
             tooltip="DAS do Simples Nacional (Anexo III ou V conforme o Fator R), calculado mês a mês pelo RBT12 (receita dos 12 meses anteriores) e pela folha CLT acumulada."
           />
           <DreLinha label="(=) Margem Bruta" valor={metricas.margemBrutaValor} total />
-          <DreLinha label="(–) Vendas e Marketing (S&M)" valor={-metricas.smAcumulado} negativo />
-          <DreLinha label="(–) Pesquisa e Desenvolvimento (P&D)" valor={-metricas.pdAcumulado} negativo />
-          <DreLinha label="(–) Geral e Administrativo (G&A)" valor={-metricas.gaAcumulado} negativo />
+          <DreLinha label="(–) Vendas e Marketing (S&M)" valor={-metricas.smAcumulado} negativo href={hrefLinha("sm")} />
+          <DreLinha label="(–) Pesquisa e Desenvolvimento (P&D)" valor={-metricas.pdAcumulado} negativo href={hrefLinha("pd")} />
+          <DreLinha label="(–) Geral e Administrativo (G&A)" valor={-metricas.gaAcumulado} negativo href={hrefLinha("ga")} />
           <tr className="border-t border-border-soft bg-wine-soft">
             <td className="px-2 py-2.5 font-semibold">
               <Link href={hrefEbitda} className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
@@ -582,17 +615,25 @@ function DreLinha({
   negativo,
   total,
   tooltip,
+  href,
 }: {
   label: string;
   valor: number;
   negativo?: boolean;
   total?: boolean;
   tooltip?: string;
+  href?: string;
 }) {
   return (
     <tr className={`border-t border-border-soft ${total ? "bg-bg font-semibold" : ""}`}>
       <td className="flex items-center px-2 py-2.5">
-        {label}
+        {href ? (
+          <Link href={href} className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
+            {label} →
+          </Link>
+        ) : (
+          label
+        )}
         {tooltip && <InfoTooltip texto={tooltip} />}
       </td>
       <td className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}>

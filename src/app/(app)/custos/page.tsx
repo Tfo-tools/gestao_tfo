@@ -12,11 +12,11 @@ function formatDate(iso: string) {
 export default async function LancamentosPage() {
   const supabase = await createClient();
 
-  const [{ data: planoContas }, { data: produtos }, { data: despesas }, { data: profiles }] =
+  const [{ data: planoContas }, { data: produtos }, { data: despesas }, { data: profiles }, { data: todasDespesasContas }] =
     await Promise.all([
       supabase
         .from("plano_contas")
-        .select("id, codigo, conta")
+        .select("id, codigo, conta, tipo")
         .in("tipo", ["cogs", "opex", "financeiro", "ativo"])
         .order("codigo"),
       supabase.from("produtos").select("id, nome").order("nome"),
@@ -28,13 +28,20 @@ export default async function LancamentosPage() {
         .order("data_gasto", { ascending: false })
         .limit(15),
       supabase.from("profiles").select("nome").order("nome"),
+      supabase.from("despesas").select("plano_contas_id"),
     ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
 
+  const usoPorConta: Record<string, number> = {};
+  for (const d of todasDespesasContas ?? []) {
+    if (!d.plano_contas_id) continue;
+    usoPorConta[d.plano_contas_id] = (usoPorConta[d.plano_contas_id] ?? 0) + 1;
+  }
+
   return (
     <div className="grid grid-cols-[420px_1fr] items-start gap-5">
-      <DespesaForm planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} />
+      <DespesaForm planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} usoPorConta={usoPorConta} />
 
       <div className="rounded-xl border border-border bg-surface p-6">
         <h2 className="mb-5 font-heading text-sm font-semibold">Lançamentos recentes</h2>

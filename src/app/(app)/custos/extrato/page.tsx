@@ -12,9 +12,9 @@ function formatDate(iso: string) {
 export default async function ExtratoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; desde?: string; produto?: string; comprovado?: string; pagador?: string; conta?: string }>;
+  searchParams: Promise<{ mes?: string; desde?: string; ate?: string; produto?: string; comprovado?: string; pagador?: string; conta?: string }>;
 }) {
-  const { mes, desde, produto, comprovado, pagador, conta } = await searchParams;
+  const { mes, desde, ate, produto, comprovado, pagador, conta } = await searchParams;
   const supabase = await createClient();
 
   const [{ data: produtos }, { data: todasDespesas }, { data: contaAtual }] = await Promise.all([
@@ -42,8 +42,9 @@ export default async function ExtratoPage({
 
   if (mes) {
     query = query.gte("data_gasto", `${mes}-01`).lt("data_gasto", nextMonth(mes));
-  } else if (desde) {
-    query = query.gte("data_gasto", `${desde}-01`);
+  } else {
+    if (desde) query = query.gte("data_gasto", `${desde}-01`);
+    if (ate) query = query.lt("data_gasto", nextMonth(ate));
   }
   if (produto) query = query.eq("produto_id", produto);
   if (comprovado === "sim") query = query.eq("comprovado", true);
@@ -56,6 +57,7 @@ export default async function ExtratoPage({
   const exportQs = new URLSearchParams();
   if (mes) exportQs.set("mes", mes);
   if (desde) exportQs.set("desde", desde);
+  if (ate) exportQs.set("ate", ate);
   if (produto) exportQs.set("produto", produto);
   if (comprovado) exportQs.set("comprovado", comprovado);
   if (pagador) exportQs.set("pagador", pagador);
@@ -104,12 +106,14 @@ export default async function ExtratoPage({
       )}
 
       <div className="rounded-xl border border-border bg-surface p-6">
-        {(conta || desde) && (
+        {(conta || desde || ate) && (
           <div className="mb-4 flex items-center justify-between rounded-lg bg-primary-soft px-3.5 py-2.5 text-[12px] text-primary-deep">
             <span>
               Filtrado {conta && contaAtual ? `pela conta ${contaAtual.codigo} — ${contaAtual.conta}` : ""}
-              {conta && desde ? " · " : ""}
-              {desde ? `desde ${desde}` : ""}
+              {conta && (desde || ate) ? " · " : ""}
+              {desde ? `de ${desde}` : ""}
+              {desde && ate ? " " : ""}
+              {ate ? `até ${ate}` : ""}
             </span>
             <a href="/custos/extrato" className="underline">
               Limpar filtro
