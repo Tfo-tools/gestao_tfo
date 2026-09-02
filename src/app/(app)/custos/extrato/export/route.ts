@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
   const produto = searchParams.get("produto");
   const comprovado = searchParams.get("comprovado");
   const pagador = searchParams.get("pagador");
+  const descricao = searchParams.get("descricao");
 
   let query = supabase
     .from("despesas")
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
   if (comprovado === "sim") query = query.eq("comprovado", true);
   if (comprovado === "nao") query = query.eq("comprovado", false);
   if (pagador) query = query.eq("pagador", pagador);
+  if (descricao) query = query.ilike("descricao", `%${descricao}%`);
 
   const { data: despesas } = await query;
 

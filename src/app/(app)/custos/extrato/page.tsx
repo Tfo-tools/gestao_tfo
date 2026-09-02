@@ -13,39 +13,30 @@ function formatDate(iso: string) {
 export default async function ExtratoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; desde?: string; ate?: string; produto?: string; comprovado?: string; pagador?: string; conta?: string }>;
+  searchParams: Promise<{
+    mes?: string;
+    desde?: string;
+    ate?: string;
+    produto?: string;
+    comprovado?: string;
+    pagador?: string;
+    conta?: string;
+    descricao?: string;
+  }>;
 }) {
-  const { mes, desde, ate, produto, comprovado, pagador, conta } = await searchParams;
+  const { mes, desde, ate, produto, comprovado, pagador, conta, descricao } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: produtos }, { data: todasDespesas }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }] =
-    await Promise.all([
-      supabase.from("produtos").select("id, nome").order("nome"),
-      supabase.from("despesas").select("pagador, valor_total"),
-      conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
-      supabase.from("plano_contas").select("id, codigo, conta").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
-      supabase.from("profiles").select("nome").order("nome"),
-      supabase.from("meses_fechados").select("mes"),
-    ]);
+  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }] = await Promise.all([
+    supabase.from("produtos").select("id, nome").order("nome"),
+    conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
+    supabase.from("plano_contas").select("id, codigo, conta").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
+    supabase.from("profiles").select("nome").order("nome"),
+    supabase.from("meses_fechados").select("mes"),
+  ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
-
-  // Rateio entre sócias: só o que saiu do bolso de cada uma — pago pela "Empresa" (cartão/conta
-  // PJ) não entra no rateio, porque a empresa já cobriu direto, não há diferença a repassar.
-  const pessoasSet = new Set(pagadores);
-  const porPagador = new Map<string, number>();
-  let totalOutros = 0;
-  for (const d of todasDespesas ?? []) {
-    if (!d.pagador || d.pagador === "Empresa" || !pessoasSet.has(d.pagador)) {
-      totalOutros += Number(d.valor_total);
-      continue;
-    }
-    porPagador.set(d.pagador, (porPagador.get(d.pagador) ?? 0) + Number(d.valor_total));
-  }
-  const totalGeral = [...porPagador.values()].reduce((a, b) => a + b, 0);
-  const linhasPagador = [...porPagador.entries()].sort((a, b) => b[1] - a[1]);
-  const metade = totalGeral / 2;
 
   let query = supabase
     .from("despesas")
@@ -67,8 +58,28 @@ export default async function ExtratoPage({
   if (comprovado === "nao") query = query.eq("comprovado", false);
   if (pagador) query = query.eq("pagador", pagador);
   if (conta) query = query.eq("plano_contas_id", conta);
+  if (descricao) query = query.ilike("descricao", `%${descricao}%`);
 
   const { data: despesas } = await query;
+
+  // Rateio entre sócias — sobre o MESMO recorte filtrado acima (período, produto, descrição...),
+  // pra dar pra isolar um evento/feira específico em vez de sempre olhar o total acumulado. Só o
+  // que saiu do bolso de cada uma entra; pago pela "Empresa" (cartão/conta PJ) fica de fora,
+  // porque a empresa já cobriu direto, não há diferença a repassar.
+  const pessoasSet = new Set(pagadores);
+  const porPagador = new Map<string, number>();
+  let totalOutros = 0;
+  for (const d of despesas ?? []) {
+    if (!d.pagador || d.pagador === "Empresa" || !pessoasSet.has(d.pagador)) {
+      totalOutros += Number(d.valor_total);
+      continue;
+    }
+    porPagador.set(d.pagador, (porPagador.get(d.pagador) ?? 0) + Number(d.valor_total));
+  }
+  const totalGeral = [...porPagador.values()].reduce((a, b) => a + b, 0);
+  const linhasPagador = [...porPagador.entries()].sort((a, b) => b[1] - a[1]);
+  const metade = totalGeral / 2;
+  const temFiltroAtivo = !!(mes || desde || ate || produto || comprovado || pagador || conta || descricao);
 
   const exportQs = new URLSearchParams();
   if (mes) exportQs.set("mes", mes);
@@ -78,6 +89,7 @@ export default async function ExtratoPage({
   if (comprovado) exportQs.set("comprovado", comprovado);
   if (pagador) exportQs.set("pagador", pagador);
   if (conta) exportQs.set("conta", conta);
+  if (descricao) exportQs.set("descricao", descricao);
 
   return (
     <div className="flex flex-col gap-5">
@@ -86,7 +98,9 @@ export default async function ExtratoPage({
           <h2 className="mb-1 font-heading text-sm font-semibold">Rateio entre sócias</h2>
           <p className="mb-4 text-[11.5px] text-text-muted">
             Só o que saiu do bolso de cada uma ({formatBRL(totalGeral)}) — pago pela "Empresa" não entra, já foi coberto direto.
-            Independe dos filtros abaixo.
+            {temFiltroAtivo
+              ? " Sobre o recorte filtrado abaixo — use período e descrição pra isolar um evento específico."
+              : " Sobre tudo lançado até agora — filtre por período ou descrição abaixo pra isolar só um evento/feira."}
           </p>
           <div className="grid grid-cols-2 gap-3">
             {linhasPagador.map(([nome, valor]) => {
@@ -128,14 +142,16 @@ export default async function ExtratoPage({
       )}
 
       <div className="rounded-xl border border-border bg-surface p-6">
-        {(conta || desde || ate) && (
+        {(conta || desde || ate || descricao) && (
           <div className="mb-4 flex items-center justify-between rounded-lg bg-primary-soft px-3.5 py-2.5 text-[12px] text-primary-deep">
             <span>
               Filtrado {conta && contaAtual ? `pela conta ${contaAtual.codigo} — ${contaAtual.conta}` : ""}
-              {conta && (desde || ate) ? " · " : ""}
+              {conta && (desde || ate || descricao) ? " · " : ""}
               {desde ? `de ${desde}` : ""}
               {desde && ate ? " " : ""}
               {ate ? `até ${ate}` : ""}
+              {(desde || ate) && descricao ? " · " : ""}
+              {descricao ? `descrição contém "${descricao}"` : ""}
             </span>
             <a href="/custos/extrato" className="underline">
               Limpar filtro
@@ -162,8 +178,16 @@ export default async function ExtratoPage({
 
         <form className="mb-5 flex flex-wrap items-end gap-3" method="get">
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-text-muted">Mês</label>
+            <label className="mb-1 block text-[11px] font-medium text-text-muted">Mês exato</label>
             <input type="month" name="mes" defaultValue={mes} className="input" />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-text-muted">De</label>
+            <input type="month" name="desde" defaultValue={desde} className="input" />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-text-muted">Até</label>
+            <input type="month" name="ate" defaultValue={ate} className="input" />
           </div>
           <div>
             <label className="mb-1 block text-[11px] font-medium text-text-muted">Produto</label>
@@ -180,11 +204,12 @@ export default async function ExtratoPage({
             <label className="mb-1 block text-[11px] font-medium text-text-muted">Pagador</label>
             <select name="pagador" defaultValue={pagador ?? ""} className="input">
               <option value="">Todos</option>
-              {linhasPagador.map(([nome]) => (
+              {pagadores.map((nome) => (
                 <option key={nome} value={nome}>
                   {nome}
                 </option>
               ))}
+              <option value="Empresa">Empresa</option>
             </select>
           </div>
           <div>
@@ -195,9 +220,18 @@ export default async function ExtratoPage({
               <option value="nao">Pendentes</option>
             </select>
           </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-text-muted">Descrição contém</label>
+            <input type="text" name="descricao" defaultValue={descricao ?? ""} placeholder="Ex: Feira SPFW" className="input w-[180px]" />
+          </div>
           <button type="submit" className="rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
             Filtrar
           </button>
+          {temFiltroAtivo && (
+            <a href="/custos/extrato" className="text-[12px] text-text-muted underline">
+              Limpar tudo
+            </a>
+          )}
         </form>
 
         {(despesas ?? []).length === 0 ? (
