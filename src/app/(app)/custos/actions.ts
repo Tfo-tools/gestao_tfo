@@ -18,6 +18,29 @@ async function mesFechado(
   return !!data;
 }
 
+type TipoAnexo = "fatura" | "comprovante_pagamento";
+
+async function anexarArquivo(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  despesaId: string,
+  file: File | null,
+  tipo: TipoAnexo,
+) {
+  if (!file || file.size === 0) return;
+  const path = `${despesaId}/${Date.now()}-${file.name}`;
+  const { error: uploadError } = await supabase.storage.from("comprovantes").upload(path, file, { contentType: file.type });
+  if (uploadError) return;
+  await supabase.from("anexos_despesa").insert({
+    despesa_id: despesaId,
+    nome_arquivo: file.name,
+    caminho_arquivo: path,
+    tipo_mime: file.type,
+    tamanho_bytes: file.size,
+    tipo,
+  });
+}
+
 export async function criarDespesa(
   _prevState: DespesaFormState,
   formData: FormData,
@@ -31,7 +54,8 @@ export async function criarDespesa(
   const descricao = String(formData.get("descricao") || "") || null;
   const comprovado = formData.get("comprovado") === "on";
   const pagador = String(formData.get("pagador") || "").trim() || null;
-  const file = formData.get("comprovante") as File | null;
+  const fatura = formData.get("fatura") as File | null;
+  const comprovantePagamento = formData.get("comprovante_pagamento") as File | null;
 
   if (!data_gasto || !plano_contas_id || !valor_total) {
     return { error: "Preencha data, categoria e valor." };
@@ -64,22 +88,8 @@ export async function criarDespesa(
     return { error: "Não foi possível salvar a despesa." };
   }
 
-  if (file && file.size > 0) {
-    const path = `${despesa.id}/${Date.now()}-${file.name}`;
-    const { error: uploadError } = await supabase.storage
-      .from("comprovantes")
-      .upload(path, file, { contentType: file.type });
-
-    if (!uploadError) {
-      await supabase.from("anexos_despesa").insert({
-        despesa_id: despesa.id,
-        nome_arquivo: file.name,
-        caminho_arquivo: path,
-        tipo_mime: file.type,
-        tamanho_bytes: file.size,
-      });
-    }
-  }
+  await anexarArquivo(supabase, despesa.id, fatura, "fatura");
+  await anexarArquivo(supabase, despesa.id, comprovantePagamento, "comprovante_pagamento");
 
   revalidatePath("/custos");
   revalidatePath("/custos/extrato");
@@ -101,6 +111,8 @@ export async function atualizarDespesa(
   const descricao = String(formData.get("descricao") || "") || null;
   const comprovado = formData.get("comprovado") === "on";
   const pagador = String(formData.get("pagador") || "").trim() || null;
+  const fatura = formData.get("fatura") as File | null;
+  const comprovantePagamento = formData.get("comprovante_pagamento") as File | null;
 
   if (!id || !data_gasto || !plano_contas_id || !valor_total) {
     return { error: "Preencha data, categoria e valor." };
@@ -119,6 +131,9 @@ export async function atualizarDespesa(
     .eq("id", id);
 
   if (error) return { error: "Não foi possível salvar a alteração." };
+
+  await anexarArquivo(supabase, id, fatura, "fatura");
+  await anexarArquivo(supabase, id, comprovantePagamento, "comprovante_pagamento");
 
   revalidatePath("/custos");
   revalidatePath("/custos/extrato");

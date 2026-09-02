@@ -6,7 +6,7 @@ import { AnexoButton } from "./anexo-button";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
 type Produto = { id: string; nome: string };
-type Anexo = { caminho_arquivo: string; nome_arquivo: string };
+type Anexo = { caminho_arquivo: string; nome_arquivo: string; tipo?: string };
 
 export type DespesaRowData = {
   id: string;
@@ -106,6 +106,29 @@ export function DespesaRow({
               <input name="comprovado" type="checkbox" defaultChecked={despesa.comprovado} className="h-3.5 w-3.5 rounded border-border" />
               Comprovado
             </label>
+            <div className="w-full">
+              <div className="mb-1 flex flex-wrap gap-3 text-[11px] text-text-faint">
+                {despesa.anexos_despesa.map((a, i) => (
+                  <span key={i}>
+                    <AnexoButton path={a.caminho_arquivo} tipo={a.tipo} />
+                  </span>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {!temAnexoTipo(despesa.anexos_despesa, "fatura") && (
+                  <div>
+                    <label className="mb-1 block text-[10.5px] text-text-faint">+ Anexar fatura/NF</label>
+                    <input name="fatura" type="file" accept="image/*,application/pdf" className="w-[190px] text-[11px]" />
+                  </div>
+                )}
+                {!temAnexoTipo(despesa.anexos_despesa, "comprovante_pagamento") && (
+                  <div>
+                    <label className="mb-1 block text-[10.5px] text-text-faint">+ Anexar comprovante de pagamento</label>
+                    <input name="comprovante_pagamento" type="file" accept="image/*,application/pdf" className="w-[190px] text-[11px]" />
+                  </div>
+                )}
+              </div>
+            </div>
             <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60">
               {pending ? "…" : "Salvar"}
             </button>
@@ -138,8 +161,12 @@ export function DespesaRow({
       </td>
       <td className="px-2 py-2.5">
         <div className="flex items-center gap-2.5">
-          {despesa.anexos_despesa[0] ? (
-            <AnexoButton path={despesa.anexos_despesa[0].caminho_arquivo} />
+          {despesa.anexos_despesa.length > 0 ? (
+            <div className="flex flex-col gap-0.5">
+              {despesa.anexos_despesa.map((a, i) => (
+                <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} />
+              ))}
+            </div>
           ) : (
             <span className="text-text-faint">—</span>
           )}
@@ -176,4 +203,8 @@ export function DespesaRow({
       </td>
     </tr>
   );
+}
+
+function temAnexoTipo(anexos: Anexo[], tipo: string) {
+  return anexos.some((a) => a.tipo === tipo);
 }

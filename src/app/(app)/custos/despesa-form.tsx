@@ -144,14 +144,26 @@ export function DespesaForm({
           <input name="descricao" type="text" className="input" placeholder="Ex: campanha Meta Ads agosto" />
         </Field>
 
-        <Field label="Comprovante (NF ou recibo)">
+        <Field label="Fatura / Nota Fiscal (opcional)">
           <input
-            name="comprovante"
+            name="fatura"
             type="file"
             accept="image/*,application/pdf"
             className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
           />
-          <p className="mt-1 text-[10.5px] text-text-faint">No celular, dá pra tirar a foto na hora ou escolher da galeria/arquivos.</p>
+        </Field>
+
+        <Field label="Comprovante de pagamento (opcional)">
+          <input
+            name="comprovante_pagamento"
+            type="file"
+            accept="image/*,application/pdf"
+            className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
+          />
+          <p className="mt-1 text-[10.5px] text-text-faint">
+            Boleto costuma precisar dos dois — o boleto em si (fatura) e o comprovante depois de pago. Se ainda não pagou, deixe esse em
+            branco e volte aqui pra anexar depois, editando o lançamento. No celular, dá pra tirar a foto na hora.
+          </p>
         </Field>
 
         <label className="flex items-center gap-2 pt-1 text-[12px]">

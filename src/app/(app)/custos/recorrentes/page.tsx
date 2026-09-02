@@ -24,27 +24,33 @@ export default async function RecorrentesPage() {
       .order("descricao"),
     supabase
       .from("despesas")
-      .select("id, data_gasto, valor_total, descricao, pagador, plano_contas:plano_contas_id(codigo, conta)")
-      .eq("comprovado", false)
+      .select("id, data_gasto, valor_total, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), anexos_despesa(caminho_arquivo, tipo)")
       .not("despesa_recorrente_id", "is", null)
-      .order("data_gasto", { ascending: false }),
+      .order("data_gasto", { ascending: false })
+      .limit(200),
   ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
+  // "Pendente" aqui é especificamente sem comprovante de pagamento — a fatura/boleto sozinho não
+  // fecha a pendência, porque pra contabilidade o que prova que foi pago é o comprovante.
+  const pendentesFiltradas = (pendentes ?? []).filter(
+    (d) => !((d.anexos_despesa as { tipo?: string }[]) ?? []).some((a) => a.tipo === "comprovante_pagamento"),
+  );
 
   return (
     <div className="grid grid-cols-[420px_1fr] items-start gap-5">
       <RecorrenteForm planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} />
 
       <div className="flex flex-col gap-5">
-        {(pendentes ?? []).length > 0 && (
+        {pendentesFiltradas.length > 0 && (
           <div className="rounded-xl border border-border bg-surface p-6">
             <h2 className="mb-1 font-heading text-sm font-semibold">Pendentes de comprovante</h2>
             <p className="mb-4 text-[11.5px] text-text-muted">
-              Lançadas automaticamente esse mês — só falta anexar a NF ou recibo de cada uma.
+              Lançadas automaticamente — falta anexar o comprovante de pagamento de cada uma (a fatura/boleto sozinho não fecha a
+              pendência).
             </p>
             <div className="flex flex-col gap-3">
-              {(pendentes ?? []).map((d) => {
+              {pendentesFiltradas.map((d) => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const conta = d.plano_contas as any;
                 return (
@@ -56,7 +62,7 @@ export default async function RecorrentesPage() {
                         {d.pagador && ` · ${d.pagador}`}
                       </div>
                     </div>
-                    <AnexarForm despesaId={d.id} pagadorAtual={d.pagador} pagadores={pagadores} />
+                    <AnexarForm despesaId={d.id} pagadorAtual={d.pagador} pagadores={pagadores} anexos={d.anexos_despesa ?? []} />
                   </div>
                 );
               })}

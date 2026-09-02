@@ -20,7 +20,7 @@ export default async function LancamentosPage() {
       supabase
         .from("despesas")
         .select(
-          "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, produto_id, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome), anexos_despesa(caminho_arquivo, nome_arquivo)",
+          "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, produto_id, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome), anexos_despesa(caminho_arquivo, nome_arquivo, tipo)",
         )
         .order("data_gasto", { ascending: false })
         .limit(15),
