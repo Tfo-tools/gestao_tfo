@@ -180,27 +180,38 @@ function TabelaIndicador({
     const totalNovos = linhas.reduce((s, l) => s + l.novosClientes, 0);
     const totalMarketing = linhas.reduce((s, l) => s + l.smMarketing, 0);
     const totalVendas = linhas.reduce((s, l) => s + l.smVendas, 0);
+    const totalOutros = linhas.reduce((s, l) => s + l.smOutros, 0);
     return (
-      <Table
-        head={["Mês", "Novos clientes", "Custos de Marketing", "Custos de Vendas", "CAC do mês"]}
-        rows={linhas.map((l) => {
-          const cac = l.novosClientes > 0 ? (l.smMarketing + l.smVendas) / l.novosClientes : 0;
-          return [
-            formatMes(l.mes_referencia),
-            Math.round(l.novosClientes).toLocaleString("pt-BR"),
-            formatBRL(l.smMarketing),
-            formatBRL(l.smVendas),
-            l.novosClientes > 0 ? formatBRL(cac) : "—",
-          ];
-        })}
-        total={[
-          "Total do período",
-          totalNovos.toLocaleString("pt-BR"),
-          formatBRL(totalMarketing),
-          formatBRL(totalVendas),
-          totalNovos > 0 ? formatBRL((totalMarketing + totalVendas) / totalNovos) : "—",
-        ]}
-      />
+      <>
+        <p className="mb-3 text-[12px] text-text-muted">
+          CAC fully-loaded: mídia paga, ferramentas (CRM/automação/prospecção), folha da equipe comercial e de marketing
+          (própria por produto + compartilhada via Modelos de Contratação), comissões e serviços terceirizados —
+          "Outros (S&amp;M)" cobre o que não se separa entre marketing e vendas.
+        </p>
+        <Table
+          head={["Mês", "Novos clientes", "Marketing", "Vendas", "Outros (S&M)", "CAC do mês"]}
+          rows={linhas.map((l) => {
+            const custoTotal = l.smMarketing + l.smVendas + l.smOutros;
+            const cac = l.novosClientes > 0 ? custoTotal / l.novosClientes : 0;
+            return [
+              formatMes(l.mes_referencia),
+              Math.round(l.novosClientes).toLocaleString("pt-BR"),
+              formatBRL(l.smMarketing),
+              formatBRL(l.smVendas),
+              formatBRL(l.smOutros),
+              l.novosClientes > 0 ? formatBRL(cac) : "—",
+            ];
+          })}
+          total={[
+            "Total do período",
+            totalNovos.toLocaleString("pt-BR"),
+            formatBRL(totalMarketing),
+            formatBRL(totalVendas),
+            formatBRL(totalOutros),
+            totalNovos > 0 ? formatBRL((totalMarketing + totalVendas + totalOutros) / totalNovos) : "—",
+          ]}
+        />
+      </>
     );
   }
 

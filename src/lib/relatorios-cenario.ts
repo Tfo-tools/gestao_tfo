@@ -66,8 +66,8 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
   const clientesInicio = linhas[0]?.clientes ?? 0;
   const clientesFinal = linhas[linhas.length - 1]?.clientes ?? 0;
 
-  let somaCacPonderado = 0;
   let somaNovosClientes = 0;
+  let somaSmTotal = 0;
   let somaChurnPonderado = 0;
   let somaLtvPonderado = 0;
   let somaClientesPeso = 0;
@@ -87,8 +87,8 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
       acumuladoPayback += l.ebitda;
       if (acumuladoPayback >= totalInvestido) paybackMes = l.mes_referencia;
     }
-    somaCacPonderado += l.cacPonderado;
     somaNovosClientes += l.novosClientes;
+    somaSmTotal += l.smMarketing + l.smVendas + l.smOutros;
     somaChurnPonderado += l.churnPonderado;
     somaLtvPonderado += l.ltvPonderado;
     somaClientesPeso += l.clientes;
@@ -105,7 +105,11 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
     ltvMedio: somaClientesPeso > 0 ? somaLtvPonderado / somaClientesPeso : null,
     clientesInicio,
     clientesFinal,
-    cacMedio: somaNovosClientes > 0 ? somaCacPonderado / somaNovosClientes : null,
+    // CAC fully-loaded: todo o S&M do período (marketing + vendas + outros — mídia, ferramentas,
+    // folha comercial própria e compartilhada, comissões, terceirizados) ÷ novos clientes do
+    // período. Antes usava uma média ponderada só do CAC por produto, que não enxergava custo de
+    // equipe comercial compartilhada (SDR/Coordenador via Modelos de Contratação).
+    cacMedio: somaNovosClientes > 0 ? somaSmTotal / somaNovosClientes : null,
     breakEvenMes,
     breakEvenClientes,
     paybackMes,
@@ -250,10 +254,11 @@ export async function agregarPorCenario(
     porMes.set(row.mes_referencia, atual);
 
     const novos = Number(row.novos_clientes ?? 0);
-    if (row.cac_all_in != null && novos > 0) {
-      atual.cacPonderado += Number(row.cac_all_in) * novos;
-      atual.novosClientes += novos;
-    }
+    atual.novosClientes += novos;
+    // cacPonderado fica só como referência histórica (CAC por produto, sem custo compartilhado) —
+    // o CAC consolidado de verdade usa smMarketing+smVendas+smOutros ÷ novosClientes, calculado em
+    // computeMetricas, porque só assim entra o custo de equipe comercial compartilhada (SDR etc.).
+    if (row.cac_all_in != null && novos > 0) atual.cacPonderado += Number(row.cac_all_in) * novos;
     // Churn e LTV ponderados pelos clientes ativos do produto naquele mês — dá a média
     // consolidada certa em vez de simplesmente somar taxas de produtos diferentes.
     const clientesRow = Number(row.clientes_ativos ?? 0);

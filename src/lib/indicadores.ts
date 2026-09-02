@@ -46,7 +46,8 @@ export const INDICADORES: IndicadorDef[] = [
   {
     key: "cac",
     titulo: "CAC (all-in)",
-    formula: "(Custos de Marketing + Custos de Vendas) ÷ novos clientes adquiridos, no período selecionado.",
+    formula:
+      "Fully-loaded: (Marketing + Vendas + Outros S&M — mídia, ferramentas, folha comercial própria e compartilhada, comissões, terceirizados) ÷ novos clientes adquiridos, no período selecionado.",
     editarLinks: [
       { label: "Custos COGS (equipe comercial)", href: "/contratacoes" },
       { label: "Plano de Custos (marketing)", href: "/plano-de-custos" },
@@ -55,7 +56,8 @@ export const INDICADORES: IndicadorDef[] = [
   {
     key: "ltv",
     titulo: "LTV",
-    formula: "ARPU (receita ÷ clientes ativos) dividido pelo churn mensal, ponderado pelos clientes ativos de cada mês.",
+    formula:
+      "(ARPU × margem bruta do produto) ÷ churn mensal — a margem bruta desconta o COGS (infra/suporte) do ARPU antes de dividir pelo churn, ponderado pelos clientes ativos de cada mês.",
     editarLinks: [{ label: "Preços e churn em Produtos", href: "/produtos" }],
   },
   {

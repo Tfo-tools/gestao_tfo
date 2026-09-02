@@ -415,8 +415,6 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     // Custo real das contratações (CLT + PJ) ativas neste mês, já separado por categoria fina.
     const totais = custoContratacoesNoMes(input.contratacoes, mes);
 
-    const ltv = taxaChurn > 0 ? arpu / taxaChurn : null;
-
     // COGS e OPEX a partir do plano de custos da fase (equipe alocada + custos fixos/variáveis).
     for (const c of input.custosFixos.filter((c) => c.fase === fase.fase)) {
       acumular(totais, c.subgrupo, c.quantidade * c.valor_unitario);
@@ -445,6 +443,11 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     // CAC all-in: todo o investimento em S&M da fase (equipe comercial contratada + equipe
     // alocada + custos fixos/variáveis categorizados como S&M) dividido pelos clientes novos.
     const cacAllIn = novosClientes > 0 ? totais.sm / novosClientes : null;
+
+    // LTV = ARPU × margem bruta ÷ churn mensal — a margem bruta pondera o LTV pelo que
+    // realmente sobra por cliente depois do COGS (infra/suporte), não a receita bruta inteira.
+    const margemBrutaProduto = receitaBruta > 0 ? Math.max(0, (receitaBruta - totais.cogs) / receitaBruta) : 1;
+    const ltv = taxaChurn > 0 ? (arpu * margemBrutaProduto) / taxaChurn : null;
 
     resultados.push({
       mes_referencia: isoMonth(mes),

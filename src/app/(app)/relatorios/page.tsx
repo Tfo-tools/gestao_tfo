@@ -313,19 +313,19 @@ function MetricasInvestidor({
           href={hrefDetalhe("cac")}
           label="CAC (all-in)"
           valor={metricas.cacMedio != null ? formatBRL(metricas.cacMedio) : "—"}
-          detalhe="custo médio por cliente adquirido"
+          detalhe="fully-loaded: marketing + vendas + outros S&M"
         />
         <Metrica
           href={hrefDetalhe("ltv")}
           label="LTV"
           valor={metricas.ltvMedio != null ? formatBRL(metricas.ltvMedio) : "—"}
-          detalhe="valor médio projetado por cliente"
+          detalhe="ARPU × margem bruta ÷ churn"
         />
         <Metrica
           href={hrefDetalhe("churn")}
           label="Churn médio"
           valor={metricas.churnMedio != null ? `${metricas.churnMedio.toFixed(1)}%/mês` : "—"}
-          detalhe="ponderado pelos clientes ativos"
+          detalhe="taxa planejada por fase, não realizada"
         />
         <Metrica
           href={hrefDetalhe("retorno_investimento")}
