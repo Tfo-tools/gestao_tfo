@@ -28,7 +28,9 @@ type NavItem = {
   matchQuery?: { key: string; value: string; default?: string };
 };
 
-const GRUPOS: { titulo: string; items: NavItem[] }[] = [
+type ItemEmBreve = { label: string; icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement };
+
+const GRUPOS: { titulo: string; items: NavItem[]; emBreve?: ItemEmBreve[] }[] = [
   { titulo: "", items: [{ href: "/", label: "Visão Geral", icon: IconHome }] },
   {
     titulo: "Realizado",
@@ -36,6 +38,11 @@ const GRUPOS: { titulo: string; items: NavItem[] }[] = [
       { href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
       { href: "/relatorios?aba=real", label: "Relatórios", icon: IconBarChart, matchQuery: { key: "aba", value: "real", default: "real" } },
       { href: "/fomento", label: "Fomentos e Investimentos", icon: IconTrendingUp },
+    ],
+    // Vendas e Prestação de Contas são submenus de Realizado — telas ainda não construídas.
+    emBreve: [
+      { label: "Vendas", icon: IconShoppingCart },
+      { label: "Prestação de Contas", icon: IconFile },
     ],
   },
   {
@@ -53,11 +60,6 @@ const GRUPOS: { titulo: string; items: NavItem[] }[] = [
       { href: "/relatorios?aba=planos", label: "Relatórios (Planos)", icon: IconBarChart, matchQuery: { key: "aba", value: "planos", default: "real" } },
     ],
   },
-];
-
-const EM_BREVE: { label: string; icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement }[] = [
-  { label: "Prestação de Contas", icon: IconFile },
-  { label: "Vendas", icon: IconShoppingCart },
 ];
 
 export function Sidebar({ nome, email }: { nome: string; email: string }) {
@@ -107,20 +109,17 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
                 </Link>
               );
             })}
+            {grupo.emBreve?.map(({ label, icon: Icon }) => (
+              <div key={label} className="flex items-center justify-between rounded-lg px-3 py-2.5 text-[13.5px] text-white/70">
+                <div className="flex items-center gap-3">
+                  <Icon width={18} height={18} className="text-white/55" />
+                  {label}
+                </div>
+                <span className="rounded border border-white/20 px-1.5 py-0.5 text-[9px] text-white/40">EM BREVE</span>
+              </div>
+            ))}
           </div>
         ))}
-
-        <div className="flex flex-col gap-0.5">
-          {EM_BREVE.map(({ label, icon: Icon }) => (
-            <div key={label} className="flex items-center justify-between rounded-lg px-3 py-2.5 text-[13.5px] text-white/70">
-              <div className="flex items-center gap-3">
-                <Icon width={18} height={18} className="text-white/55" />
-                {label}
-              </div>
-              <span className="rounded border border-white/20 px-1.5 py-0.5 text-[9px] text-white/40">EM BREVE</span>
-            </div>
-          ))}
-        </div>
       </nav>
 
       <div className="mt-auto px-3.5">

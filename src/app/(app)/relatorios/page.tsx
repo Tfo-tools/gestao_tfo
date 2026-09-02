@@ -30,33 +30,19 @@ export default async function RelatoriosPage({
   searchParams: Promise<{ aba?: string; cenario?: string; inicio?: string; fim?: string }>;
 }) {
   const { aba, cenario, inicio, fim } = await searchParams;
+  // "Real" só é acessível pelo menu Realizado, "Planos" só pelo menu Construção de Cenários —
+  // sem seletor de aba na tela, cada entrada do menu já manda direto pro relatório certo.
   const abaAtual = aba === "planos" ? "planos" : "real";
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="font-heading text-[22px] font-semibold">Relatórios</h1>
-          <p className="mt-1 text-[13px] text-text-muted">
-            {abaAtual === "real"
-              ? "O que de fato está acontecendo na empresa — custos e vendas já realizados"
-              : "Planejamento — projeção de receitas e despesas mês a mês"}
-          </p>
-        </div>
-        <div className="flex gap-2 rounded-lg bg-bg p-1">
-          <Link
-            href="/relatorios?aba=real"
-            className={`rounded-md px-4 py-2 text-[12.5px] font-medium ${abaAtual === "real" ? "bg-surface shadow-sm text-primary-deep" : "text-text-muted"}`}
-          >
-            Real
-          </Link>
-          <Link
-            href="/relatorios?aba=planos"
-            className={`rounded-md px-4 py-2 text-[12.5px] font-medium ${abaAtual === "planos" ? "bg-surface shadow-sm text-primary-deep" : "text-text-muted"}`}
-          >
-            Planos
-          </Link>
-        </div>
+      <div className="mb-6">
+        <h1 className="font-heading text-[22px] font-semibold">{abaAtual === "real" ? "Relatórios — Realizado" : "Relatórios — Construção de Cenários"}</h1>
+        <p className="mt-1 text-[13px] text-text-muted">
+          {abaAtual === "real"
+            ? "O que de fato está acontecendo na empresa — custos e vendas já realizados"
+            : "Planejamento — projeção de receitas e despesas mês a mês, por cenário"}
+        </p>
       </div>
 
       {abaAtual === "real" ? <RelatorioReal /> : <RelatorioPlanos cenario={cenario} inicio={inicio} fim={fim} />}
