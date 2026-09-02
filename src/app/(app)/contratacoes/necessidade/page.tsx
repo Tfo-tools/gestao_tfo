@@ -97,11 +97,11 @@ export default async function NecessidadeContratacaoPage({
         <div>
           <h1 className="font-heading text-[22px] font-semibold">Necessidade de Contratação</h1>
           <p className="mt-1 text-[13px] text-text-muted">
-            Demanda de SDR, Coordenador e Suporte derivada das premissas de{" "}
-            <Link href="/funil" className="text-primary-deep underline">
-              Funil
-            </Link>{" "}
-            e do crescimento de clientes já calculado — compare o custo de cada{" "}
+            Demanda de SDR, Coordenador e Suporte derivada das premissas de funil (em{" "}
+            <Link href="/produtos" className="text-primary-deep underline">
+              Produtos
+            </Link>
+            , dentro de cada fase) e do crescimento de clientes já calculado — compare o custo de cada{" "}
             <Link href="/contratacoes/modelos" className="text-primary-deep underline">
               modelo de contratação
             </Link>{" "}

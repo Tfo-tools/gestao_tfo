@@ -12,6 +12,13 @@ type Fase = {
   observacoes: string | null;
 } | null;
 
+type Funil = {
+  taxa_conversao: number | null;
+  capacidade_vendedor_mes: number | null;
+  span_of_control: number | null;
+  horas_suporte_por_cliente_mes: number | null;
+} | null;
+
 const initialState: ActionState = { error: null };
 
 export function FaseCard({
@@ -21,6 +28,7 @@ export function FaseCard({
   label,
   ordem,
   dados,
+  funil,
   defaultOpen = false,
 }: {
   produtoId: string;
@@ -29,6 +37,7 @@ export function FaseCard({
   label: string;
   ordem: number;
   dados: Fase;
+  funil: Funil;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -132,6 +141,56 @@ export function FaseCard({
         <Field label="Observações">
           <input type="text" name="observacoes" defaultValue={dados?.observacoes ?? ""} className="input" />
         </Field>
+
+        <div className="border-t border-border-soft pt-3.5">
+          <div className="mb-3 text-[11px] font-semibold text-text-muted">Funil de vendas nessa fase</div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field
+              label="Taxa de conversão (%)"
+              tooltip="De cada 100 leads (contatos/oportunidades) que entram no funil nessa fase, quantos % viram clientes pagantes."
+            >
+              <input
+                type="number"
+                step="0.01"
+                name="taxa_conversao"
+                defaultValue={funil?.taxa_conversao != null ? (funil.taxa_conversao * 100).toFixed(2) : ""}
+                className="input"
+                placeholder="20"
+              />
+            </Field>
+            <Field
+              label="Capacidade / vendedor / mês"
+              tooltip="Quantos leads (oportunidades) um vendedor consegue trabalhar por mês nessa fase — usado pra calcular quantos vendedores são necessários."
+            >
+              <input
+                type="number"
+                name="capacidade_vendedor_mes"
+                defaultValue={funil?.capacidade_vendedor_mes ?? ""}
+                className="input"
+                placeholder="88"
+              />
+            </Field>
+            <Field
+              label="Span of control"
+              tooltip="Quantos vendedores um único coordenador consegue supervisionar. Usado pra calcular quando é preciso contratar mais coordenação."
+            >
+              <input type="number" name="span_of_control" defaultValue={funil?.span_of_control ?? 8} className="input" />
+            </Field>
+            <Field
+              label="Horas de suporte / cliente / mês"
+              tooltip="Quantas horas de suporte um cliente ativo demanda por mês, nessa fase. Multiplicado pelos clientes ativos, dá as horas de suporte necessárias — usado em Necessidade de Contratação."
+            >
+              <input
+                type="number"
+                step="0.01"
+                name="horas_suporte_por_cliente_mes"
+                defaultValue={funil?.horas_suporte_por_cliente_mes ?? ""}
+                className="input"
+                placeholder="0.5"
+              />
+            </Field>
+          </div>
+        </div>
 
         {state.error && (
           <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>

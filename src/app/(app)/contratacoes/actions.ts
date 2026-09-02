@@ -63,7 +63,7 @@ export async function criarContratacao(
   }
 
   revalidatePath("/contratacoes");
-  revalidatePath("/funil");
+  revalidatePath("/produtos");
   return { error: null, success: true };
 }
 
@@ -71,5 +71,5 @@ export async function excluirContratacao(id: string) {
   const supabase = await createClient();
   await supabase.from("contratacoes").delete().eq("id", id);
   revalidatePath("/contratacoes");
-  revalidatePath("/funil");
+  revalidatePath("/produtos");
 }

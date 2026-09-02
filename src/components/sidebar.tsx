@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   IconHome,
   IconBox,
-  IconFunnel,
   IconUsers,
   IconSliders,
   IconLayers,
@@ -14,24 +13,67 @@ import {
   IconReceipt,
   IconBarChart,
   IconFile,
+  IconShoppingCart,
   IconSettings,
 } from "./nav-icons";
 import { signOut } from "@/app/(app)/actions";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Visão Geral", icon: IconHome },
-  { href: "/produtos", label: "Produtos", icon: IconBox },
-  { href: "/funil", label: "Funil & Metas", icon: IconFunnel },
-  { href: "/contratacoes", label: "Contratações", icon: IconUsers },
-  { href: "/plano-de-custos", label: "Plano de Custos", icon: IconSliders },
-  { href: "/cenarios", label: "Cenários", icon: IconLayers },
-  { href: "/fomento", label: "Fomento & Investimento", icon: IconTrendingUp },
-  { href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
-  { href: "/relatorios", label: "Relatórios", icon: IconBarChart },
-] as const;
+type NavItem = {
+  href: string;
+  label: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: (props: any) => React.ReactElement;
+  /** Pra itens que apontam pra mesma rota com querystrings diferentes (ex: /relatorios?aba=real
+   * vs. /relatorios?aba=planos) — sem isso os dois ficariam "ativos" ao mesmo tempo. */
+  matchQuery?: { key: string; value: string; default?: string };
+};
+
+const GRUPOS: { titulo: string; items: NavItem[] }[] = [
+  { titulo: "", items: [{ href: "/", label: "Visão Geral", icon: IconHome }] },
+  {
+    titulo: "Realizado",
+    items: [
+      { href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
+      { href: "/relatorios?aba=real", label: "Relatórios", icon: IconBarChart, matchQuery: { key: "aba", value: "real", default: "real" } },
+      { href: "/fomento", label: "Fomentos e Investimentos", icon: IconTrendingUp },
+    ],
+  },
+  {
+    titulo: "Plano",
+    items: [
+      { href: "/produtos", label: "Produtos", icon: IconBox },
+      { href: "/contratacoes", label: "Custos COGS", icon: IconUsers },
+      { href: "/plano-de-custos", label: "Plano de Custos", icon: IconSliders },
+    ],
+  },
+  {
+    titulo: "Construção de Cenários",
+    items: [
+      { href: "/cenarios", label: "Cenários", icon: IconLayers },
+      { href: "/relatorios?aba=planos", label: "Relatórios (Planos)", icon: IconBarChart, matchQuery: { key: "aba", value: "planos", default: "real" } },
+    ],
+  },
+];
+
+const EM_BREVE: { label: string; icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement }[] = [
+  { label: "Prestação de Contas", icon: IconFile },
+  { label: "Vendas", icon: IconShoppingCart },
+];
 
 export function Sidebar({ nome, email }: { nome: string; email: string }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  function isActive(item: NavItem): boolean {
+    const [base] = item.href.split("?");
+    if (base === "/") return pathname === "/";
+    if (!pathname.startsWith(base)) return false;
+    if (item.matchQuery) {
+      const atual = searchParams.get(item.matchQuery.key) ?? item.matchQuery.default ?? "";
+      return atual === item.matchQuery.value;
+    }
+    return true;
+  }
 
   return (
     <div className="flex h-full w-[236px] flex-shrink-0 flex-col bg-wine-deep py-7">
@@ -43,29 +85,41 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
         </div>
       </div>
 
-      <nav className="flex flex-col gap-0.5 px-3.5">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] transition-colors ${
-                active ? "bg-cream/20 font-semibold text-cream" : "text-white/70 hover:bg-white/5"
-              }`}
-            >
-              <Icon width={18} height={18} strokeWidth={active ? 2.1 : 1.8} className={active ? "text-cream" : "text-white/55"} />
-              {label}
-            </Link>
-          );
-        })}
-
-        <div className="flex items-center justify-between rounded-lg px-3 py-2.5 text-[13.5px] text-white/70">
-          <div className="flex items-center gap-3">
-            <IconFile width={18} height={18} className="text-white/55" />
-            Prestação de Contas
+      <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-3.5">
+        {GRUPOS.map((grupo, gi) => (
+          <div key={gi} className="flex flex-col gap-0.5">
+            {grupo.titulo && (
+              <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/35">{grupo.titulo}</div>
+            )}
+            {grupo.items.map((item) => {
+              const active = isActive(item);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] transition-colors ${
+                    active ? "bg-cream/20 font-semibold text-cream" : "text-white/70 hover:bg-white/5"
+                  }`}
+                >
+                  <Icon width={18} height={18} strokeWidth={active ? 2.1 : 1.8} className={active ? "text-cream" : "text-white/55"} />
+                  {item.label}
+                </Link>
+              );
+            })}
           </div>
-          <span className="rounded border border-white/20 px-1.5 py-0.5 text-[9px] text-white/40">EM BREVE</span>
+        ))}
+
+        <div className="flex flex-col gap-0.5">
+          {EM_BREVE.map(({ label, icon: Icon }) => (
+            <div key={label} className="flex items-center justify-between rounded-lg px-3 py-2.5 text-[13.5px] text-white/70">
+              <div className="flex items-center gap-3">
+                <Icon width={18} height={18} className="text-white/55" />
+                {label}
+              </div>
+              <span className="rounded border border-white/20 px-1.5 py-0.5 text-[9px] text-white/40">EM BREVE</span>
+            </div>
+          ))}
         </div>
       </nav>
 

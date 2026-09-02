@@ -68,6 +68,11 @@ export default async function ProdutoDetailPage({
 
   const faseByValue = new Map((fases ?? []).map((f) => [f.fase, f]));
 
+  const faseIds = (fases ?? []).map((f) => f.id);
+  const { data: funis } =
+    faseIds.length > 0 ? await supabase.from("premissas_funil").select("*").in("fase_produto_id", faseIds) : { data: [] };
+  const funilByFaseId = new Map((funis ?? []).map((f) => [f.fase_produto_id, f]));
+
   const primeiraVazia = FASES.findIndex((f) => !faseByValue.get(f.value)?.data_inicio);
 
   const { data: simulacao } = await supabase
@@ -113,6 +118,8 @@ export default async function ProdutoDetailPage({
         <div className="flex flex-col gap-2.5">
           {FASES.map((f, i) => {
             const dados = faseByValue.get(f.value) ?? null;
+            const faseId = dados?.id;
+            const funil = faseId ? (funilByFaseId.get(faseId) ?? null) : null;
             return (
               <FaseCard
                 key={f.value}
@@ -122,6 +129,7 @@ export default async function ProdutoDetailPage({
                 label={f.label}
                 ordem={i + 1}
                 dados={dados}
+                funil={funil}
                 defaultOpen={i === (primeiraVazia === -1 ? 0 : primeiraVazia)}
               />
             );
