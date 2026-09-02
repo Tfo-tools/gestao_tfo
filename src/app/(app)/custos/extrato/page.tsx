@@ -31,11 +31,17 @@ export default async function ExtratoPage({
   const pagadores = (profiles ?? []).map((p) => p.nome);
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
 
-  // Peso por sócia: sobre o total geral, independente dos filtros abaixo.
+  // Rateio entre sócias: só o que saiu do bolso de cada uma — pago pela "Empresa" (cartão/conta
+  // PJ) não entra no rateio, porque a empresa já cobriu direto, não há diferença a repassar.
+  const pessoasSet = new Set(pagadores);
   const porPagador = new Map<string, number>();
+  let totalOutros = 0;
   for (const d of todasDespesas ?? []) {
-    const chave = d.pagador ?? "Sem pagador definido";
-    porPagador.set(chave, (porPagador.get(chave) ?? 0) + Number(d.valor_total));
+    if (!d.pagador || d.pagador === "Empresa" || !pessoasSet.has(d.pagador)) {
+      totalOutros += Number(d.valor_total);
+      continue;
+    }
+    porPagador.set(d.pagador, (porPagador.get(d.pagador) ?? 0) + Number(d.valor_total));
   }
   const totalGeral = [...porPagador.values()].reduce((a, b) => a + b, 0);
   const linhasPagador = [...porPagador.entries()].sort((a, b) => b[1] - a[1]);
@@ -44,7 +50,9 @@ export default async function ExtratoPage({
   let query = supabase
     .from("despesas")
     .select(
-      "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, produto_id, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome), anexos_despesa(caminho_arquivo, nome_arquivo, tipo)",
+      produto
+        ? "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo)"
+        : "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo)",
     )
     .order("data_gasto", { ascending: false });
 
@@ -54,7 +62,7 @@ export default async function ExtratoPage({
     if (desde) query = query.gte("data_gasto", `${desde}-01`);
     if (ate) query = query.lt("data_gasto", nextMonth(ate));
   }
-  if (produto) query = query.eq("produto_id", produto);
+  if (produto) query = query.eq("despesa_produtos.produto_id", produto);
   if (comprovado === "sim") query = query.eq("comprovado", true);
   if (comprovado === "nao") query = query.eq("comprovado", false);
   if (pagador) query = query.eq("pagador", pagador);
@@ -75,9 +83,10 @@ export default async function ExtratoPage({
     <div className="flex flex-col gap-5">
       {linhasPagador.length > 0 && totalGeral > 0 && (
         <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-heading text-sm font-semibold">Peso por sócia</h2>
+          <h2 className="mb-1 font-heading text-sm font-semibold">Rateio entre sócias</h2>
           <p className="mb-4 text-[11.5px] text-text-muted">
-            Sobre o total já lançado ({formatBRL(totalGeral)}) — independe dos filtros abaixo
+            Só o que saiu do bolso de cada uma ({formatBRL(totalGeral)}) — pago pela "Empresa" não entra, já foi coberto direto.
+            Independe dos filtros abaixo.
           </p>
           <div className="grid grid-cols-2 gap-3">
             {linhasPagador.map(([nome, valor]) => {
@@ -101,8 +110,8 @@ export default async function ExtratoPage({
                       <>
                         {" · "}
                         {diff > 0
-                          ? `R$ ${diff.toFixed(0)} acima da metade`
-                          : `R$ ${Math.abs(diff).toFixed(0)} abaixo da metade`}
+                          ? `pagou R$ ${diff.toFixed(0)} a mais que a metade`
+                          : `falta depositar R$ ${Math.abs(diff).toFixed(0)} pra fechar a metade`}
                       </>
                     )}
                   </div>
@@ -110,6 +119,11 @@ export default async function ExtratoPage({
               );
             })}
           </div>
+          {totalOutros > 0 && (
+            <p className="mt-3 text-[11px] text-text-faint">
+              {formatBRL(totalOutros)} pagos pela empresa (ou sem pagador definido) ficaram fora dessa conta.
+            </p>
+          )}
         </div>
       )}
 

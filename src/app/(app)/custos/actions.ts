@@ -49,7 +49,7 @@ export async function criarDespesa(
 
   const data_gasto = String(formData.get("data_gasto") || "");
   const plano_contas_id = String(formData.get("plano_contas_id") || "");
-  const produto_id = String(formData.get("produto_id") || "") || null;
+  const produtoIds = formData.getAll("produtos").map(String).filter(Boolean);
   const valor_total = Number(formData.get("valor_total") || 0);
   const descricao = String(formData.get("descricao") || "") || null;
   const comprovado = formData.get("comprovado") === "on";
@@ -74,7 +74,7 @@ export async function criarDespesa(
     .insert({
       data_gasto,
       plano_contas_id,
-      produto_id,
+      produto_id: produtoIds[0] ?? null,
       valor_total,
       descricao,
       comprovado,
@@ -86,6 +86,10 @@ export async function criarDespesa(
 
   if (error || !despesa) {
     return { error: "Não foi possível salvar a despesa." };
+  }
+
+  if (produtoIds.length > 0) {
+    await supabase.from("despesa_produtos").insert(produtoIds.map((produto_id) => ({ despesa_id: despesa.id, produto_id })));
   }
 
   await anexarArquivo(supabase, despesa.id, fatura, "fatura");
@@ -106,7 +110,7 @@ export async function atualizarDespesa(
   const id = String(formData.get("id") || "");
   const data_gasto = String(formData.get("data_gasto") || "");
   const plano_contas_id = String(formData.get("plano_contas_id") || "");
-  const produto_id = String(formData.get("produto_id") || "") || null;
+  const produtoIds = formData.getAll("produtos").map(String).filter(Boolean);
   const valor_total = Number(formData.get("valor_total") || 0);
   const descricao = String(formData.get("descricao") || "") || null;
   const comprovado = formData.get("comprovado") === "on";
@@ -127,10 +131,15 @@ export async function atualizarDespesa(
 
   const { error } = await supabase
     .from("despesas")
-    .update({ data_gasto, plano_contas_id, produto_id, valor_total, descricao, comprovado, pagador })
+    .update({ data_gasto, plano_contas_id, produto_id: produtoIds[0] ?? null, valor_total, descricao, comprovado, pagador })
     .eq("id", id);
 
   if (error) return { error: "Não foi possível salvar a alteração." };
+
+  await supabase.from("despesa_produtos").delete().eq("despesa_id", id);
+  if (produtoIds.length > 0) {
+    await supabase.from("despesa_produtos").insert(produtoIds.map((produto_id) => ({ despesa_id: id, produto_id })));
+  }
 
   await anexarArquivo(supabase, id, fatura, "fatura");
   await anexarArquivo(supabase, id, comprovantePagamento, "comprovante_pagamento");

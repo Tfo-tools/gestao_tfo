@@ -16,9 +16,8 @@ export type DespesaRowData = {
   descricao: string | null;
   pagador: string | null;
   plano_contas_id: string | null;
-  produto_id: string | null;
   plano_contas: { codigo: string; conta: string } | null;
-  produtos: { nome: string } | null;
+  despesa_produtos: { produtos: { id: string; nome: string } | null }[];
   anexos_despesa: Anexo[];
 };
 
@@ -51,6 +50,9 @@ export function DespesaRow({
 
   if (state.success && editando) setEditando(false);
 
+  const produtosVinculados = despesa.despesa_produtos.map((dp) => dp.produtos).filter((p): p is { id: string; nome: string } => !!p);
+  const produtoIdsVinculados = new Set(produtosVinculados.map((p) => p.id));
+
   if (editando) {
     return (
       <tr className="border-t border-border-soft bg-primary-soft/20">
@@ -72,15 +74,24 @@ export function DespesaRow({
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-[10.5px] text-text-faint">Produto</label>
-              <select name="produto_id" defaultValue={despesa.produto_id ?? ""} className="input w-[150px]">
-                <option value="">Nenhum</option>
+              <label className="mb-1 block text-[10.5px] text-text-faint">Produto(s)</label>
+              <div className="flex flex-wrap gap-1.5">
                 {produtos.map((p) => (
-                  <option key={p.id} value={p.id}>
+                  <label
+                    key={p.id}
+                    className="flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] has-[:checked]:border-primary-fill has-[:checked]:bg-primary-soft has-[:checked]:text-primary-deep"
+                  >
+                    <input
+                      type="checkbox"
+                      name="produtos"
+                      value={p.id}
+                      defaultChecked={produtoIdsVinculados.has(p.id)}
+                      className="h-3 w-3 rounded border-border"
+                    />
                     {p.nome}
-                  </option>
+                  </label>
                 ))}
-              </select>
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Pagador</label>
@@ -146,7 +157,7 @@ export function DespesaRow({
     <tr className="border-t border-border-soft">
       <td className="px-2 py-2.5 font-mono">{formatDate(despesa.data_gasto)}</td>
       <td className="px-2 py-2.5">{despesa.plano_contas ? `${despesa.plano_contas.codigo} — ${despesa.plano_contas.conta}` : "—"}</td>
-      <td className="px-2 py-2.5 text-text-muted">{despesa.produtos?.nome ?? "—"}</td>
+      <td className="px-2 py-2.5 text-text-muted">{produtosVinculados.length > 0 ? produtosVinculados.map((p) => p.nome).join(", ") : "—"}</td>
       <td className="px-2 py-2.5 text-text-muted">{despesa.pagador ?? "—"}</td>
       <td className="px-2 py-2.5 text-text-muted">{despesa.descricao ?? "—"}</td>
       <td className="px-2 py-2.5 text-right font-mono">{formatBRL(Number(despesa.valor_total))}</td>

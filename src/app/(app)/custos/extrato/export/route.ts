@@ -20,7 +20,9 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("despesas")
     .select(
-      "data_gasto, valor_total, comprovado, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), produtos:produto_id(nome)",
+      produto
+        ? "data_gasto, valor_total, comprovado, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(nome))"
+        : "data_gasto, valor_total, comprovado, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(nome))",
     )
     .order("data_gasto", { ascending: false });
 
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
   }
   if (conta) query = query.eq("plano_contas_id", conta);
-  if (produto) query = query.eq("produto_id", produto);
+  if (produto) query = query.eq("despesa_produtos.produto_id", produto);
   if (comprovado === "sim") query = query.eq("comprovado", true);
   if (comprovado === "nao") query = query.eq("comprovado", false);
   if (pagador) query = query.eq("pagador", pagador);
@@ -51,12 +53,13 @@ export async function GET(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conta = d.plano_contas as any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const produtoRow = d.produtos as any;
+    const produtosRow = (d.despesa_produtos as any[]) ?? [];
+    const nomesProdutos = produtosRow.map((dp) => dp.produtos?.nome).filter(Boolean).join(" / ");
     return [
       d.data_gasto,
       conta?.codigo ?? "",
       conta?.conta ?? "",
-      produtoRow?.nome ?? "",
+      nomesProdutos,
       d.pagador ?? "",
       d.descricao ?? "",
       String(d.valor_total).replace(".", ","),

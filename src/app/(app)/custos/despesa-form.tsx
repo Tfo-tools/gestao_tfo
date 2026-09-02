@@ -105,15 +105,19 @@ export function DespesaForm({
           </select>
         </Field>
 
-        <Field label="Produto vinculado (opcional)">
-          <select name="produto_id" className="input">
-            <option value="">Nenhum</option>
+        <Field label="Produto(s) vinculado(s) (opcional)">
+          <div className="flex flex-wrap gap-2">
             {produtos.map((p) => (
-              <option key={p.id} value={p.id}>
+              <label
+                key={p.id}
+                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[12px] has-[:checked]:border-primary-fill has-[:checked]:bg-primary-soft has-[:checked]:text-primary-deep"
+              >
+                <input type="checkbox" name="produtos" value={p.id} className="h-3.5 w-3.5 rounded border-border" />
                 {p.nome}
-              </option>
+              </label>
             ))}
-          </select>
+          </div>
+          <p className="mt-1 text-[10.5px] text-text-faint">Marque mais de um quando o custo é compartilhado — ex: evento de lançamento de duas marcas.</p>
         </Field>
 
         <Field label="Pagador">
