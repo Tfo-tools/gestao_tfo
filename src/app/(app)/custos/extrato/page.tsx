@@ -222,6 +222,12 @@ export default async function ExtratoPage({
             >
               Exportar CSV
             </a>
+            <a
+              href={`/custos/extrato/export/xlsx?${exportQs.toString()}`}
+              className="rounded-lg border border-border px-3.5 py-2 text-[12px] text-text-muted hover:text-text"
+            >
+              Exportar XLSX
+            </a>
           </div>
         </div>
         {!mes && (

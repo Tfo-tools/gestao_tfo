@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { buscarDespesasFiltradas, nomesProdutosDe } from "@/lib/extrato-query";
 
 function csvEscape(value: string) {
   if (/[",\n;]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
@@ -9,65 +10,29 @@ function csvEscape(value: string) {
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { searchParams } = new URL(request.url);
-  const mes = searchParams.get("mes");
-  const desde = searchParams.get("desde");
-  const ate = searchParams.get("ate");
-  const conta = searchParams.get("conta");
-  const produto = searchParams.get("produto");
-  const comprovado = searchParams.get("comprovado");
-  const pagador = searchParams.get("pagador");
-  const descricao = searchParams.get("descricao");
 
-  let query = supabase
-    .from("despesas")
-    .select(
-      produto
-        ? "data_gasto, valor_total, comprovado, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(nome))"
-        : "data_gasto, valor_total, comprovado, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(nome))",
-    )
-    .order("data_gasto", { ascending: false });
-
-  if (mes) {
-    const [y, m] = mes.split("-").map(Number);
-    const next = new Date(y, m, 1);
-    query = query
-      .gte("data_gasto", `${mes}-01`)
-      .lt("data_gasto", `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
-  } else {
-    if (desde) query = query.gte("data_gasto", `${desde}-01`);
-    if (ate) {
-      const [y, m] = ate.split("-").map(Number);
-      const next = new Date(y, m, 1);
-      query = query.lt("data_gasto", `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
-    }
-  }
-  if (conta) query = query.eq("plano_contas_id", conta);
-  if (produto) query = query.eq("despesa_produtos.produto_id", produto);
-  if (comprovado === "sim") query = query.eq("comprovado", true);
-  if (comprovado === "nao") query = query.eq("comprovado", false);
-  if (pagador) query = query.eq("pagador", pagador);
-  if (descricao) query = query.ilike("descricao", `%${descricao}%`);
-
-  const { data: despesas } = await query;
+  const despesas = await buscarDespesasFiltradas(supabase, {
+    mes: searchParams.get("mes"),
+    desde: searchParams.get("desde"),
+    ate: searchParams.get("ate"),
+    conta: searchParams.get("conta"),
+    produto: searchParams.get("produto"),
+    comprovado: searchParams.get("comprovado"),
+    pagador: searchParams.get("pagador"),
+    descricao: searchParams.get("descricao"),
+  });
 
   const header = ["Data", "Código conta", "Conta", "Produto", "Pagador", "Descrição", "Valor (R$)", "Comprovado"];
-  const rows = (despesas ?? []).map((d) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const conta = d.plano_contas as any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const produtosRow = (d.despesa_produtos as any[]) ?? [];
-    const nomesProdutos = produtosRow.map((dp) => dp.produtos?.nome).filter(Boolean).join(" / ");
-    return [
-      d.data_gasto,
-      conta?.codigo ?? "",
-      conta?.conta ?? "",
-      nomesProdutos,
-      d.pagador ?? "",
-      d.descricao ?? "",
-      String(d.valor_total).replace(".", ","),
-      d.comprovado ? "Sim" : "Não",
-    ];
-  });
+  const rows = despesas.map((d) => [
+    d.data_gasto,
+    d.plano_contas?.codigo ?? "",
+    d.plano_contas?.conta ?? "",
+    nomesProdutosDe(d),
+    d.pagador ?? "",
+    d.descricao ?? "",
+    String(d.valor_total).replace(".", ","),
+    d.comprovado ? "Sim" : "Não",
+  ]);
 
   const csv = [header, ...rows].map((row) => row.map((v) => csvEscape(String(v))).join(";")).join("\n");
   const csvWithBom = "﻿" + csv;
