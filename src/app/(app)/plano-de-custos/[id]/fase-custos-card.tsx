@@ -40,7 +40,8 @@ function formatBRL(v: number) {
 
 const TIPO_CALCULO_LABEL: Record<string, string> = {
   valor_fixo: "valor fixo",
-  valor_por_cliente: "por cliente",
+  valor_por_cliente: "por cliente/mês",
+  unico_por_cliente: "único por cliente novo",
   percentual_receita: "% da receita",
 };
 
@@ -281,8 +282,10 @@ function CustosVariaveisSection({
                   {c.tipo_calculo === "percentual_receita" && c.percentual != null
                     ? `${(c.percentual * 100).toFixed(1)}%`
                     : c.tipo_calculo === "valor_por_cliente"
-                      ? `${formatBRL(c.valor_base ?? 0)} + ${formatBRL(c.valor_por_unidade ?? 0)}/cliente`
-                      : formatBRL(c.valor_base ?? 0)}
+                      ? `${formatBRL(c.valor_base ?? 0)} + ${formatBRL(c.valor_por_unidade ?? 0)}/cliente/mês`
+                      : c.tipo_calculo === "unico_por_cliente"
+                        ? `${formatBRL(c.valor_por_unidade ?? 0)}/cliente novo, uma vez`
+                        : formatBRL(c.valor_base ?? 0)}
                 </span>
               </div>
               <button
@@ -326,7 +329,8 @@ function CustosVariaveisSection({
             onChange={(e) => setTipoCalculo(e.target.value)}
           >
             <option value="valor_fixo">Valor fixo</option>
-            <option value="valor_por_cliente">Por cliente</option>
+            <option value="valor_por_cliente">Por cliente (recorrente/mês)</option>
+            <option value="unico_por_cliente">Único por cliente novo</option>
             <option value="percentual_receita">% da receita</option>
           </select>
         </div>
@@ -336,8 +340,10 @@ function CustosVariaveisSection({
           ) : tipoCalculo === "valor_por_cliente" ? (
             <>
               <input name="valor_base" type="number" step="0.01" placeholder="Base fixa (R$)" className="input w-[130px]" />
-              <input name="valor_por_unidade" type="number" step="0.01" placeholder="R$ / cliente" className="input w-[130px]" required />
+              <input name="valor_por_unidade" type="number" step="0.01" placeholder="R$ / cliente / mês" className="input w-[130px]" required />
             </>
+          ) : tipoCalculo === "unico_por_cliente" ? (
+            <input name="valor_por_unidade" type="number" step="0.01" placeholder="R$ / cliente novo" className="input w-[130px]" required />
           ) : (
             <input name="valor_base" type="number" step="0.01" placeholder="Valor mensal (R$)" className="input w-[130px]" required />
           )}

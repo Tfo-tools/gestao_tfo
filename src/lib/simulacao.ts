@@ -92,7 +92,7 @@ export type AlocacaoInput = {
 export type CustoVariavelInput = {
   fase: FaseValue;
   subgrupo: SubgrupoConta;
-  tipo_calculo: "percentual_receita" | "valor_por_cliente" | "valor_fixo";
+  tipo_calculo: "percentual_receita" | "valor_por_cliente" | "valor_fixo" | "unico_por_cliente";
   valor_base: number | null;
   percentual: number | null;
   valor_por_unidade: number | null;
@@ -428,12 +428,17 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     }
 
     for (const c of input.custosVariaveis.filter((c) => c.fase === fase.fase)) {
+      // "por cliente" é recorrente (cobra de novo, todo mês, sobre a base inteira de clientes
+      // ativos) — serve pra custo tipo gateway/hospedagem por cliente. "único por cliente" cobra
+      // só uma vez, no mês em que o cliente é adquirido (ex: custo de implementação/onboarding).
       const valor =
         c.tipo_calculo === "valor_fixo"
           ? (c.valor_base ?? 0)
           : c.tipo_calculo === "valor_por_cliente"
             ? (c.valor_base ?? 0) + (c.valor_por_unidade ?? 0) * clientesAtivos
-            : (c.percentual ?? 0) * receitaBruta;
+            : c.tipo_calculo === "unico_por_cliente"
+              ? (c.valor_por_unidade ?? 0) * novosClientes
+              : (c.percentual ?? 0) * receitaBruta;
       acumular(totais, c.subgrupo, valor);
     }
 

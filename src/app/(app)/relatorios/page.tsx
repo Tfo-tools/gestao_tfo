@@ -6,6 +6,7 @@ import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@
 import type { FaseValue } from "@/lib/fases";
 import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
 import { calcularDemandaPorCargo, type FaseProdutoInput, type FunilPremissaInput, type SimulacaoMesInput } from "@/lib/necessidade-contratacao";
+import { calcularImpostoSimples } from "@/lib/impostos";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -181,6 +182,9 @@ type Agregado = {
   cacPonderado: number;
   churnPonderado: number;
   ltvPonderado: number;
+  custoCLT: number;
+  impostoMensal: number;
+  aliquotaEfetivaImposto: number | null;
 };
 
 type ResumoCenario = {
@@ -194,6 +198,7 @@ type Metricas = {
   custosAcumulados: number;
   margemOperacional: number | null;
   margemBruta: number | null;
+  impostosAcumulados: number;
   churnMedio: number | null;
   ltvMedio: number | null;
   clientesInicio: number;
@@ -211,11 +216,13 @@ function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
   const ebitdaAcumulado = linhas.reduce((s, l) => s + l.ebitda, 0);
   const custosAcumulados = receitaAcumulada - ebitdaAcumulado;
   const margemOperacional = receitaAcumulada > 0 ? (ebitdaAcumulado / receitaAcumulada) * 100 : null;
-  // Margem bruta: receita menos só o COGS direto dos produtos (suporte, infra, outros custos de
-  // entrega) — diferente da margem operacional, que desconta TODOS os custos (inclusive S&M, P&D,
-  // G&A e os custos compartilhados da empresa).
+  // Margem bruta: receita (–) COGS direto dos produtos (–) deduções e impostos sobre a receita.
+  // Diferente da margem operacional, que desconta TODOS os custos (inclusive S&M, P&D, G&A e os
+  // custos compartilhados da empresa). Imposto = DAS do Simples Nacional (Anexo III ou V conforme
+  // o Fator R), calculado mês a mês em agregarPorCenario com o RBT12 real da linha do tempo.
   const cogsAcumulado = linhas.reduce((s, l) => s + l.cogs, 0);
-  const margemBruta = receitaAcumulada > 0 ? ((receitaAcumulada - cogsAcumulado) / receitaAcumulada) * 100 : null;
+  const impostosAcumulados = linhas.reduce((s, l) => s + l.impostoMensal, 0);
+  const margemBruta = receitaAcumulada > 0 ? ((receitaAcumulada - cogsAcumulado - impostosAcumulados) / receitaAcumulada) * 100 : null;
   const clientesInicio = linhas[0]?.clientes ?? 0;
   const clientesFinal = linhas[linhas.length - 1]?.clientes ?? 0;
 
@@ -253,6 +260,7 @@ function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
     custosAcumulados,
     margemOperacional,
     margemBruta,
+    impostosAcumulados,
     churnMedio: somaClientesPeso > 0 ? (somaChurnPonderado / somaClientesPeso) * 100 : null,
     ltvMedio: somaClientesPeso > 0 ? somaLtvPonderado / somaClientesPeso : null,
     clientesInicio,
@@ -375,6 +383,9 @@ async function agregarPorCenario(
         cacPonderado: 0,
         churnPonderado: 0,
         ltvPonderado: 0,
+        custoCLT: 0,
+        impostoMensal: 0,
+        aliquotaEfetivaImposto: null,
       } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
@@ -421,7 +432,12 @@ async function agregarPorCenario(
         tipo === "clt" || tipo === "empresa_fixo_escopo"
           ? quantidade * (modelo.parametros.capacidade_unidade_mes ?? 1)
           : demandaCargoNoMes(a.cargo, atual.mes_referencia);
-      custosEmpresa += custoMensalModelo(tipo, modelo.parametros, demandaEquivalente).custoMensal;
+      const custoModelo = custoMensalModelo(tipo, modelo.parametros, demandaEquivalente).custoMensal;
+      custosEmpresa += custoModelo;
+      // Folha CLT (pra Fator R do Simples) — só enxerga CLT contratado via Modelos de Contratação
+      // (SDR/Coordenador/Suporte); CLT lançado direto em Equipe Alocada/Contratações por produto
+      // não entra aqui ainda, então o Fator R pode ficar subestimado se você tiver CLT só lá.
+      if (tipo === "clt") atual.custoCLT += custoModelo;
     }
 
     atual.custosEmpresa = custosEmpresa;
@@ -429,6 +445,29 @@ async function agregarPorCenario(
   }
 
   const linhas = [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
+
+  // Simples Nacional: RBT12 e Folha+Pró-labore 12m são sempre a JANELA DOS 12 MESES ANTERIORES ao
+  // mês corrente (não incluem o próprio mês — é assim que a Receita Federal calcula o DAS). Sem
+  // 12 meses de histórico ainda, anualizamos a média disponível como estimativa.
+  for (let i = 0; i < linhas.length; i++) {
+    const janela = linhas.slice(Math.max(0, i - 12), i);
+    const rbt12 =
+      janela.length >= 12
+        ? janela.reduce((s, l) => s + l.receita, 0)
+        : janela.length > 0
+          ? (janela.reduce((s, l) => s + l.receita, 0) / janela.length) * 12
+          : linhas[i].receita * 12;
+    const folha12 =
+      janela.length >= 12
+        ? janela.reduce((s, l) => s + l.custoCLT, 0)
+        : janela.length > 0
+          ? (janela.reduce((s, l) => s + l.custoCLT, 0) / janela.length) * 12
+          : linhas[i].custoCLT * 12;
+    const fatorR = rbt12 > 0 ? folha12 / rbt12 : 0;
+    const resultado = calcularImpostoSimples(linhas[i].receita, rbt12, fatorR);
+    linhas[i].impostoMensal = resultado.impostoMensal;
+    linhas[i].aliquotaEfetivaImposto = resultado.aliquotaEfetiva;
+  }
 
   const programaIds = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
   let totalInvestido = 0;
@@ -543,7 +582,11 @@ function MetricasInvestidor({ nome, metricas, totalInvestido }: { nome: string; 
         <Metrica
           label="Margem bruta"
           valor={metricas.margemBruta != null ? `${metricas.margemBruta.toFixed(0)}%` : "—"}
-          detalhe="(receita − COGS) / receita, no período"
+          detalhe={
+            metricas.receitaAcumulada > 0
+              ? `receita − COGS − ${((metricas.impostosAcumulados / metricas.receitaAcumulada) * 100).toFixed(1)}% DAS (Simples)`
+              : "receita − COGS − impostos"
+          }
         />
         <Metrica
           label="CAC (all-in)"
@@ -619,6 +662,13 @@ function ReceitaEIndicadores({ nome, linhasPeriodo, metricas }: { nome: string; 
               <td className={`px-2 py-2.5 text-right font-mono font-semibold ${metricas.ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
                 {formatBRL(metricas.ebitdaAcumulado)}
               </td>
+            </tr>
+            <tr className="border-t border-border-soft">
+              <td className="flex items-center px-2 py-2.5">
+                (–) DAS — Simples Nacional <span className="ml-1 text-text-faint">(só pra margem bruta acima)</span>
+                <InfoTooltip texto="Simples Nacional, Anexo III (Fator R ≥ 28%) ou Anexo V (< 28%), calculado mês a mês pelo RBT12 (receita dos 12 meses anteriores) e pela folha CLT acumulada — hoje só enxerga CLT contratado via Modelos de Contratação (SDR/Coordenador/Suporte), não CLT lançado direto em Equipe Alocada por produto. Entra só no cálculo da margem bruta, não é subtraído do EBITDA acima." />
+              </td>
+              <td className="px-2 py-2.5 text-right font-mono text-danger">− {formatBRL(metricas.impostosAcumulados)}</td>
             </tr>
             <tr className="border-t border-border-soft">
               <td className="px-2 py-2.5">Clientes ativos (início → fim do período)</td>
