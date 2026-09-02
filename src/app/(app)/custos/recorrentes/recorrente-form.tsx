@@ -123,7 +123,8 @@ export function RecorrenteForm({
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Dia do mês do lançamento">
-            <input name="dia_do_mes" type="number" min="1" max="28" defaultValue={5} required className="input" />
+            <input name="dia_do_mes" type="number" min="1" max="31" defaultValue={5} required className="input" />
+            <p className="mt-1 text-[10.5px] text-text-faint">Se o mês não tiver esse dia (ex: dia 30 em fevereiro), o lançamento cai no dia 1º do mês seguinte.</p>
           </Field>
           <Field label="Começa em">
             <input name="data_inicio" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required className="input" />

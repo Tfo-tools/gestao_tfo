@@ -13,9 +13,20 @@ function ultimoDiaDoMes(mesIso: string) {
   return new Date(y, m, 0).getDate();
 }
 
-/** Materializa TODOS os meses faltantes de cada despesa recorrente ativa, desde o mês de
- * data_inicio até o mês atual (não só o mês corrente) — uma recorrência cadastrada com início
- * retroativo deve preencher o histórico inteiro, não só daqui pra frente. */
+/** Data efetiva do lançamento pra uma competência (mês) e um dia_do_mes configurado. Se o dia não
+ * existe naquele mês (ex: dia 30 em fevereiro), o vencimento cai no dia 1º do mês seguinte — não
+ * é "clampado" pro último dia do mês curto. */
+function dataDoVencimento(mes: string, diaDoMes: number) {
+  const ultimoDia = ultimoDiaDoMes(mes);
+  if (diaDoMes <= ultimoDia) {
+    return `${mes.slice(0, 7)}-${String(diaDoMes).padStart(2, "0")}`;
+  }
+  return `${proximoMes(mes).slice(0, 7)}-01`;
+}
+
+/** Materializa TODOS os meses (competências) faltantes de cada despesa recorrente ativa, desde o
+ * mês de data_inicio até o mês atual — uma recorrência cadastrada com início retroativo preenche
+ * o histórico inteiro, não só daqui pra frente. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function materializarDespesasRecorrentes(supabase: any) {
   const mesAtualIso = mesDe(new Date().toISOString());
@@ -42,15 +53,18 @@ export async function materializarDespesasRecorrentes(supabase: any) {
 
   const { data: existentes } = await supabase
     .from("despesas")
-    .select("despesa_recorrente_id, data_gasto")
+    .select("despesa_recorrente_id, data_gasto, mes_competencia")
     .in(
       "despesa_recorrente_id",
       ativas.map((r) => r.id),
     );
 
+  // Competência já coberta pra cada recorrente — usa mes_competencia quando existe (lançamentos
+  // criados com esta lógica); cai pra data_gasto pra lançamentos antigos, de antes desse campo
+  // existir, onde competência e data_gasto sempre coincidiam (nunca havia rollover de mês curto).
   const jaMaterializadas = new Set(
-    ((existentes ?? []) as { despesa_recorrente_id: string; data_gasto: string }[]).map(
-      (e) => `${e.despesa_recorrente_id}|${e.data_gasto.slice(0, 7)}`,
+    ((existentes ?? []) as { despesa_recorrente_id: string; data_gasto: string; mes_competencia: string | null }[]).map(
+      (e) => `${e.despesa_recorrente_id}|${mesDe(e.mes_competencia ?? e.data_gasto)}`,
     ),
   );
 
@@ -65,11 +79,11 @@ export async function materializarDespesasRecorrentes(supabase: any) {
     let guarda = 0;
     while (mes <= mesFim && guarda < 600) {
       guarda += 1;
-      const chave = `${r.id}|${mes.slice(0, 7)}`;
+      const chave = `${r.id}|${mes}`;
       if (!jaMaterializadas.has(chave)) {
-        const dia = Math.min(r.dia_do_mes, ultimoDiaDoMes(mes));
         novasDespesas.push({
-          data_gasto: `${mes.slice(0, 7)}-${String(dia).padStart(2, "0")}`,
+          data_gasto: dataDoVencimento(mes, r.dia_do_mes),
+          mes_competencia: mes,
           plano_contas_id: r.plano_contas_id,
           produto_id: r.produto_id,
           valor_total: r.valor,
