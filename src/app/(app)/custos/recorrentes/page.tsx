@@ -24,7 +24,7 @@ export default async function RecorrentesPage() {
       .order("descricao"),
     supabase
       .from("despesas")
-      .select("id, data_gasto, valor_total, descricao, plano_contas:plano_contas_id(codigo, conta)")
+      .select("id, data_gasto, valor_total, descricao, pagador, plano_contas:plano_contas_id(codigo, conta)")
       .eq("comprovado", false)
       .not("despesa_recorrente_id", "is", null)
       .order("data_gasto", { ascending: false }),
@@ -53,9 +53,10 @@ export default async function RecorrentesPage() {
                       <div className="text-[12.5px] font-medium">{d.descricao}</div>
                       <div className="text-[11px] text-text-muted">
                         {conta ? `${conta.codigo} — ${conta.conta}` : "—"} · {formatDate(d.data_gasto)} · {formatBRL(Number(d.valor_total))}
+                        {d.pagador && ` · ${d.pagador}`}
                       </div>
                     </div>
-                    <AnexarForm despesaId={d.id} />
+                    <AnexarForm despesaId={d.id} pagadorAtual={d.pagador} pagadores={pagadores} />
                   </div>
                 );
               })}

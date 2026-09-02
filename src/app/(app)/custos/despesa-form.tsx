@@ -12,18 +12,23 @@ const initialState: DespesaFormState = { error: null };
 const OUTROS_GRUPO_LABEL: Record<string, string> = {
   financeiro: "Financeiro (juros, tarifas, câmbio)",
   ativo: "Ativos e investimentos permanentes",
+  marca: "Lançamento e construção de marca (pré-operação)",
 };
 
+// Divisão só pra reduzir a lista no lançamento — o relatório continua contando "marca" (4.2.4)
+// dentro de G&A, sem mudar a classificação usada nos indicadores.
 function grupoAmploDe(c: PlanoContas): string {
+  if (c.codigo.startsWith("4.2.4")) return "marca";
   return grupoDeConta(c.codigo, c.tipo) ?? c.tipo;
 }
 
 function labelGrupo(grupo: string): string {
-  if (grupo === "cogs" || grupo === "sm" || grupo === "pd" || grupo === "ga") return GRUPO_LABELS[grupo];
+  if (grupo === "cogs") return "COGS — Custo dos Serviços Prestados";
+  if (grupo === "sm" || grupo === "pd" || grupo === "ga") return GRUPO_LABELS[grupo];
   return OUTROS_GRUPO_LABEL[grupo] ?? grupo;
 }
 
-const ORDEM_GRUPOS_AMPLO = ["cogs", "sm", "pd", "ga", "financeiro", "ativo"];
+const ORDEM_GRUPOS_AMPLO = ["cogs", "sm", "pd", "ga", "marca", "financeiro", "ativo"];
 
 export function DespesaForm({
   planoContas,

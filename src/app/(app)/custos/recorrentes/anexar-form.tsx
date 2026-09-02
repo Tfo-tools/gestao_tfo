@@ -5,7 +5,7 @@ import { anexarComprovantePendente, type AnexoFormState } from "./actions";
 
 const initialState: AnexoFormState = { error: null };
 
-export function AnexarForm({ despesaId }: { despesaId: string }) {
+export function AnexarForm({ despesaId, pagadorAtual, pagadores }: { despesaId: string; pagadorAtual: string | null; pagadores: string[] }) {
   const [state, formAction, pending] = useActionState(anexarComprovantePendente, initialState);
 
   if (state.success) {
@@ -13,14 +13,23 @@ export function AnexarForm({ despesaId }: { despesaId: string }) {
   }
 
   return (
-    <form action={formAction} className="flex items-center gap-2">
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="despesa_id" value={despesaId} />
+      <select name="pagador" defaultValue={pagadorAtual ?? ""} className="input w-[120px] text-[11px]">
+        <option value="">Quem pagou?</option>
+        {pagadores.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+        <option value="Empresa">Empresa</option>
+      </select>
       <input
         name="comprovante"
         type="file"
         accept="image/*,application/pdf"
         required
-        className="max-w-[220px] text-[11px] file:mr-2 file:rounded file:border-0 file:bg-bg file:px-2 file:py-1 file:text-[11px]"
+        className="max-w-[200px] text-[11px] file:mr-2 file:rounded file:border-0 file:bg-bg file:px-2 file:py-1 file:text-[11px]"
       />
       <button
         type="submit"
@@ -29,7 +38,7 @@ export function AnexarForm({ despesaId }: { despesaId: string }) {
       >
         {pending ? "Enviando…" : "Anexar"}
       </button>
-      {state.error && <span className="text-[11px] text-danger">{state.error}</span>}
+      {state.error && <span className="w-full text-[11px] text-danger">{state.error}</span>}
     </form>
   );
 }

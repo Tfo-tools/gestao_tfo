@@ -53,6 +53,7 @@ export async function anexarComprovantePendente(_prevState: AnexoFormState, form
   const supabase = await createClient();
 
   const despesaId = String(formData.get("despesa_id") || "");
+  const pagador = String(formData.get("pagador") || "").trim() || null;
   const file = formData.get("comprovante") as File | null;
 
   if (!despesaId || !file || file.size === 0) {
@@ -72,7 +73,9 @@ export async function anexarComprovantePendente(_prevState: AnexoFormState, form
     tamanho_bytes: file.size,
   });
 
-  await supabase.from("despesas").update({ comprovado: true }).eq("id", despesaId);
+  const atualizacao: { comprovado: boolean; pagador?: string | null } = { comprovado: true };
+  if (pagador) atualizacao.pagador = pagador;
+  await supabase.from("despesas").update(atualizacao).eq("id", despesaId);
 
   revalidatePath("/custos/recorrentes");
   revalidatePath("/custos/extrato");
