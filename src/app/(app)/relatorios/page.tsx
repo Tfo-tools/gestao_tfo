@@ -65,89 +65,211 @@ function grupoDe(codigo: string, tipo: string): string {
 
 const ORDEM_GRUPOS = ["COGS", "S&M", "P&D", "G&A", "Financeiro", "Ativos", "Outros"];
 
+type DespesaGrupoRow = {
+  data_gasto: string;
+  valor_total: number;
+  plano_contas_id: string | null;
+  plano_contas: { codigo: string; conta: string; tipo: string } | null;
+};
+
 async function RelatorioReal() {
   const supabase = await createClient();
 
   const [{ data: despesas }, { data: receitasReais }] = await Promise.all([
-    supabase.from("despesas").select("data_gasto, valor_total, plano_contas:plano_contas_id(codigo, tipo)"),
+    supabase.from("despesas").select("data_gasto, valor_total, plano_contas_id, plano_contas:plano_contas_id(codigo, conta, tipo)"),
     // Nenhuma tabela de receita realizada existe ainda — fica pronto pro dia em que houver vendas reais.
     Promise.resolve({ data: [] as { data_venda: string; valor: number }[] }),
   ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const despesasTyped = (despesas ?? []) as any as DespesaGrupoRow[];
 
   const now = new Date();
   const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const porGrupo = new Map<string, { mes: number; acumulado: number }>();
-  for (const g of ORDEM_GRUPOS) porGrupo.set(g, { mes: 0, acumulado: 0 });
-
-  for (const d of despesas ?? []) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const conta = d.plano_contas as any;
+  // Mesma cascata de DRE da aba Planos: Receita (–) COGS (–) Impostos (=) Margem Bruta (–) S&M
+  // (–) P&D (–) G&A (=) EBITDA — pra manter as duas telas comparáveis, mesmo sem receita lançada.
+  let cogsMes = 0, cogsAcum = 0, smMes = 0, smAcum = 0, pdMes = 0, pdAcum = 0, gaMes = 0, gaAcum = 0, outrasMes = 0, outrasAcum = 0;
+  for (const d of despesasTyped) {
+    const conta = d.plano_contas;
     if (!conta) continue;
     const grupo = grupoDe(conta.codigo, conta.tipo);
-    const entry = porGrupo.get(grupo)!;
     const valor = Number(d.valor_total);
-    entry.acumulado += valor;
-    if (d.data_gasto.startsWith(mesAtual)) entry.mes += valor;
+    const noMes = d.data_gasto.startsWith(mesAtual);
+    if (grupo === "COGS") {
+      cogsAcum += valor;
+      if (noMes) cogsMes += valor;
+    } else if (grupo === "S&M") {
+      smAcum += valor;
+      if (noMes) smMes += valor;
+    } else if (grupo === "P&D") {
+      pdAcum += valor;
+      if (noMes) pdMes += valor;
+    } else if (grupo === "G&A") {
+      gaAcum += valor;
+      if (noMes) gaMes += valor;
+    } else {
+      outrasAcum += valor;
+      if (noMes) outrasMes += valor;
+    }
   }
 
   const receitaMes = (receitasReais ?? []).filter((r) => r.data_venda.startsWith(mesAtual)).reduce((s, r) => s + r.valor, 0);
   const receitaAcumulada = (receitasReais ?? []).reduce((s, r) => s + r.valor, 0);
 
-  const totalCustosMes = [...porGrupo.values()].reduce((acc, g) => acc + g.mes, 0);
-  const totalCustosAcumulado = [...porGrupo.values()].reduce((acc, g) => acc + g.acumulado, 0);
-  const ebitdaMes = receitaMes - totalCustosMes;
-  const ebitdaAcumulado = receitaAcumulada - totalCustosAcumulado;
+  // Sem série mensal de receita real ainda (Vendas não está implementada), o DAS fica em zero —
+  // a linha aparece pela estrutura, calcula de verdade assim que houver receita real lançada.
+  const impostosMes = 0;
+  const impostosAcum = 0;
+  const margemBrutaMes = receitaMes - cogsMes - impostosMes;
+  const margemBrutaAcum = receitaAcumulada - cogsAcum - impostosAcum;
+  const ebitdaMes = margemBrutaMes - smMes - pdMes - gaMes;
+  const ebitdaAcumulado = margemBrutaAcum - smAcum - pdAcum - gaAcum;
+
+  return (
+    <>
+      <div className="mb-5 rounded-xl border border-border bg-surface p-6">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="font-heading text-sm font-semibold">Demonstrativo de Resultado — Real</h2>
+          {receitaAcumulada === 0 && <span className="text-[11px] text-text-faint">receita ainda não lançada — período pré-operacional</span>}
+        </div>
+        <table className="mt-4 w-full border-collapse text-[12.5px]">
+          <thead>
+            <tr className="text-left text-text-muted">
+              <th className="px-2 py-2 font-medium">Linha</th>
+              <th className="px-2 py-2 text-right font-medium">{mesAtual}</th>
+              <th className="px-2 py-2 text-right font-medium">Acumulado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <LinhaDreReal label="Receita Operacional Bruta" mes={receitaMes} acumulado={receitaAcumulada} />
+            <LinhaDreReal label="(–) Custo dos Serviços Prestados (COGS)" mes={cogsMes} acumulado={cogsAcum} negativo tooltip={GRUPO_TOOLTIP.COGS} />
+            <LinhaDreReal
+              label="(–) Deduções e Impostos sobre Receita"
+              mes={impostosMes}
+              acumulado={impostosAcum}
+              negativo
+              tooltip="DAS do Simples Nacional — calculado de verdade assim que houver receita real lançada mês a mês (tela Vendas)."
+            />
+            <LinhaDreReal label="(=) Margem Bruta" mes={margemBrutaMes} acumulado={margemBrutaAcum} total />
+            <LinhaDreReal label="(–) Vendas e Marketing (S&M)" mes={smMes} acumulado={smAcum} negativo tooltip={GRUPO_TOOLTIP["S&M"]} />
+            <LinhaDreReal label="(–) Pesquisa e Desenvolvimento (P&D)" mes={pdMes} acumulado={pdAcum} negativo tooltip={GRUPO_TOOLTIP["P&D"]} />
+            <LinhaDreReal label="(–) Geral e Administrativo (G&A)" mes={gaMes} acumulado={gaAcum} negativo tooltip={GRUPO_TOOLTIP["G&A"]} />
+            <tr className="border-t-2 border-text bg-wine-soft">
+              <td className="flex items-center px-2 py-2.5 font-bold">
+                (=) EBITDA real
+                <InfoTooltip texto="EBITDA = lucro antes de juros, impostos, depreciação e amortização — aqui calculado só com o que já foi de fato faturado e gasto, sem projeção." />
+              </td>
+              <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaMes < 0 ? "text-danger" : "text-success"}`}>{formatBRL(ebitdaMes)}</td>
+              <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
+                {formatBRL(ebitdaAcumulado)}
+              </td>
+            </tr>
+            {outrasAcum !== 0 && (
+              <tr className="border-t border-border-soft">
+                <td className="flex items-center px-2 py-2.5 text-text-faint">
+                  Outras despesas (financeiro/ativos) <span className="ml-1">— fora da DRE operacional</span>
+                </td>
+                <td className="px-2 py-2.5 text-right font-mono text-text-faint">{formatBRL(outrasMes)}</td>
+                <td className="px-2 py-2.5 text-right font-mono text-text-faint">{formatBRL(outrasAcum)}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+
+        {despesasTyped.length === 0 && (
+          <p className="mt-4 text-[13px] text-text-muted">Nenhuma despesa lançada ainda — cadastre em Custos → Lançamentos.</p>
+        )}
+      </div>
+
+      {receitaAcumulada > 0 ? (
+        <div className="mb-5 rounded-xl border border-border bg-surface p-6">
+          <h2 className="mb-1 font-heading text-sm font-semibold">Indicadores e receita reais</h2>
+          <p className="text-[12px] text-text-muted">
+            CAC, LTV, churn e o gráfico de receita real aparecem aqui assim que a tela de Vendas estiver disponível.
+          </p>
+        </div>
+      ) : (
+        <p className="mb-5 text-[12px] text-text-faint">
+          Indicadores (CAC, LTV, churn) e gráfico de receita real aparecem aqui quando houver vendas reais lançadas.
+        </p>
+      )}
+
+      <TopCustosChart despesas={despesasTyped} />
+    </>
+  );
+}
+
+function LinhaDreReal({
+  label,
+  mes,
+  acumulado,
+  negativo,
+  total,
+  tooltip,
+}: {
+  label: string;
+  mes: number;
+  acumulado: number;
+  negativo?: boolean;
+  total?: boolean;
+  tooltip?: string;
+}) {
+  return (
+    <tr className={`border-t border-border-soft ${total ? "bg-bg font-semibold" : ""}`}>
+      <td className="flex items-center px-2 py-2.5">
+        {label}
+        {tooltip && <InfoTooltip texto={tooltip} />}
+      </td>
+      <td className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}>
+        {negativo ? `− ${formatBRL(Math.abs(mes))}` : formatBRL(mes)}
+      </td>
+      <td className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}>
+        {negativo ? `− ${formatBRL(Math.abs(acumulado))}` : formatBRL(acumulado)}
+      </td>
+    </tr>
+  );
+}
+
+function TopCustosChart({ despesas }: { despesas: DespesaGrupoRow[] }) {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 6);
+  const cutoffIso = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-01`;
+
+  const porConta = new Map<string, { id: string; codigo: string; conta: string; valor: number }>();
+  for (const d of despesas) {
+    if (d.data_gasto < cutoffIso || !d.plano_contas_id || !d.plano_contas) continue;
+    const atual = porConta.get(d.plano_contas_id) ?? { id: d.plano_contas_id, codigo: d.plano_contas.codigo, conta: d.plano_contas.conta, valor: 0 };
+    atual.valor += Number(d.valor_total);
+    porConta.set(d.plano_contas_id, atual);
+  }
+  const top10 = [...porConta.values()].sort((a, b) => b.valor - a.valor).slice(0, 10);
+
+  if (top10.length === 0) return null;
+  const max = Math.max(...top10.map((c) => c.valor));
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
-      <div className="mb-1 flex items-center justify-between">
-        <h2 className="font-heading text-sm font-semibold">Demonstrativo de Resultado — Real</h2>
-        {receitaAcumulada === 0 && <span className="text-[11px] text-text-faint">receita ainda não lançada — período pré-operacional</span>}
+      <h2 className="mb-1 font-heading text-sm font-semibold">10 maiores custos acumulados — últimos 6 meses</h2>
+      <p className="mb-4 text-[11px] text-text-muted">Clique numa linha pra ver todos os lançamentos dela no extrato</p>
+      <div className="flex flex-col gap-2.5">
+        {top10.map((c) => (
+          <Link
+            key={c.id}
+            href={`/custos/extrato?conta=${c.id}&desde=${cutoffIso.slice(0, 7)}`}
+            className="block rounded-lg px-2 py-1.5 transition-colors hover:bg-bg"
+          >
+            <div className="mb-1 flex items-center justify-between text-[12px]">
+              <span>
+                {c.codigo} {c.conta}
+              </span>
+              <span className="font-mono font-semibold">{formatBRL(c.valor)}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-border-soft">
+              <div className="h-full rounded-full bg-wine" style={{ width: `${(c.valor / max) * 100}%` }} />
+            </div>
+          </Link>
+        ))}
       </div>
-      <table className="mt-4 w-full border-collapse text-[12.5px]">
-        <thead>
-          <tr className="text-left text-text-muted">
-            <th className="px-2 py-2 font-medium">Grupo</th>
-            <th className="px-2 py-2 text-right font-medium">{mesAtual}</th>
-            <th className="px-2 py-2 text-right font-medium">Acumulado</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr className="border-t border-border-soft">
-            <td className="px-2 py-2.5">Faturamento</td>
-            <td className="px-2 py-2.5 text-right font-mono">{formatBRL(receitaMes)}</td>
-            <td className="px-2 py-2.5 text-right font-mono">{formatBRL(receitaAcumulada)}</td>
-          </tr>
-          {ORDEM_GRUPOS.filter((g) => porGrupo.get(g)!.acumulado > 0).map((g) => {
-            const v = porGrupo.get(g)!;
-            return (
-              <tr key={g} className="border-t border-border-soft">
-                <td className="flex items-center px-2 py-2.5">
-                  (–) {g}
-                  {GRUPO_TOOLTIP[g] && <InfoTooltip texto={GRUPO_TOOLTIP[g]} />}
-                </td>
-                <td className="px-2 py-2.5 text-right font-mono">{formatBRL(v.mes)}</td>
-                <td className="px-2 py-2.5 text-right font-mono">{formatBRL(v.acumulado)}</td>
-              </tr>
-            );
-          })}
-          <tr className="border-t-2 border-text bg-wine-soft">
-            <td className="flex items-center px-2 py-2.5 font-bold">
-              (=) EBITDA real
-              <InfoTooltip texto="EBITDA = lucro antes de juros, impostos, depreciação e amortização — aqui calculado só com o que já foi de fato faturado e gasto, sem projeção." />
-            </td>
-            <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaMes < 0 ? "text-danger" : "text-success"}`}>{formatBRL(ebitdaMes)}</td>
-            <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
-              {formatBRL(ebitdaAcumulado)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {(despesas ?? []).length === 0 && (
-        <p className="mt-4 text-[13px] text-text-muted">Nenhuma despesa lançada ainda — cadastre em Custos → Lançamentos.</p>
-      )}
     </div>
   );
 }
@@ -362,36 +484,30 @@ function IndicadoresPeriodo({
   const hrefEbitda = `/relatorios/detalhe?indicador=margem_operacional&cenario=${cenarioId}&inicio=${inicio}&fim=${fim}`;
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-4 font-heading text-sm font-semibold">Indicadores no período selecionado</h2>
+      <h2 className="mb-4 font-heading text-sm font-semibold">DRE do período selecionado</h2>
       <table className="w-full border-collapse text-[12.5px]">
         <tbody>
-          <tr className="border-t border-border-soft">
-            <td className="px-2 py-2.5">Receita acumulada</td>
-            <td className="px-2 py-2.5 text-right font-mono">{formatBRL(metricas.receitaAcumulada)}</td>
-          </tr>
-          <tr className="border-t border-border-soft">
-            <td className="flex items-center px-2 py-2.5">
-              (–) Custos totais (produtos + empresa)
-              <InfoTooltip texto="Custos diretos dos produtos somados aos custos compartilhados da empresa (contador, jurídico, escritório, cloud, equipe comercial etc.), no período selecionado." />
-            </td>
-            <td className="px-2 py-2.5 text-right font-mono text-danger">− {formatBRL(metricas.custosAcumulados)}</td>
-          </tr>
+          <DreLinha label="Receita Operacional Bruta" valor={metricas.receitaAcumulada} />
+          <DreLinha label="(–) Custo dos Serviços Prestados (COGS)" valor={-metricas.cogsAcumulado} negativo />
+          <DreLinha
+            label="(–) Deduções e Impostos sobre Receita"
+            valor={-metricas.impostosAcumulados}
+            negativo
+            tooltip="DAS do Simples Nacional (Anexo III ou V conforme o Fator R), calculado mês a mês pelo RBT12 (receita dos 12 meses anteriores) e pela folha CLT acumulada."
+          />
+          <DreLinha label="(=) Margem Bruta" valor={metricas.margemBrutaValor} total />
+          <DreLinha label="(–) Vendas e Marketing (S&M)" valor={-metricas.smAcumulado} negativo />
+          <DreLinha label="(–) Pesquisa e Desenvolvimento (P&D)" valor={-metricas.pdAcumulado} negativo />
+          <DreLinha label="(–) Geral e Administrativo (G&A)" valor={-metricas.gaAcumulado} negativo />
           <tr className="border-t border-border-soft bg-wine-soft">
             <td className="px-2 py-2.5 font-semibold">
               <Link href={hrefEbitda} className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
-                (=) EBITDA no período — ver detalhamento →
+                (=) EBITDA — ver detalhamento →
               </Link>
             </td>
             <td className={`px-2 py-2.5 text-right font-mono font-semibold ${metricas.ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
               {formatBRL(metricas.ebitdaAcumulado)}
             </td>
-          </tr>
-          <tr className="border-t border-border-soft">
-            <td className="flex items-center px-2 py-2.5">
-              (–) DAS — Simples Nacional <span className="ml-1 text-text-faint">(só pra margem bruta acima)</span>
-              <InfoTooltip texto="Simples Nacional, Anexo III (Fator R ≥ 28%) ou Anexo V (< 28%), calculado mês a mês pelo RBT12 (receita dos 12 meses anteriores) e pela folha CLT acumulada — hoje só enxerga CLT contratado via Modelos de Contratação (SDR/Coordenador/Suporte), não CLT lançado direto em Equipe Alocada por produto. Entra só no cálculo da margem bruta, não é subtraído do EBITDA acima." />
-            </td>
-            <td className="px-2 py-2.5 text-right font-mono text-danger">− {formatBRL(metricas.impostosAcumulados)}</td>
           </tr>
           <tr className="border-t border-border-soft">
             <td className="px-2 py-2.5">Clientes ativos (início → fim do período)</td>
@@ -457,6 +573,32 @@ function GraficoReceitaEInvestimento({
         })}
       </svg>
     </div>
+  );
+}
+
+function DreLinha({
+  label,
+  valor,
+  negativo,
+  total,
+  tooltip,
+}: {
+  label: string;
+  valor: number;
+  negativo?: boolean;
+  total?: boolean;
+  tooltip?: string;
+}) {
+  return (
+    <tr className={`border-t border-border-soft ${total ? "bg-bg font-semibold" : ""}`}>
+      <td className="flex items-center px-2 py-2.5">
+        {label}
+        {tooltip && <InfoTooltip texto={tooltip} />}
+      </td>
+      <td className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}>
+        {negativo ? `− ${formatBRL(Math.abs(valor))}` : formatBRL(valor)}
+      </td>
+    </tr>
   );
 }
 

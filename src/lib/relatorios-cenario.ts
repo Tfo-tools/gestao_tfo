@@ -25,6 +25,8 @@ export type Agregado = {
   smMarketing: number;
   smVendas: number;
   smOutros: number;
+  opexPd: number;
+  opexGa: number;
 };
 
 export type ResumoCenario = {
@@ -38,7 +40,12 @@ export type Metricas = {
   custosAcumulados: number;
   margemOperacional: number | null;
   margemBruta: number | null;
+  margemBrutaValor: number;
   impostosAcumulados: number;
+  cogsAcumulado: number;
+  smAcumulado: number;
+  pdAcumulado: number;
+  gaAcumulado: number;
   churnMedio: number | null;
   ltvMedio: number | null;
   clientesInicio: number;
@@ -52,22 +59,24 @@ export type Metricas = {
 /** Todas as métricas calculadas só a partir das linhas já filtradas pro período selecionado —
  * break-even e payback recomeçam do zero no início do período, não carregam saldo de fora dele. */
 export function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
+  // DRE em cascata, igual ao modelo de referência: Receita (–) COGS (–) Impostos (=) Margem Bruta
+  // (–) S&M (–) P&D (–) G&A (=) EBITDA. Os impostos entram no EBITDA agora — antes ficavam de fora,
+  // só afetando a margem bruta, mas o modelo de referência deixa claro que eles pesam no resultado.
   const receitaAcumulada = linhas.reduce((s, l) => s + l.receita, 0);
-  const ebitdaAcumulado = linhas.reduce((s, l) => s + l.ebitda, 0);
-  const custosAcumulados = receitaAcumulada - ebitdaAcumulado;
-  const margemOperacional = receitaAcumulada > 0 ? (ebitdaAcumulado / receitaAcumulada) * 100 : null;
-  // Margem bruta: receita (–) COGS direto dos produtos (–) deduções e impostos sobre a receita.
-  // Diferente da margem operacional, que desconta TODOS os custos (inclusive S&M, P&D, G&A e os
-  // custos compartilhados da empresa). Imposto = DAS do Simples Nacional (Anexo III ou V conforme
-  // o Fator R), calculado mês a mês em agregarPorCenario com o RBT12 real da linha do tempo.
   const cogsAcumulado = linhas.reduce((s, l) => s + l.cogs, 0);
   const impostosAcumulados = linhas.reduce((s, l) => s + l.impostoMensal, 0);
-  const margemBruta = receitaAcumulada > 0 ? ((receitaAcumulada - cogsAcumulado - impostosAcumulados) / receitaAcumulada) * 100 : null;
+  const margemBrutaValor = receitaAcumulada - cogsAcumulado - impostosAcumulados;
+  const margemBruta = receitaAcumulada > 0 ? (margemBrutaValor / receitaAcumulada) * 100 : null;
+  const smAcumulado = linhas.reduce((s, l) => s + l.smMarketing + l.smVendas + l.smOutros, 0);
+  const pdAcumulado = linhas.reduce((s, l) => s + l.opexPd, 0);
+  const gaAcumulado = linhas.reduce((s, l) => s + l.opexGa, 0);
+  const ebitdaAcumulado = margemBrutaValor - smAcumulado - pdAcumulado - gaAcumulado;
+  const custosAcumulados = receitaAcumulada - ebitdaAcumulado;
+  const margemOperacional = receitaAcumulada > 0 ? (ebitdaAcumulado / receitaAcumulada) * 100 : null;
   const clientesInicio = linhas[0]?.clientes ?? 0;
   const clientesFinal = linhas[linhas.length - 1]?.clientes ?? 0;
 
   let somaNovosClientes = 0;
-  let somaSmTotal = 0;
   let somaChurnPonderado = 0;
   let somaLtvPonderado = 0;
   let somaClientesPeso = 0;
@@ -88,7 +97,6 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
       if (acumuladoPayback >= totalInvestido) paybackMes = l.mes_referencia;
     }
     somaNovosClientes += l.novosClientes;
-    somaSmTotal += l.smMarketing + l.smVendas + l.smOutros;
     somaChurnPonderado += l.churnPonderado;
     somaLtvPonderado += l.ltvPonderado;
     somaClientesPeso += l.clientes;
@@ -100,7 +108,12 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
     custosAcumulados,
     margemOperacional,
     margemBruta,
+    margemBrutaValor,
     impostosAcumulados,
+    cogsAcumulado,
+    smAcumulado,
+    pdAcumulado,
+    gaAcumulado,
     churnMedio: somaClientesPeso > 0 ? (somaChurnPonderado / somaClientesPeso) * 100 : null,
     ltvMedio: somaClientesPeso > 0 ? somaLtvPonderado / somaClientesPeso : null,
     clientesInicio,
@@ -109,7 +122,7 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
     // folha comercial própria e compartilhada, comissões, terceirizados) ÷ novos clientes do
     // período. Antes usava uma média ponderada só do CAC por produto, que não enxergava custo de
     // equipe comercial compartilhada (SDR/Coordenador via Modelos de Contratação).
-    cacMedio: somaNovosClientes > 0 ? somaSmTotal / somaNovosClientes : null,
+    cacMedio: somaNovosClientes > 0 ? smAcumulado / somaNovosClientes : null,
     breakEvenMes,
     breakEvenClientes,
     paybackMes,
@@ -137,7 +150,7 @@ export async function agregarPorCenario(
       supabase
         .from("simulacao_mensal")
         .select(
-          "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros",
+          "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga",
         )
         .eq("cenario_id", cenarioId)
         .order("mes_referencia"),
@@ -243,6 +256,8 @@ export async function agregarPorCenario(
         smMarketing: 0,
         smVendas: 0,
         smOutros: 0,
+        opexPd: 0,
+        opexGa: 0,
       } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
@@ -251,6 +266,8 @@ export async function agregarPorCenario(
     atual.smMarketing += Number(row.sm_marketing ?? 0);
     atual.smVendas += Number(row.sm_vendas ?? 0);
     atual.smOutros += Number(row.sm_outros ?? 0);
+    atual.opexPd += Number(row.opex_pd ?? 0);
+    atual.opexGa += Number(row.opex_ga ?? 0);
     porMes.set(row.mes_referencia, atual);
 
     const novos = Number(row.novos_clientes ?? 0);
@@ -284,6 +301,8 @@ export async function agregarPorCenario(
         if (sub === "marketing") atual.smMarketing += valor;
         else if (sub === "vendas") atual.smVendas += valor;
         else if (sub === "outros_sm") atual.smOutros += valor;
+        else if (sub === "pd") atual.opexPd += valor;
+        else if (sub === "ga") atual.opexGa += valor;
       }
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -310,10 +329,11 @@ export async function agregarPorCenario(
       if (sub === "marketing") atual.smMarketing += custoModelo;
       else if (sub === "vendas") atual.smVendas += custoModelo;
       else if (sub === "outros_sm") atual.smOutros += custoModelo;
+      else if (sub === "pd") atual.opexPd += custoModelo;
+      else if (sub === "ga") atual.opexGa += custoModelo;
     }
 
     atual.custosEmpresa = custosEmpresa;
-    atual.ebitda = atual.ebitdaProdutos - custosEmpresa;
   }
 
   const linhas = [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
@@ -339,6 +359,12 @@ export async function agregarPorCenario(
     const resultado = calcularImpostoSimples(linhas[i].receita, rbt12, fatorR);
     linhas[i].impostoMensal = resultado.impostoMensal;
     linhas[i].aliquotaEfetivaImposto = resultado.aliquotaEfetiva;
+  }
+
+  // EBITDA em cascata, só depois de ter os impostos do mês: Receita (–) COGS (–) Impostos
+  // (=) Margem Bruta (–) S&M (–) P&D (–) G&A (=) EBITDA.
+  for (const l of linhas) {
+    l.ebitda = l.receita - l.cogs - l.impostoMensal - l.smMarketing - l.smVendas - l.smOutros - l.opexPd - l.opexGa;
   }
 
   const programaIds = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);

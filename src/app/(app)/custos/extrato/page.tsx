@@ -12,14 +12,15 @@ function formatDate(iso: string) {
 export default async function ExtratoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; produto?: string; comprovado?: string; pagador?: string }>;
+  searchParams: Promise<{ mes?: string; desde?: string; produto?: string; comprovado?: string; pagador?: string; conta?: string }>;
 }) {
-  const { mes, produto, comprovado, pagador } = await searchParams;
+  const { mes, desde, produto, comprovado, pagador, conta } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: produtos }, { data: todasDespesas }] = await Promise.all([
+  const [{ data: produtos }, { data: todasDespesas }, { data: contaAtual }] = await Promise.all([
     supabase.from("produtos").select("id, nome").order("nome"),
     supabase.from("despesas").select("pagador, valor_total"),
+    conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
   ]);
 
   // Peso por sócia: sobre o total geral, independente dos filtros abaixo.
@@ -41,19 +42,24 @@ export default async function ExtratoPage({
 
   if (mes) {
     query = query.gte("data_gasto", `${mes}-01`).lt("data_gasto", nextMonth(mes));
+  } else if (desde) {
+    query = query.gte("data_gasto", `${desde}-01`);
   }
   if (produto) query = query.eq("produto_id", produto);
   if (comprovado === "sim") query = query.eq("comprovado", true);
   if (comprovado === "nao") query = query.eq("comprovado", false);
   if (pagador) query = query.eq("pagador", pagador);
+  if (conta) query = query.eq("plano_contas_id", conta);
 
   const { data: despesas } = await query;
 
   const exportQs = new URLSearchParams();
   if (mes) exportQs.set("mes", mes);
+  if (desde) exportQs.set("desde", desde);
   if (produto) exportQs.set("produto", produto);
   if (comprovado) exportQs.set("comprovado", comprovado);
   if (pagador) exportQs.set("pagador", pagador);
+  if (conta) exportQs.set("conta", conta);
 
   return (
     <div className="flex flex-col gap-5">
@@ -98,6 +104,18 @@ export default async function ExtratoPage({
       )}
 
       <div className="rounded-xl border border-border bg-surface p-6">
+        {(conta || desde) && (
+          <div className="mb-4 flex items-center justify-between rounded-lg bg-primary-soft px-3.5 py-2.5 text-[12px] text-primary-deep">
+            <span>
+              Filtrado {conta && contaAtual ? `pela conta ${contaAtual.codigo} — ${contaAtual.conta}` : ""}
+              {conta && desde ? " · " : ""}
+              {desde ? `desde ${desde}` : ""}
+            </span>
+            <a href="/custos/extrato" className="underline">
+              Limpar filtro
+            </a>
+          </div>
+        )}
         <div className="mb-5 flex items-center justify-between">
           <h2 className="font-heading text-sm font-semibold">Extrato de despesas</h2>
           <a

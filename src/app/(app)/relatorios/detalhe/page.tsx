@@ -134,23 +134,47 @@ function TabelaIndicador({
 
   if (indicador === "margem_operacional") {
     const totalReceita = linhas.reduce((s, l) => s + l.receita, 0);
+    const totalCogs = linhas.reduce((s, l) => s + l.cogs, 0);
+    const totalImposto = linhas.reduce((s, l) => s + l.impostoMensal, 0);
+    const totalSm = linhas.reduce((s, l) => s + l.smMarketing + l.smVendas + l.smOutros, 0);
+    const totalPd = linhas.reduce((s, l) => s + l.opexPd, 0);
+    const totalGa = linhas.reduce((s, l) => s + l.opexGa, 0);
     const totalEbitda = linhas.reduce((s, l) => s + l.ebitda, 0);
     return (
-      <Table
-        head={["Mês", "Receita", "Custos totais", "EBITDA", "Margem do mês"]}
-        rows={linhas.map((l) => {
-          const custos = l.receita - l.ebitda;
-          const margem = l.receita > 0 ? (l.ebitda / l.receita) * 100 : 0;
-          return [formatMes(l.mes_referencia), formatBRL(l.receita), formatBRL(custos), formatBRL(l.ebitda), formatPct(margem)];
-        })}
-        total={[
-          "Total do período",
-          formatBRL(totalReceita),
-          formatBRL(totalReceita - totalEbitda),
-          formatBRL(totalEbitda),
-          totalReceita > 0 ? formatPct((totalEbitda / totalReceita) * 100) : "—",
-        ]}
-      />
+      <>
+        <p className="mb-3 text-[12px] text-text-muted">
+          DRE em cascata: Receita (–) COGS (–) Impostos (=) Margem Bruta (–) S&amp;M (–) P&amp;D (–) G&amp;A (=) EBITDA.
+        </p>
+        <Table
+          head={["Mês", "Receita", "COGS", "Impostos", "Margem Bruta", "S&M", "P&D", "G&A", "EBITDA"]}
+          rows={linhas.map((l) => {
+            const sm = l.smMarketing + l.smVendas + l.smOutros;
+            const margemBruta = l.receita - l.cogs - l.impostoMensal;
+            return [
+              formatMes(l.mes_referencia),
+              formatBRL(l.receita),
+              formatBRL(l.cogs),
+              formatBRL(l.impostoMensal),
+              formatBRL(margemBruta),
+              formatBRL(sm),
+              formatBRL(l.opexPd),
+              formatBRL(l.opexGa),
+              formatBRL(l.ebitda),
+            ];
+          })}
+          total={[
+            "Total do período",
+            formatBRL(totalReceita),
+            formatBRL(totalCogs),
+            formatBRL(totalImposto),
+            formatBRL(totalReceita - totalCogs - totalImposto),
+            formatBRL(totalSm),
+            formatBRL(totalPd),
+            formatBRL(totalGa),
+            formatBRL(totalEbitda),
+          ]}
+        />
+      </>
     );
   }
 
