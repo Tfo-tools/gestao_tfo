@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { criarCenario, type CenarioFormState } from "./actions";
 
-type Cenario = { id: string; nome: string };
+type Cenario = { id: string; nome: string; is_base: boolean };
 
 const initialState: CenarioFormState = { error: null };
 
@@ -44,14 +44,17 @@ export function NovoCenarioForm({ cenarios }: { cenarios: Cenario[] }) {
           <input name="descricao" type="text" className="input" placeholder="O que muda nesse cenário" />
         </div>
         <div>
-          <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">
-            Duplicar premissas de
-          </label>
+          <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">Espelhar cenário de</label>
+          <p className="mb-1.5 text-[10.5px] text-text-faint">
+            Copia produtos, custos, funil e tudo mais do cenário escolhido — o Plano base ou qualquer outro cenário (fomento,
+            investimento etc.) que você já tenha criado. Ajuste só o que muda a partir daí.
+          </p>
           <select name="duplicar_de" className="input">
             <option value="">Começar em branco</option>
             {cenarios.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nome}
+                {c.is_base ? " (Plano base)" : ""}
               </option>
             ))}
           </select>

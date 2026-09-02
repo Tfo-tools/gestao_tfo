@@ -21,7 +21,7 @@ export default async function CenariosPage() {
       </div>
 
       <div className="mb-6">
-        <NovoCenarioForm cenarios={(cenarios ?? []).map((c) => ({ id: c.id, nome: c.nome }))} />
+        <NovoCenarioForm cenarios={(cenarios ?? []).map((c) => ({ id: c.id, nome: c.nome, is_base: c.is_base }))} />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
