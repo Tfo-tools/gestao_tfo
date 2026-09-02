@@ -480,9 +480,15 @@ function MetricasInvestidor({
         />
         <Metrica
           href={hrefDetalhe("retorno_investimento")}
-          label="Retorno do investimento"
-          valor={totalInvestido > 0 ? (metricas.paybackMes ? formatMes(metricas.paybackMes) : "não recuperado no período") : "sem captação vinculada"}
-          detalhe={totalInvestido > 0 ? `capital de ${formatBRL(totalInvestido)} recuperado` : "cenário sem investimento"}
+          label="Retorno do investimento (ROI)"
+          valor={totalInvestido > 0 && metricas.roiPct != null ? `${metricas.roiPct.toFixed(0)}%` : "sem captação vinculada"}
+          detalhe={
+            totalInvestido > 0
+              ? `${formatBRL(metricas.investimentoRecuperado)} recuperados${
+                  metricas.paybackMes ? ` até ${formatMes(metricas.paybackMes)}` : fim ? ` até ${formatMes(`${fim}-01`)}` : ""
+                }`
+              : "cenário sem captação que exija retorno (fomento não entra nessa conta)"
+          }
         />
       </div>
     </div>

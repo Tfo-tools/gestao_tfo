@@ -54,6 +54,8 @@ export type Metricas = {
   breakEvenMes: string | null;
   breakEvenClientes: number | null;
   paybackMes: string | null;
+  investimentoRecuperado: number;
+  roiPct: number | null;
 };
 
 /** Todas as métricas calculadas só a partir das linhas já filtradas pro período selecionado —
@@ -92,9 +94,9 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
       breakEvenMes = l.mes_referencia;
       breakEvenClientes = l.clientes;
     }
-    if (totalInvestido > 0 && paybackMes === null) {
+    if (totalInvestido > 0) {
       acumuladoPayback += l.ebitda;
-      if (acumuladoPayback >= totalInvestido) paybackMes = l.mes_referencia;
+      if (paybackMes === null && acumuladoPayback >= totalInvestido) paybackMes = l.mes_referencia;
     }
     somaNovosClientes += l.novosClientes;
     somaChurnPonderado += l.churnPonderado;
@@ -126,6 +128,8 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
     breakEvenMes,
     breakEvenClientes,
     paybackMes,
+    investimentoRecuperado: acumuladoPayback,
+    roiPct: totalInvestido > 0 ? (acumuladoPayback / totalInvestido) * 100 : null,
   };
 }
 
@@ -372,10 +376,15 @@ export async function agregarPorCenario(
   if (programaIds.length > 0) {
     const { data: programas } = await supabase
       .from("programas_investimento")
-      .select("valor_total")
+      .select("valor_total, tipo")
       .in("id", programaIds);
+    // Fomento (subvenção não reembolsável, ex: editais) entra no capital captado do cenário, mas
+    // não conta pro "Retorno do investimento" — ele não precisa ser "recuperado" via EBITDA, ao
+    // contrário de investimento/mútuo/empréstimo, que representam capital de terceiros a devolver.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    totalInvestido = ((programas ?? []) as any[]).reduce((s, p) => s + Number(p.valor_total ?? 0), 0);
+    totalInvestido = ((programas ?? []) as any[])
+      .filter((p) => p.tipo !== "fomento")
+      .reduce((s, p) => s + Number(p.valor_total ?? 0), 0);
   }
 
   return { linhas, totalInvestido };
