@@ -22,8 +22,13 @@ export default async function LancamentosPage() {
         .select(
           "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*)",
         )
+        // Só o que ainda precisa de atenção: lançamento avulso (não recorrente — essas têm sua
+        // própria lista em Recorrentes) e ainda sem comprovante. Despesa já comprovada some daqui
+        // — pra editar/ver uma já comprovada, vai no Extrato.
+        .is("despesa_recorrente_id", null)
+        .eq("comprovado", false)
         .order("data_gasto", { ascending: false })
-        .limit(15),
+        .limit(50),
       supabase.from("profiles").select("nome").order("nome"),
       supabase.from("despesas").select("plano_contas_id"),
       supabase.from("meses_fechados").select("mes"),
@@ -43,9 +48,12 @@ export default async function LancamentosPage() {
       <DespesaForm planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} usoPorConta={usoPorConta} />
 
       <div className="rounded-xl border border-border bg-surface p-6">
-        <h2 className="mb-5 font-heading text-sm font-semibold">Lançamentos recentes</h2>
+        <h2 className="mb-1 font-heading text-sm font-semibold">Lançamentos pendentes</h2>
+        <p className="mb-4 text-[11.5px] text-text-muted">
+          Avulsos ainda sem comprovante. Já comprovado ou é recorrente? Vai em Extrato ou Recorrentes.
+        </p>
         {(despesas ?? []).length === 0 ? (
-          <p className="text-[13px] text-text-muted">Nenhuma despesa lançada ainda.</p>
+          <p className="text-[13px] text-text-muted">Nenhum lançamento pendente — tudo comprovado por aqui.</p>
         ) : (
           <table className="w-full border-collapse text-[12.5px]">
             <thead>

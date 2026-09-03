@@ -46,11 +46,11 @@ export default async function RecorrentesPage() {
         <Link href="/custos" className="font-medium text-primary-deep underline">
           Custos → Lançamentos
         </Link>
-        , marcando "Isso se repete todo mês?" — essa tela aqui é só pra acompanhar o que já está cadastrado, editar e anexar os
-        comprovantes de cada mês.
+        , marcando "Isso se repete todo mês?". Essa tela aqui mostra só o que está pendente — pra editar ou pausar uma recorrência já
+        comprovada, abra "Todas as recorrências cadastradas" abaixo.
       </div>
 
-      {pendentesFiltradas.length > 0 && (
+      {pendentesFiltradas.length > 0 ? (
         <div className="rounded-xl border border-border bg-surface p-6">
           <h2 className="mb-1 font-heading text-sm font-semibold">Pendentes de comprovante</h2>
           <p className="mb-4 text-[11.5px] text-text-muted">
@@ -76,52 +76,60 @@ export default async function RecorrentesPage() {
             })}
           </div>
         </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
+          <p className="text-sm text-text-muted">Nenhum comprovante pendente — tudo em dia por aqui.</p>
+        </div>
       )}
 
-      <div className="rounded-xl border border-border bg-surface p-6">
-        <h2 className="mb-5 font-heading text-sm font-semibold">Despesas recorrentes cadastradas</h2>
-        {(recorrentes ?? []).length === 0 ? (
-          <p className="text-[13px] text-text-muted">Nenhuma despesa recorrente cadastrada ainda.</p>
-        ) : (
-          <table className="w-full border-collapse text-[12.5px]">
-            <thead>
-              <tr className="text-left text-text-muted">
-                <th className="px-2 py-1.5 font-medium">Descrição</th>
-                <th className="px-2 py-1.5 font-medium">Categoria</th>
-                <th className="px-2 py-1.5 font-medium">Produto</th>
-                <th className="px-2 py-1.5 text-right font-medium">Valor/mês</th>
-                <th className="px-2 py-1.5 text-center font-medium">Dia</th>
-                <th className="px-2 py-1.5 text-center font-medium">Status</th>
-                <th className="px-2 py-1.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {(recorrentes ?? []).map((r) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const rr = r as any;
-                const produtosLigados = (rr.despesa_recorrente_produtos ?? []).map((dp: any) => dp.produtos).filter(Boolean);
-                const dado: RecorrenteRowData = {
-                  id: rr.id,
-                  descricao: rr.descricao,
-                  valor: rr.valor,
-                  pagador: rr.pagador,
-                  dia_do_mes: rr.dia_do_mes,
-                  data_inicio: rr.data_inicio,
-                  data_fim: rr.data_fim,
-                  ativo: rr.ativo,
-                  plano_contas_id: rr.plano_contas_id,
-                  plano_contas: rr.plano_contas,
-                  produtoIds: produtosLigados.map((p: any) => p.id),
-                  produtoNomes: produtosLigados.map((p: any) => p.nome),
-                };
-                return (
-                  <RecorrenteRow key={rr.id} recorrente={dado} planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} />
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <details className="rounded-xl border border-border bg-surface p-6">
+        <summary className="cursor-pointer font-heading text-sm font-semibold">
+          Todas as recorrências cadastradas ({(recorrentes ?? []).length})
+        </summary>
+        <div className="mt-5">
+          {(recorrentes ?? []).length === 0 ? (
+            <p className="text-[13px] text-text-muted">Nenhuma despesa recorrente cadastrada ainda.</p>
+          ) : (
+            <table className="w-full border-collapse text-[12.5px]">
+              <thead>
+                <tr className="text-left text-text-muted">
+                  <th className="px-2 py-1.5 font-medium">Descrição</th>
+                  <th className="px-2 py-1.5 font-medium">Categoria</th>
+                  <th className="px-2 py-1.5 font-medium">Produto</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Valor/mês</th>
+                  <th className="px-2 py-1.5 text-center font-medium">Dia</th>
+                  <th className="px-2 py-1.5 text-center font-medium">Status</th>
+                  <th className="px-2 py-1.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {(recorrentes ?? []).map((r) => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const rr = r as any;
+                  const produtosLigados = (rr.despesa_recorrente_produtos ?? []).map((dp: any) => dp.produtos).filter(Boolean);
+                  const dado: RecorrenteRowData = {
+                    id: rr.id,
+                    descricao: rr.descricao,
+                    valor: rr.valor,
+                    pagador: rr.pagador,
+                    dia_do_mes: rr.dia_do_mes,
+                    data_inicio: rr.data_inicio,
+                    data_fim: rr.data_fim,
+                    ativo: rr.ativo,
+                    plano_contas_id: rr.plano_contas_id,
+                    plano_contas: rr.plano_contas,
+                    produtoIds: produtosLigados.map((p: any) => p.id),
+                    produtoNomes: produtosLigados.map((p: any) => p.nome),
+                  };
+                  return (
+                    <RecorrenteRow key={rr.id} recorrente={dado} planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} />
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </details>
     </div>
   );
 }
