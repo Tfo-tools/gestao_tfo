@@ -69,7 +69,7 @@ export async function resolverContaIdsPorTipo(
   tipo: string | null,
 ): Promise<string[] | null> {
   if (!tipo) return null;
-  const { grupoAmploDe } = await import("@/lib/categoria-lancamento");
-  const { data } = await supabase.from("plano_contas").select("id, codigo, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]);
-  return ((data ?? []) as { id: string; codigo: string; tipo: string }[]).filter((c) => grupoAmploDe(c) === tipo).map((c) => c.id);
+  const { categoriaDeConta } = await import("@/lib/categoria-negocio");
+  const { data } = await supabase.from("plano_contas").select("id, codigo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]);
+  return ((data ?? []) as { id: string; codigo: string }[]).filter((c) => categoriaDeConta(c) === tipo).map((c) => c.id);
 }

@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { alternarRecorrente } from "./actions";
 import { atualizarRecorrente, type DespesaFormState } from "../actions";
-import { grupoAmploDe, labelGrupoAmplo, ORDEM_GRUPOS_AMPLO } from "@/lib/categoria-lancamento";
+import { categoriaDeConta, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
 type Produto = { id: string; nome: string };
@@ -43,14 +43,14 @@ export function RecorrenteRow({
   const [editando, setEditando] = useState(false);
   const [state, formAction, pending] = useActionState(atualizarRecorrente, initialState);
   const contaAtual = recorrente.plano_contas_id ? planoContas.find((c) => c.id === recorrente.plano_contas_id) : null;
-  const [grupo, setGrupo] = useState(contaAtual ? grupoAmploDe(contaAtual) : "");
+  const [grupo, setGrupo] = useState(contaAtual ? categoriaDeConta(contaAtual) : "");
 
-  const grupos = useMemo(() => {
-    const presentes = new Set(planoContas.map(grupoAmploDe));
-    return ORDEM_GRUPOS_AMPLO.filter((g) => presentes.has(g));
+  const categorias = useMemo(() => {
+    const presentes = new Set(planoContas.map((c) => categoriaDeConta(c)));
+    return CATEGORIAS_NEGOCIO.filter((c) => presentes.has(c.chave));
   }, [planoContas]);
 
-  const contasDoGrupo = useMemo(() => planoContas.filter((c) => grupoAmploDe(c) === grupo), [planoContas, grupo]);
+  const contasDaCategoria = useMemo(() => planoContas.filter((c) => categoriaDeConta(c) === grupo), [planoContas, grupo]);
 
   if (state.success && editando) setEditando(false);
 
@@ -61,23 +61,23 @@ export function RecorrenteRow({
           <form action={formAction} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="id" value={recorrente.id} />
             <div>
-              <label className="mb-1 block text-[10.5px] text-text-faint">Tipo de gasto</label>
-              <select value={grupo} onChange={(e) => setGrupo(e.target.value)} required className="input w-[190px]">
+              <label className="mb-1 block text-[10.5px] text-text-faint">Do que se trata</label>
+              <select value={grupo} onChange={(e) => setGrupo(e.target.value)} required className="input w-[200px]">
                 <option value="">Selecione…</option>
-                {grupos.map((g) => (
-                  <option key={g} value={g}>
-                    {labelGrupoAmplo(g)}
+                {categorias.map((c) => (
+                  <option key={c.chave} value={c.chave}>
+                    {c.label}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-[10.5px] text-text-faint">Conta</label>
+              <label className="mb-1 block text-[10.5px] text-text-faint">Item exatamente</label>
               <select name="plano_contas_id" defaultValue={recorrente.plano_contas_id ?? ""} required disabled={!grupo} className="input w-[220px] disabled:opacity-50">
                 <option value="">Selecione…</option>
-                {contasDoGrupo.map((c) => (
+                {contasDaCategoria.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.codigo} — {c.conta}
+                    {c.conta}
                   </option>
                 ))}
               </select>

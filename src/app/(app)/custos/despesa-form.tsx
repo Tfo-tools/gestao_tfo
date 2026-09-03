@@ -2,7 +2,7 @@
 
 import { useActionState, useMemo, useRef, useState } from "react";
 import { criarLancamento, type DespesaFormState } from "./actions";
-import { grupoAmploDe, labelGrupoAmplo, ORDEM_GRUPOS_AMPLO } from "@/lib/categoria-lancamento";
+import { categoriaDeConta, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
 type Produto = { id: string; nome: string };
@@ -26,14 +26,14 @@ export function DespesaForm({
   const [recorrente, setRecorrente] = useState(false);
   const [ultimoFoiRecorrente, setUltimoFoiRecorrente] = useState(false);
 
-  const grupos = useMemo(() => {
-    const presentes = new Set(planoContas.map(grupoAmploDe));
-    return ORDEM_GRUPOS_AMPLO.filter((g) => presentes.has(g));
+  const categorias = useMemo(() => {
+    const presentes = new Set(planoContas.map((c) => categoriaDeConta(c)));
+    return CATEGORIAS_NEGOCIO.filter((c) => presentes.has(c.chave));
   }, [planoContas]);
 
-  const contasDoGrupo = useMemo(() => {
+  const contasDaCategoria = useMemo(() => {
     return planoContas
-      .filter((c) => grupoAmploDe(c) === grupo)
+      .filter((c) => categoriaDeConta(c) === grupo)
       .sort((a, b) => (usoPorConta[b.id] ?? 0) - (usoPorConta[a.id] ?? 0) || a.conta.localeCompare(b.conta));
   }, [planoContas, grupo, usoPorConta]);
 
@@ -91,7 +91,7 @@ export function DespesaForm({
           </p>
         )}
 
-        <Field label="1. Que tipo de gasto é esse?">
+        <Field label="1. Do que se trata esse gasto?">
           <select
             value={grupo}
             onChange={(e) => setGrupo(e.target.value)}
@@ -99,20 +99,20 @@ export function DespesaForm({
             className="input"
           >
             <option value="">Selecione…</option>
-            {grupos.map((g) => (
-              <option key={g} value={g}>
-                {labelGrupoAmplo(g)}
+            {categorias.map((c) => (
+              <option key={c.chave} value={c.chave}>
+                {c.label}
               </option>
             ))}
           </select>
         </Field>
 
-        <Field label="2. Qual conta exatamente?">
+        <Field label="2. Qual item exatamente?">
           <select name="plano_contas_id" required disabled={!grupo} className="input disabled:opacity-50">
-            <option value="">{grupo ? "Selecione…" : "Escolha o tipo de gasto primeiro"}</option>
-            {contasDoGrupo.map((c) => (
+            <option value="">{grupo ? "Selecione…" : "Escolha do que se trata primeiro"}</option>
+            {contasDaCategoria.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.codigo} — {c.conta}
+                {c.conta}
               </option>
             ))}
           </select>

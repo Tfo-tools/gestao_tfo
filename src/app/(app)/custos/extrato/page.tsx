@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { DespesaRow, type DespesaRowData } from "./despesa-row";
 import { FecharMesButton } from "./fechar-mes-button";
 import { ParcelaPendenteRow } from "./parcela-pendente-row";
-import { grupoAmploDe, labelGrupoAmplo, ORDEM_GRUPOS_AMPLO } from "@/lib/categoria-lancamento";
+import { categoriaDeConta, labelCategoriaNegocio, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
 
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -50,7 +50,7 @@ export default async function ExtratoPage({
   // "Mês exato" separado, isso já cobre o caso (e evita redundância com o período).
   const mesExato = desde && ate && desde === ate ? desde : null;
 
-  const tipoContaIds = tipo ? (planoContas ?? []).filter((c) => grupoAmploDe(c) === tipo).map((c) => c.id) : null;
+  const tipoContaIds = tipo ? (planoContas ?? []).filter((c) => categoriaDeConta(c) === tipo).map((c) => c.id) : null;
 
   let query = supabase
     .from("despesas")
@@ -208,7 +208,7 @@ export default async function ExtratoPage({
               {desde && ate ? " " : ""}
               {ate ? `até ${ate}` : ""}
               {(desde || ate) && (descricao || tipo) ? " · " : ""}
-              {tipo ? `tipo: ${labelGrupoAmplo(tipo)}` : ""}
+              {tipo ? `tipo: ${labelCategoriaNegocio(tipo)}` : ""}
               {tipo && descricao ? " · " : ""}
               {descricao ? `descrição contém "${descricao}"` : ""}
             </span>
@@ -254,9 +254,9 @@ export default async function ExtratoPage({
             <label className="mb-1 block text-[11px] font-medium text-text-muted">Tipo de despesa</label>
             <select name="tipo" defaultValue={tipo ?? ""} className="input">
               <option value="">Todos</option>
-              {ORDEM_GRUPOS_AMPLO.map((g) => (
-                <option key={g} value={g}>
-                  {labelGrupoAmplo(g)}
+              {CATEGORIAS_NEGOCIO.map((g) => (
+                <option key={g.chave} value={g.chave}>
+                  {g.label}
                 </option>
               ))}
             </select>
