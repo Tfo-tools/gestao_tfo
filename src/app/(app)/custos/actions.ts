@@ -41,10 +41,18 @@ async function anexarArquivo(
   });
 }
 
-export async function criarDespesa(
+/** Único ponto de entrada do formulário de lançamento — decide entre um lançamento avulso e uma
+ * despesa recorrente pelo campo "recorrente" (checkbox), pra não precisar de duas telas/decisões
+ * separadas. */
+export async function criarLancamento(
   _prevState: DespesaFormState,
   formData: FormData,
 ): Promise<DespesaFormState> {
+  const recorrente = formData.get("recorrente") === "on";
+  return recorrente ? criarRecorrente(formData) : criarDespesaAvulsa(formData);
+}
+
+async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState> {
   const supabase = await createClient();
 
   const data_gasto = String(formData.get("data_gasto") || "");
@@ -98,6 +106,55 @@ export async function criarDespesa(
   revalidatePath("/custos");
   revalidatePath("/custos/extrato");
   revalidatePath("/");
+  return { error: null, success: true };
+}
+
+async function criarRecorrente(formData: FormData): Promise<DespesaFormState> {
+  const supabase = await createClient();
+
+  const plano_contas_id = String(formData.get("plano_contas_id") || "");
+  const produtoIds = formData.getAll("produtos").map(String).filter(Boolean);
+  const descricao = String(formData.get("descricao") || "").trim();
+  const valor = Number(formData.get("valor_total") || 0);
+  const pagador = String(formData.get("pagador") || "").trim() || null;
+  const dia_do_mes = Number(formData.get("dia_do_mes") || 5);
+  const data_inicio = String(formData.get("data_inicio") || "") || new Date().toISOString().slice(0, 10);
+  const data_fim = String(formData.get("data_fim") || "") || null;
+
+  if (!plano_contas_id || !descricao || !valor) {
+    return { error: "Preencha categoria, descrição e valor." };
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: recorrente, error } = await supabase
+    .from("despesas_recorrentes")
+    .insert({
+      plano_contas_id,
+      produto_id: produtoIds[0] ?? null,
+      descricao,
+      valor,
+      pagador,
+      dia_do_mes,
+      data_inicio,
+      data_fim,
+      criado_por: user?.id ?? null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !recorrente) return { error: "Não foi possível salvar a despesa recorrente." };
+
+  if (produtoIds.length > 0) {
+    await supabase
+      .from("despesa_recorrente_produtos")
+      .insert(produtoIds.map((produto_id) => ({ despesa_recorrente_id: recorrente.id, produto_id })));
+  }
+
+  revalidatePath("/custos");
+  revalidatePath("/custos/recorrentes");
   return { error: null, success: true };
 }
 

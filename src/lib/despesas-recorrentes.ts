@@ -51,6 +51,20 @@ export async function materializarDespesasRecorrentes(supabase: any) {
   const ativas = (recorrentes ?? []) as Recorrente[];
   if (ativas.length === 0) return;
 
+  const { data: produtosRaw } = await supabase
+    .from("despesa_recorrente_produtos")
+    .select("despesa_recorrente_id, produto_id")
+    .in(
+      "despesa_recorrente_id",
+      ativas.map((r) => r.id),
+    );
+  const produtosPorRecorrente = new Map<string, string[]>();
+  for (const p of (produtosRaw ?? []) as { despesa_recorrente_id: string; produto_id: string }[]) {
+    const atual = produtosPorRecorrente.get(p.despesa_recorrente_id) ?? [];
+    atual.push(p.produto_id);
+    produtosPorRecorrente.set(p.despesa_recorrente_id, atual);
+  }
+
   const { data: existentes } = await supabase
     .from("despesas")
     .select("despesa_recorrente_id, data_gasto, mes_competencia")
@@ -81,11 +95,12 @@ export async function materializarDespesasRecorrentes(supabase: any) {
       guarda += 1;
       const chave = `${r.id}|${mes}`;
       if (!jaMaterializadas.has(chave)) {
+        const produtoIds = produtosPorRecorrente.get(r.id) ?? [];
         novasDespesas.push({
           data_gasto: dataDoVencimento(mes, r.dia_do_mes),
           mes_competencia: mes,
           plano_contas_id: r.plano_contas_id,
-          produto_id: r.produto_id,
+          produto_id: r.produto_id ?? produtoIds[0] ?? null,
           valor_total: r.valor,
           descricao: r.descricao,
           pagador: r.pagador,
@@ -98,7 +113,18 @@ export async function materializarDespesasRecorrentes(supabase: any) {
     }
   }
 
-  if (novasDespesas.length > 0) {
-    await supabase.from("despesas").insert(novasDespesas);
+  if (novasDespesas.length === 0) return;
+
+  const { data: despesasCriadas } = await supabase.from("despesas").insert(novasDespesas).select("id, despesa_recorrente_id");
+
+  const novosDespesaProdutos: { despesa_id: string; produto_id: string }[] = [];
+  for (const d of (despesasCriadas ?? []) as { id: string; despesa_recorrente_id: string }[]) {
+    const produtoIds = produtosPorRecorrente.get(d.despesa_recorrente_id) ?? [];
+    for (const produto_id of produtoIds) {
+      novosDespesaProdutos.push({ despesa_id: d.id, produto_id });
+    }
+  }
+  if (novosDespesaProdutos.length > 0) {
+    await supabase.from("despesa_produtos").insert(novosDespesaProdutos);
   }
 }

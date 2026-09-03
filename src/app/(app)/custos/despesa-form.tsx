@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useRef, useState } from "react";
-import { criarDespesa, type DespesaFormState } from "./actions";
+import { criarLancamento, type DespesaFormState } from "./actions";
 import { grupoDeConta, GRUPO_LABELS } from "@/lib/grupo-dre";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
@@ -41,9 +41,11 @@ export function DespesaForm({
   pagadores: string[];
   usoPorConta: Record<string, number>;
 }) {
-  const [state, formAction, pending] = useActionState(criarDespesa, initialState);
+  const [state, formAction, pending] = useActionState(criarLancamento, initialState);
   const formRef = useRef<HTMLFormElement>(null);
   const [grupo, setGrupo] = useState("");
+  const [recorrente, setRecorrente] = useState(false);
+  const [ultimoFoiRecorrente, setUltimoFoiRecorrente] = useState(false);
 
   const grupos = useMemo(() => {
     const presentes = new Set(planoContas.map(grupoAmploDe));
@@ -62,21 +64,53 @@ export function DespesaForm({
       <form
         ref={formRef}
         action={async (formData) => {
+          setUltimoFoiRecorrente(recorrente);
           await formAction(formData);
           formRef.current?.reset();
           setGrupo("");
+          setRecorrente(false);
         }}
         className="flex flex-col gap-3.5"
       >
-        <Field label="Data do gasto">
+        <label className="flex items-center gap-2 rounded-lg bg-bg px-3 py-2.5 text-[12.5px]">
           <input
-            name="data_gasto"
-            type="date"
-            required
-            defaultValue={new Date().toISOString().slice(0, 10)}
-            className="input"
+            name="recorrente"
+            type="checkbox"
+            checked={recorrente}
+            onChange={(e) => setRecorrente(e.target.checked)}
+            className="h-4 w-4 rounded border-border"
           />
-        </Field>
+          Isso se repete todo mês?
+        </label>
+
+        {recorrente ? (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Começa em">
+              <input name="data_inicio" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required className="input" />
+            </Field>
+            <Field label="Dia do vencimento">
+              <input name="dia_do_mes" type="number" min="1" max="31" defaultValue={5} required className="input" />
+            </Field>
+            <Field label="Até quando (opcional)">
+              <input name="data_fim" type="date" className="input" />
+            </Field>
+          </div>
+        ) : (
+          <Field label="Data do gasto">
+            <input
+              name="data_gasto"
+              type="date"
+              required
+              defaultValue={new Date().toISOString().slice(0, 10)}
+              className="input"
+            />
+          </Field>
+        )}
+        {recorrente && (
+          <p className="-mt-2 text-[10.5px] text-text-faint">
+            Se o mês não tiver esse dia (ex: dia 30 em fevereiro), o lançamento cai no dia 1º do mês seguinte.
+          </p>
+        )}
 
         <Field label="1. Que tipo de gasto é esse?">
           <select
@@ -121,8 +155,8 @@ export function DespesaForm({
         </Field>
 
         <Field label="Pagador">
-          <select name="pagador" required className="input">
-            <option value="">Quem pagou?</option>
+          <select name="pagador" required={!recorrente} className="input">
+            <option value="">{recorrente ? "Quem costuma pagar? (pode mudar por mês depois)" : "Quem pagou?"}</option>
             {pagadores.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -132,7 +166,7 @@ export function DespesaForm({
           </select>
         </Field>
 
-        <Field label="Valor total">
+        <Field label={recorrente ? "Valor mensal" : "Valor total"}>
           <input
             name="valor_total"
             type="number"
@@ -144,43 +178,52 @@ export function DespesaForm({
           />
         </Field>
 
-        <Field label="Descrição (opcional)">
-          <input name="descricao" type="text" className="input" placeholder="Ex: campanha Meta Ads agosto" />
+        <Field label={recorrente ? "Descrição" : "Descrição (opcional)"}>
+          <input name="descricao" type="text" required={recorrente} className="input" placeholder="Ex: campanha Meta Ads agosto" />
         </Field>
 
-        <Field label="Fatura / Nota Fiscal (opcional)">
-          <input
-            name="fatura"
-            type="file"
-            accept="image/*,application/pdf"
-            className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
-          />
-        </Field>
-
-        <Field label="Comprovante de pagamento (opcional)">
-          <input
-            name="comprovante_pagamento"
-            type="file"
-            accept="image/*,application/pdf"
-            className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
-          />
-          <p className="mt-1 text-[10.5px] text-text-faint">
-            Boleto costuma precisar dos dois — o boleto em si (fatura) e o comprovante depois de pago. Se ainda não pagou, deixe esse em
-            branco e volte aqui pra anexar depois, editando o lançamento. No celular, dá pra tirar a foto na hora.
+        {recorrente ? (
+          <p className="rounded-lg bg-bg px-3 py-2.5 text-[11.5px] text-text-muted">
+            O comprovante de cada mês é anexado depois, em Recorrentes → Pendentes de comprovante — assim que a NF/recibo daquele mês
+            sair.
           </p>
-        </Field>
+        ) : (
+          <>
+            <Field label="Fatura / Nota Fiscal (opcional)">
+              <input
+                name="fatura"
+                type="file"
+                accept="image/*,application/pdf"
+                className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
+              />
+            </Field>
 
-        <label className="flex items-center gap-2 pt-1 text-[12px]">
-          <input name="comprovado" type="checkbox" className="h-4 w-4 rounded border-border" />
-          Marcar como comprovado (auditado internamente)
-        </label>
+            <Field label="Comprovante de pagamento (opcional)">
+              <input
+                name="comprovante_pagamento"
+                type="file"
+                accept="image/*,application/pdf"
+                className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
+              />
+              <p className="mt-1 text-[10.5px] text-text-faint">
+                Boleto costuma precisar dos dois — o boleto em si (fatura) e o comprovante depois de pago. Se ainda não pagou, deixe
+                esse em branco e volte aqui pra anexar depois, editando o lançamento. No celular, dá pra tirar a foto na hora.
+              </p>
+            </Field>
+
+            <label className="flex items-center gap-2 pt-1 text-[12px]">
+              <input name="comprovado" type="checkbox" className="h-4 w-4 rounded border-border" />
+              Marcar como comprovado (auditado internamente)
+            </label>
+          </>
+        )}
 
         {state.error && (
           <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>
         )}
         {state.success && (
           <p className="rounded-lg bg-success-soft px-3 py-2 text-xs text-success">
-            Despesa lançada.
+            {ultimoFoiRecorrente ? "Recorrência criada — os lançamentos mensais aparecem em Custos → Recorrentes." : "Despesa lançada."}
           </p>
         )}
 
@@ -189,7 +232,7 @@ export function DespesaForm({
           disabled={pending}
           className="mt-1 rounded-lg bg-wine-deep px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
         >
-          {pending ? "Salvando…" : "Lançar despesa"}
+          {pending ? "Salvando…" : recorrente ? "Criar recorrência" : "Lançar despesa"}
         </button>
       </form>
     </div>
