@@ -233,6 +233,12 @@ export default async function ExtratoPage({
             >
               Exportar XLSX
             </a>
+            <a
+              href="/custos/extrato/export/plano-contas"
+              className="rounded-lg border border-border px-3.5 py-2 text-[12px] text-text-muted hover:text-text"
+            >
+              Baixar plano de contas
+            </a>
           </div>
         </div>
         {!mesExato && (
