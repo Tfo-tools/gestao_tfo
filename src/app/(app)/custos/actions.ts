@@ -158,6 +158,52 @@ async function criarRecorrente(formData: FormData): Promise<DespesaFormState> {
   return { error: null, success: true };
 }
 
+export async function atualizarRecorrente(
+  _prevState: DespesaFormState,
+  formData: FormData,
+): Promise<DespesaFormState> {
+  const supabase = await createClient();
+
+  const id = String(formData.get("id") || "");
+  const plano_contas_id = String(formData.get("plano_contas_id") || "");
+  const produtoIds = formData.getAll("produtos").map(String).filter(Boolean);
+  const descricao = String(formData.get("descricao") || "").trim();
+  const valor = Number(formData.get("valor") || 0);
+  const pagador = String(formData.get("pagador") || "").trim() || null;
+  const dia_do_mes = Number(formData.get("dia_do_mes") || 5);
+  const data_inicio = String(formData.get("data_inicio") || "");
+  const data_fim = String(formData.get("data_fim") || "") || null;
+
+  if (!id || !plano_contas_id || !descricao || !valor || !data_inicio) {
+    return { error: "Preencha categoria, descrição, valor e data de início." };
+  }
+
+  const { error } = await supabase
+    .from("despesas_recorrentes")
+    .update({
+      plano_contas_id,
+      produto_id: produtoIds[0] ?? null,
+      descricao,
+      valor,
+      pagador,
+      dia_do_mes,
+      data_inicio,
+      data_fim,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) return { error: "Não foi possível salvar a alteração." };
+
+  await supabase.from("despesa_recorrente_produtos").delete().eq("despesa_recorrente_id", id);
+  if (produtoIds.length > 0) {
+    await supabase.from("despesa_recorrente_produtos").insert(produtoIds.map((produto_id) => ({ despesa_recorrente_id: id, produto_id })));
+  }
+
+  revalidatePath("/custos/recorrentes");
+  return { error: null, success: true };
+}
+
 export async function atualizarDespesa(
   _prevState: DespesaFormState,
   formData: FormData,

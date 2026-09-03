@@ -1,8 +1,8 @@
 export type FiltrosExtrato = {
-  mes?: string | null;
   desde?: string | null;
   ate?: string | null;
   conta?: string | null;
+  contaIds?: string[] | null;
   produto?: string | null;
   comprovado?: string | null;
   pagador?: string | null;
@@ -19,6 +19,12 @@ export type DespesaExportada = {
   despesa_produtos: { produtos: { nome: string } | null }[];
 };
 
+function proximoMesIso(mes: string) {
+  const [y, m] = mes.split("-").map(Number);
+  const next = new Date(y, m, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
 /** Mesma lógica de filtro usada no Extrato — compartilhada entre a exportação CSV e XLSX pra não
  * divergir do que a tela mostra. */
 export async function buscarDespesasFiltradas(
@@ -26,7 +32,7 @@ export async function buscarDespesasFiltradas(
   supabase: any,
   filtros: FiltrosExtrato,
 ): Promise<DespesaExportada[]> {
-  const { mes, desde, ate, conta, produto, comprovado, pagador, descricao } = filtros;
+  const { desde, ate, conta, contaIds, produto, comprovado, pagador, descricao } = filtros;
 
   let query = supabase
     .from("despesas")
@@ -37,21 +43,10 @@ export async function buscarDespesasFiltradas(
     )
     .order("data_gasto", { ascending: false });
 
-  if (mes) {
-    const [y, m] = mes.split("-").map(Number);
-    const next = new Date(y, m, 1);
-    query = query
-      .gte("data_gasto", `${mes}-01`)
-      .lt("data_gasto", `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
-  } else {
-    if (desde) query = query.gte("data_gasto", `${desde}-01`);
-    if (ate) {
-      const [y, m] = ate.split("-").map(Number);
-      const next = new Date(y, m, 1);
-      query = query.lt("data_gasto", `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
-    }
-  }
+  if (desde) query = query.gte("data_gasto", `${desde}-01`);
+  if (ate) query = query.lt("data_gasto", proximoMesIso(ate));
   if (conta) query = query.eq("plano_contas_id", conta);
+  if (contaIds && contaIds.length > 0) query = query.in("plano_contas_id", contaIds);
   if (produto) query = query.eq("despesa_produtos.produto_id", produto);
   if (comprovado === "sim") query = query.eq("comprovado", true);
   if (comprovado === "nao") query = query.eq("comprovado", false);
@@ -64,4 +59,17 @@ export async function buscarDespesasFiltradas(
 
 export function nomesProdutosDe(d: DespesaExportada) {
   return d.despesa_produtos.map((dp) => dp.produtos?.nome).filter(Boolean).join(" / ");
+}
+
+/** Resolve o filtro "tipo de despesa" (a mesma divisão usada no lançamento — COGS/S&M/P&D/G&A/
+ * Marca/Financeiro/Ativos) pra uma lista de plano_contas_id, já que não é uma coluna do banco. */
+export async function resolverContaIdsPorTipo(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  tipo: string | null,
+): Promise<string[] | null> {
+  if (!tipo) return null;
+  const { grupoAmploDe } = await import("@/lib/categoria-lancamento");
+  const { data } = await supabase.from("plano_contas").select("id, codigo, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]);
+  return ((data ?? []) as { id: string; codigo: string; tipo: string }[]).filter((c) => grupoAmploDe(c) === tipo).map((c) => c.id);
 }

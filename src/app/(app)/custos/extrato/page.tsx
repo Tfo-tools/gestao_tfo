@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { DespesaRow, type DespesaRowData } from "./despesa-row";
 import { FecharMesButton } from "./fechar-mes-button";
 import { ParcelaPendenteRow } from "./parcela-pendente-row";
+import { grupoAmploDe, labelGrupoAmplo, ORDEM_GRUPOS_AMPLO } from "@/lib/categoria-lancamento";
 
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -15,7 +16,6 @@ export default async function ExtratoPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    mes?: string;
     desde?: string;
     ate?: string;
     produto?: string;
@@ -23,16 +23,17 @@ export default async function ExtratoPage({
     pagador?: string;
     conta?: string;
     descricao?: string;
+    tipo?: string;
   }>;
 }) {
-  const { mes, desde, ate, produto, comprovado, pagador, conta, descricao } = await searchParams;
+  const { desde, ate, produto, comprovado, pagador, conta, descricao, tipo } = await searchParams;
   const supabase = await createClient();
 
   const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: parcelasPendentesRaw }] =
     await Promise.all([
       supabase.from("produtos").select("id, nome").order("nome"),
       conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
-      supabase.from("plano_contas").select("id, codigo, conta").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
+      supabase.from("plano_contas").select("id, codigo, conta, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
       supabase.from("profiles").select("nome").order("nome"),
       supabase.from("meses_fechados").select("mes"),
       supabase
@@ -45,6 +46,11 @@ export default async function ExtratoPage({
   const pagadores = (profiles ?? []).map((p) => p.nome);
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
   const hojeIso = new Date().toISOString().slice(0, 10);
+  // "Fechar mês" só faz sentido quando De/Até apontam pro mesmo mês — não existe mais um campo
+  // "Mês exato" separado, isso já cobre o caso (e evita redundância com o período).
+  const mesExato = desde && ate && desde === ate ? desde : null;
+
+  const tipoContaIds = tipo ? (planoContas ?? []).filter((c) => grupoAmploDe(c) === tipo).map((c) => c.id) : null;
 
   let query = supabase
     .from("despesas")
@@ -55,17 +61,14 @@ export default async function ExtratoPage({
     )
     .order("data_gasto", { ascending: false });
 
-  if (mes) {
-    query = query.gte("data_gasto", `${mes}-01`).lt("data_gasto", nextMonth(mes));
-  } else {
-    if (desde) query = query.gte("data_gasto", `${desde}-01`);
-    if (ate) query = query.lt("data_gasto", nextMonth(ate));
-  }
+  if (desde) query = query.gte("data_gasto", `${desde}-01`);
+  if (ate) query = query.lt("data_gasto", nextMonth(ate));
   if (produto) query = query.eq("despesa_produtos.produto_id", produto);
   if (comprovado === "sim") query = query.eq("comprovado", true);
   if (comprovado === "nao") query = query.eq("comprovado", false);
   if (pagador) query = query.eq("pagador", pagador);
   if (conta) query = query.eq("plano_contas_id", conta);
+  if (tipoContaIds) query = query.in("plano_contas_id", tipoContaIds);
   if (descricao) query = query.ilike("descricao", `%${descricao}%`);
 
   const { data: despesas } = await query;
@@ -102,10 +105,9 @@ export default async function ExtratoPage({
   const totalGeral = [...porPagador.values()].reduce((a, b) => a + b, 0);
   const linhasPagador = [...porPagador.entries()].sort((a, b) => b[1] - a[1]);
   const metade = totalGeral / 2;
-  const temFiltroAtivo = !!(mes || desde || ate || produto || comprovado || pagador || conta || descricao);
+  const temFiltroAtivo = !!(desde || ate || produto || comprovado || pagador || conta || descricao || tipo);
 
   const exportQs = new URLSearchParams();
-  if (mes) exportQs.set("mes", mes);
   if (desde) exportQs.set("desde", desde);
   if (ate) exportQs.set("ate", ate);
   if (produto) exportQs.set("produto", produto);
@@ -113,6 +115,7 @@ export default async function ExtratoPage({
   if (pagador) exportQs.set("pagador", pagador);
   if (conta) exportQs.set("conta", conta);
   if (descricao) exportQs.set("descricao", descricao);
+  if (tipo) exportQs.set("tipo", tipo);
 
   return (
     <div className="flex flex-col gap-5">
@@ -196,15 +199,17 @@ export default async function ExtratoPage({
       )}
 
       <div className="rounded-xl border border-border bg-surface p-6">
-        {(conta || desde || ate || descricao) && (
+        {(conta || desde || ate || descricao || tipo) && (
           <div className="mb-4 flex items-center justify-between rounded-lg bg-primary-soft px-3.5 py-2.5 text-[12px] text-primary-deep">
             <span>
               Filtrado {conta && contaAtual ? `pela conta ${contaAtual.codigo} — ${contaAtual.conta}` : ""}
-              {conta && (desde || ate || descricao) ? " · " : ""}
+              {conta && (desde || ate || descricao || tipo) ? " · " : ""}
               {desde ? `de ${desde}` : ""}
               {desde && ate ? " " : ""}
               {ate ? `até ${ate}` : ""}
-              {(desde || ate) && descricao ? " · " : ""}
+              {(desde || ate) && (descricao || tipo) ? " · " : ""}
+              {tipo ? `tipo: ${labelGrupoAmplo(tipo)}` : ""}
+              {tipo && descricao ? " · " : ""}
               {descricao ? `descrição contém "${descricao}"` : ""}
             </span>
             <a href="/custos/extrato" className="underline">
@@ -215,7 +220,7 @@ export default async function ExtratoPage({
         <div className="mb-5 flex items-center justify-between">
           <h2 className="font-heading text-sm font-semibold">Extrato de despesas</h2>
           <div className="flex items-center gap-2">
-            {mes && <FecharMesButton mes={mes} fechado={mesesFechados.has(mes)} />}
+            {mesExato && <FecharMesButton mes={mesExato} fechado={mesesFechados.has(mesExato)} />}
             <a
               href={`/custos/extrato/export?${exportQs.toString()}`}
               className="rounded-lg border border-border px-3.5 py-2 text-[12px] text-text-muted hover:text-text"
@@ -230,17 +235,13 @@ export default async function ExtratoPage({
             </a>
           </div>
         </div>
-        {!mes && (
+        {!mesExato && (
           <p className="mb-4 text-[11px] text-text-faint">
-            Pra fechar um mês (travar contra edição/exclusão), filtre por um mês específico acima.
+            Pra fechar um mês (travar contra edição/exclusão), preencha "De" e "Até" com o mesmo mês.
           </p>
         )}
 
         <form className="mb-5 flex flex-wrap items-end gap-3" method="get">
-          <div>
-            <label className="mb-1 block text-[11px] font-medium text-text-muted">Mês exato</label>
-            <input type="month" name="mes" defaultValue={mes} className="input" />
-          </div>
           <div>
             <label className="mb-1 block text-[11px] font-medium text-text-muted">De</label>
             <input type="month" name="desde" defaultValue={desde} className="input" />
@@ -248,6 +249,17 @@ export default async function ExtratoPage({
           <div>
             <label className="mb-1 block text-[11px] font-medium text-text-muted">Até</label>
             <input type="month" name="ate" defaultValue={ate} className="input" />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-text-muted">Tipo de despesa</label>
+            <select name="tipo" defaultValue={tipo ?? ""} className="input">
+              <option value="">Todos</option>
+              {ORDEM_GRUPOS_AMPLO.map((g) => (
+                <option key={g} value={g}>
+                  {labelGrupoAmplo(g)}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="mb-1 block text-[11px] font-medium text-text-muted">Produto</label>

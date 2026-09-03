@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
-import { buscarDespesasFiltradas, nomesProdutosDe } from "@/lib/extrato-query";
+import { buscarDespesasFiltradas, nomesProdutosDe, resolverContaIdsPorTipo } from "@/lib/extrato-query";
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { searchParams } = new URL(request.url);
 
+  const contaIds = await resolverContaIdsPorTipo(supabase, searchParams.get("tipo"));
+
   const despesas = await buscarDespesasFiltradas(supabase, {
-    mes: searchParams.get("mes"),
     desde: searchParams.get("desde"),
     ate: searchParams.get("ate"),
     conta: searchParams.get("conta"),
+    contaIds,
     produto: searchParams.get("produto"),
     comprovado: searchParams.get("comprovado"),
     pagador: searchParams.get("pagador"),

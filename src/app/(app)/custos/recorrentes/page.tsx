@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { AnexarForm } from "./anexar-form";
-import { alternarRecorrente } from "./actions";
+import { RecorrenteRow, type RecorrenteRowData } from "./recorrente-row";
 
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -14,12 +14,14 @@ function formatDate(iso: string) {
 export default async function RecorrentesPage() {
   const supabase = await createClient();
 
-  const [{ data: profiles }, { data: recorrentes }, { data: pendentes }] = await Promise.all([
+  const [{ data: planoContas }, { data: produtos }, { data: profiles }, { data: recorrentes }, { data: pendentes }] = await Promise.all([
+    supabase.from("plano_contas").select("id, codigo, conta, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
+    supabase.from("produtos").select("id, nome").order("nome"),
     supabase.from("profiles").select("nome").order("nome"),
     supabase
       .from("despesas_recorrentes")
       .select(
-        "id, descricao, valor, pagador, dia_do_mes, ativo, data_inicio, plano_contas:plano_contas_id(codigo, conta), despesa_recorrente_produtos(produtos(nome))",
+        "id, descricao, valor, pagador, dia_do_mes, ativo, data_inicio, data_fim, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_recorrente_produtos(produtos(id, nome))",
       )
       .order("descricao"),
     supabase
@@ -44,8 +46,8 @@ export default async function RecorrentesPage() {
         <Link href="/custos" className="font-medium text-primary-deep underline">
           Custos → Lançamentos
         </Link>
-        , marcando "Isso se repete todo mês?" — essa tela aqui é só pra acompanhar o que já está cadastrado e anexar os comprovantes de
-        cada mês.
+        , marcando "Isso se repete todo mês?" — essa tela aqui é só pra acompanhar o que já está cadastrado, editar e anexar os
+        comprovantes de cada mês.
       </div>
 
       {pendentesFiltradas.length > 0 && (
@@ -60,8 +62,8 @@ export default async function RecorrentesPage() {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const conta = d.plano_contas as any;
               return (
-                <div key={d.id} className="flex items-center justify-between gap-3 rounded-lg bg-bg px-3.5 py-3">
-                  <div className="min-w-0">
+                <div key={d.id} className="flex flex-col gap-2 rounded-lg bg-bg px-3.5 py-3">
+                  <div>
                     <div className="text-[12.5px] font-medium">{d.descricao}</div>
                     <div className="text-[11px] text-text-muted">
                       {conta ? `${conta.codigo} — ${conta.conta}` : "—"} · {formatDate(d.data_gasto)} · {formatBRL(Number(d.valor_total))}
@@ -96,33 +98,24 @@ export default async function RecorrentesPage() {
             <tbody>
               {(recorrentes ?? []).map((r) => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const conta = r.plano_contas as any;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const produtos = ((r.despesa_recorrente_produtos as any[]) ?? []).map((dp) => dp.produtos?.nome).filter(Boolean);
+                const rr = r as any;
+                const produtosLigados = (rr.despesa_recorrente_produtos ?? []).map((dp: any) => dp.produtos).filter(Boolean);
+                const dado: RecorrenteRowData = {
+                  id: rr.id,
+                  descricao: rr.descricao,
+                  valor: rr.valor,
+                  pagador: rr.pagador,
+                  dia_do_mes: rr.dia_do_mes,
+                  data_inicio: rr.data_inicio,
+                  data_fim: rr.data_fim,
+                  ativo: rr.ativo,
+                  plano_contas_id: rr.plano_contas_id,
+                  plano_contas: rr.plano_contas,
+                  produtoIds: produtosLigados.map((p: any) => p.id),
+                  produtoNomes: produtosLigados.map((p: any) => p.nome),
+                };
                 return (
-                  <tr key={r.id} className="border-t border-border-soft">
-                    <td className="px-2 py-2.5">{r.descricao}</td>
-                    <td className="px-2 py-2.5 text-text-muted">{conta ? `${conta.codigo} — ${conta.conta}` : "—"}</td>
-                    <td className="px-2 py-2.5 text-text-muted">{produtos.length > 0 ? produtos.join(", ") : "—"}</td>
-                    <td className="px-2 py-2.5 text-right font-mono">{formatBRL(Number(r.valor))}</td>
-                    <td className="px-2 py-2.5 text-center font-mono">{r.dia_do_mes}</td>
-                    <td className="px-2 py-2.5 text-center">
-                      <span
-                        className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${
-                          r.ativo ? "bg-success-soft text-success" : "bg-bg text-text-faint"
-                        }`}
-                      >
-                        {r.ativo ? "Ativa" : "Pausada"}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2.5 text-right">
-                      <form action={alternarRecorrente.bind(null, r.id, !r.ativo)}>
-                        <button type="submit" className="text-[11.5px] font-medium text-primary-deep hover:text-wine">
-                          {r.ativo ? "Pausar" : "Reativar"}
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
+                  <RecorrenteRow key={rr.id} recorrente={dado} planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} />
                 );
               })}
             </tbody>

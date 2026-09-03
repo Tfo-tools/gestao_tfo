@@ -26,7 +26,7 @@ export function AnexarForm({
 
   if (temFatura && temComprovante) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         {anexos.map((a, i) => (
           <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} />
         ))}
@@ -35,45 +35,53 @@ export function AnexarForm({
   }
 
   return (
-    <form action={formAction} className="flex flex-wrap items-center gap-2">
+    <form action={formAction} className="flex flex-wrap items-end gap-3">
       <input type="hidden" name="despesa_id" value={despesaId} />
-      {anexos.length > 0 &&
-        anexos.map((a, i) => <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} />)}
-      <select name="pagador" defaultValue={pagadorAtual ?? ""} className="input w-[110px] text-[11px]">
-        <option value="">Quem pagou?</option>
-        {pagadores.map((p) => (
-          <option key={p} value={p}>
-            {p}
-          </option>
-        ))}
-        <option value="Empresa">Empresa</option>
-      </select>
+      {anexos.length > 0 && (
+        <div className="flex items-center gap-2">
+          {anexos.map((a, i) => (
+            <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} />
+          ))}
+        </div>
+      )}
+      <div>
+        <label className="mb-1 block text-[10.5px] text-text-faint">Quem pagou</label>
+        <select name="pagador" defaultValue={pagadorAtual ?? ""} className="input w-[130px]">
+          <option value="">Selecione…</option>
+          {pagadores.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+          <option value="Empresa">Empresa</option>
+        </select>
+      </div>
       {!temFatura && (
-        <label className="flex items-center gap-1 text-[11px]">
-          Fatura
+        <div>
+          <label className="mb-1 block text-[10.5px] text-text-faint">Fatura / NF</label>
           <input
             name="fatura"
             type="file"
             accept="image/*,application/pdf"
-            className="w-[110px] text-[11px] file:mr-1 file:rounded file:border-0 file:bg-bg file:px-1.5 file:py-1 file:text-[10.5px]"
+            className="w-[210px] text-[11px] file:mr-2 file:rounded file:border-0 file:bg-bg file:px-2 file:py-1.5 file:text-[10.5px]"
           />
-        </label>
+        </div>
       )}
       {!temComprovante && (
-        <label className="flex items-center gap-1 text-[11px]">
-          Comprovante
+        <div>
+          <label className="mb-1 block text-[10.5px] text-text-faint">Comprovante de pagamento</label>
           <input
             name="comprovante_pagamento"
             type="file"
             accept="image/*,application/pdf"
-            className="w-[110px] text-[11px] file:mr-1 file:rounded file:border-0 file:bg-bg file:px-1.5 file:py-1 file:text-[10.5px]"
+            className="w-[210px] text-[11px] file:mr-2 file:rounded file:border-0 file:bg-bg file:px-2 file:py-1.5 file:text-[10.5px]"
           />
-        </label>
+        </div>
       )}
       <button
         type="submit"
         disabled={pending}
-        className="whitespace-nowrap rounded-lg bg-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-white disabled:opacity-60"
+        className="whitespace-nowrap rounded-lg bg-wine-deep px-3 py-2 text-[11.5px] font-medium text-white disabled:opacity-60"
       >
         {pending ? "Enviando…" : "Anexar"}
       </button>
