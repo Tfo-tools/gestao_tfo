@@ -726,7 +726,7 @@ export async function salvarConfigImplementacao(
   const produto_id = String(formData.get("produto_id") || "");
   const tem_implementacao = formData.get("tem_implementacao") === "on";
   const preco_implementacao = formData.get("preco_implementacao") ? Number(formData.get("preco_implementacao")) : null;
-  const implementacao_parcelas = formData.get("implementacao_parcelas")
+  let implementacao_parcelas = formData.get("implementacao_parcelas")
     ? Math.max(1, Number(formData.get("implementacao_parcelas")))
     : 1;
 
@@ -737,10 +737,37 @@ export async function salvarConfigImplementacao(
     return { error: "Informe o preço de venda da implementação." };
   }
 
+  // Mix de formas de pagamento: [{parcelas, pct, desconto}] com pct e desconto em 0–1. Uma forma só
+  // (ou nenhuma) volta a ser o número único de parcelas de antes.
+  let implementacao_formas_pagamento: { parcelas: number; pct: number; desconto: number }[] | null = null;
+  const formasRaw = String(formData.get("implementacao_formas") || "");
+  if (formasRaw) {
+    let formas: { parcelas: number; pct: number; desconto?: number }[];
+    try {
+      formas = JSON.parse(formasRaw);
+    } catch {
+      return { error: "Não foi possível ler as formas de pagamento." };
+    }
+    const validas = formas
+      .map((f) => ({ parcelas: Math.max(1, Math.round(Number(f.parcelas))), pct: Number(f.pct), desconto: Math.min(1, Math.max(0, Number(f.desconto ?? 0))) }))
+      .filter((f) => Number.isFinite(f.parcelas) && f.pct > 0);
+    const soma = validas.reduce((acc, f) => acc + f.pct, 0);
+    if (validas.length > 0 && Math.abs(soma - 1) > 0.005) {
+      return { error: `As formas de pagamento somam ${(soma * 100).toFixed(0)}% dos clientes — ajuste pra 100%.` };
+    }
+    if (validas.length > 1 || (validas.length === 1 && validas[0].desconto > 0)) {
+      implementacao_formas_pagamento = validas;
+      // O campo antigo guarda a forma mais usada (é o que outras telas mostram como "parcelas").
+      implementacao_parcelas = [...validas].sort((x, y) => y.pct - x.pct)[0].parcelas;
+    } else if (validas.length === 1) {
+      implementacao_parcelas = validas[0].parcelas;
+    }
+  }
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("produtos")
-    .update({ tem_implementacao, preco_implementacao, implementacao_parcelas })
+    .update({ tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento })
     .eq("id", produto_id);
 
   if (error) {

@@ -92,6 +92,9 @@ O hub `/plano/[cenarioId]` conecta tudo isso. `/cenarios` → clicar no nome do 
   em que parcela o caixa volta (o custo sai todo no onboarding), preço pra margem-alvo (40–70%) e
   margem por canal de venda (desconto/isenção de implementação do canal), com média pelo mix.
 - Etapas já lançadas são editáveis na linha; a simulação acompanha horas e R$/h antes de salvar.
+- **Formas de pagamento** (`produtos.implementacao_formas_pagamento`): % dos clientes em cada nº de
+  parcelas (à vista, 3×, 5×, 10×...), com desconto opcional por forma; soma precisa dar 100%. A
+  projeção divide cada leva de clientes novos pelo mix; sem mix, vale o nº único de parcelas.
 - Salvar preço/parcelas recalcula o produto em todos os cenários (são do produto); salvar/editar/
   excluir etapa recalcula só o cenário da etapa. Valores antes de impostos (DAS).
 

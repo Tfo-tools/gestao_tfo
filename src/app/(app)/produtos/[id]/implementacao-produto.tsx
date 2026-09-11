@@ -36,6 +36,34 @@ export type CanalImplementacao = { nome: string; percentualMix: number; desconto
 /** Horas e R$/hora de uma etapa em edição — a simulação de margem acompanha antes de salvar. */
 type RascunhoCusto = { id: string; horas: number; valor_hora: number } | null;
 
+/** Forma de pagamento salva (pct e desconto em 0–1). */
+export type FormaPagamento = { parcelas: number; pct: number; desconto?: number | null };
+/** Linha do editor (texto, como digitado; pct e desconto em %). */
+type LinhaForma = { parcelas: string; pct: string; desconto: string };
+/** Forma normalizada pra simulação. */
+type FormaSimulada = { parcelas: number; fracao: number; desconto: number };
+
+const SUGESTAO_FORMAS: LinhaForma[] = [
+  { parcelas: "1", pct: "25", desconto: "" },
+  { parcelas: "3", pct: "25", desconto: "" },
+  { parcelas: "5", pct: "25", desconto: "" },
+  { parcelas: "10", pct: "25", desconto: "" },
+];
+
+function nomeForma(parcelas: number) {
+  return parcelas <= 1 ? "À vista" : `${parcelas}×`;
+}
+
+/** Linhas válidas do editor → frações que somam 1 (sem nenhuma, todos à vista). */
+function normalizarFormas(linhas: LinhaForma[]): FormaSimulada[] {
+  const validas = linhas
+    .map((l) => ({ parcelas: Math.max(1, Math.round(Number(l.parcelas) || 1)), pct: Number(l.pct) || 0, desconto: Math.min(100, Math.max(0, Number(l.desconto) || 0)) / 100 }))
+    .filter((l) => l.pct > 0);
+  const soma = validas.reduce((acc, l) => acc + l.pct, 0);
+  if (validas.length === 0 || soma <= 0) return [{ parcelas: 1, fracao: 1, desconto: 0 }];
+  return validas.map((l) => ({ parcelas: l.parcelas, fracao: l.pct / soma, desconto: l.desconto }));
+}
+
 const initialState: ActionState = { error: null };
 
 function formatBRL(v: number) {
@@ -54,6 +82,7 @@ export function ImplementacaoProduto({
   temImplementacao,
   precoImplementacao,
   parcelas,
+  formasPagamento = null,
   etapas,
   tabelaCustoHora,
   canais = [],
@@ -63,6 +92,7 @@ export function ImplementacaoProduto({
   temImplementacao: boolean;
   precoImplementacao: number | null;
   parcelas: number;
+  formasPagamento?: FormaPagamento[] | null;
   etapas: EtapaImplementacao[];
   tabelaCustoHora: CustoHora[];
   canais?: CanalImplementacao[];
@@ -70,7 +100,15 @@ export function ImplementacaoProduto({
   const [configState, configAction, configPending] = useActionState(salvarConfigImplementacao, initialState);
   const [ativo, setAtivo] = useState(temImplementacao);
   const [precoDigitado, setPrecoDigitado] = useState(precoImplementacao != null ? String(precoImplementacao) : "");
-  const [parcelasDigitadas, setParcelasDigitadas] = useState(String(parcelas));
+  const formasIniciais: LinhaForma[] =
+    formasPagamento && formasPagamento.length > 0
+      ? formasPagamento.map((f) => ({
+          parcelas: String(f.parcelas),
+          pct: String(Math.round(Number(f.pct) * 1000) / 10),
+          desconto: f.desconto ? String(Math.round(Number(f.desconto) * 1000) / 10) : "",
+        }))
+      : [{ parcelas: String(parcelas), pct: "100", desconto: "" }];
+  const [formas, setFormas] = useState<LinhaForma[]>(formasIniciais);
   const [rascunho, setRascunho] = useState<RascunhoCusto>(null);
 
   // Custo das etapas — com a etapa em edição já refletida, pra simulação responder antes de salvar.
@@ -79,9 +117,17 @@ export function ImplementacaoProduto({
   const custoTotal = etapas.reduce((acc, e) => acc + custoEtapa(e), 0);
   const horasTotal = etapas.reduce((acc, e) => acc + (rascunho && rascunho.id === e.id ? rascunho.horas : Number(e.horas)), 0);
   const precoVenda = Number(precoDigitado) || 0;
-  const nParcelas = Math.max(1, Math.round(Number(parcelasDigitadas) || 1));
+  const formasSimuladas = normalizarFormas(formas);
+  const somaPct = formas.reduce((acc, f) => acc + (Number(f.pct) || 0), 0);
+  // O que vai pro servidor: pct e desconto em 0–1; a forma mais usada vira o "parcelas" antigo.
+  const formasParaSalvar = formas
+    .filter((f) => (Number(f.pct) || 0) > 0)
+    .map((f) => ({ parcelas: Math.max(1, Math.round(Number(f.parcelas) || 1)), pct: (Number(f.pct) || 0) / 100, desconto: (Number(f.desconto) || 0) / 100 }));
+  const parcelasPrincipal = [...formasParaSalvar].sort((a, b) => b.pct - a.pct)[0]?.parcelas ?? 1;
   const naoSalvo =
-    precoVenda !== Number(precoImplementacao ?? 0) || nParcelas !== parcelas || (rascunho != null && custoTotal !== etapas.reduce((a, e) => a + Number(e.horas) * Number(e.valor_hora), 0));
+    precoVenda !== Number(precoImplementacao ?? 0) ||
+    JSON.stringify(formas) !== JSON.stringify(formasIniciais) ||
+    (rascunho != null && custoTotal !== etapas.reduce((a, e) => a + Number(e.horas) * Number(e.valor_hora), 0));
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
@@ -121,28 +167,19 @@ export function ImplementacaoProduto({
                 className="input campo-dinheiro"
               />
             </div>
-            <div className="form-campo">
-              <label>
-                Parcelas
-                <InfoTooltip texto="Em quantas parcelas mensais a cobrança é diluída. 1 = à vista. O custo continua lançado inteiro no mês do onboarding." />
-              </label>
-              <input
-                name="implementacao_parcelas"
-                type="number"
-                min="1"
-                step="1"
-                value={parcelasDigitadas}
-                onChange={(e) => setParcelasDigitadas(e.target.value)}
-                className="input campo-pct"
-              />
-            </div>
           </div>
         )}
 
         {ativo && (
+          <FormasPagamentoEditor formas={formas} onChange={setFormas} somaPct={somaPct} />
+        )}
+        <input type="hidden" name="implementacao_formas" value={JSON.stringify(formasParaSalvar)} />
+        <input type="hidden" name="implementacao_parcelas" value={parcelasPrincipal} />
+
+        {ativo && (
           <SimulacaoMargem
             preco={precoVenda}
-            parcelas={nParcelas}
+            formas={formasSimuladas}
             custo={custoTotal}
             canais={canais}
             naoSalvo={naoSalvo}
@@ -185,28 +222,50 @@ export function ImplementacaoProduto({
  */
 function SimulacaoMargem({
   preco,
-  parcelas,
+  formas,
   custo,
   canais,
   naoSalvo,
   onUsarPreco,
 }: {
   preco: number;
-  parcelas: number;
+  formas: FormaSimulada[];
   custo: number;
   canais: CanalImplementacao[];
   naoSalvo: boolean;
   onUsarPreco: (valor: number) => void;
 }) {
-  const margem = preco - custo;
-  const margemPct = preco > 0 ? (margem / preco) * 100 : null;
+  // Com mix de pagamento, o que entra por cliente é a média ponderada do preço de cada forma
+  // (quem paga à vista com desconto recebe menos). Sem desconto nas formas, é o próprio preço.
+  const descontoMedio = formas.reduce((s, f) => s + f.fracao * f.desconto, 0);
+  const recebido = preco * (1 - descontoMedio);
+  const margem = recebido - custo;
+  const margemPct = recebido > 0 ? (margem / recebido) * 100 : null;
   const markupPct = custo > 0 ? (margem / custo) * 100 : null;
-  const parcela = preco / parcelas;
-  const mesRetorno = parcela > 0 && custo > 0 ? Math.ceil(custo / parcela) : null;
+  const porForma = formas.map((f) => {
+    const valor = preco * (1 - f.desconto);
+    const parcela = valor / f.parcelas;
+    return { ...f, valor, parcela, margem: valor - custo, retorno: parcela > 0 && custo > 0 ? Math.ceil(custo / parcela) : null };
+  });
+  // Caixa médio: mês em que o que já entrou (somando as formas pela fatia de clientes) cobre o custo.
+  const maxParcelas = Math.max(...formas.map((f) => f.parcelas));
+  let mesRetorno: number | null = null;
+  if (custo > 0 && recebido > 0) {
+    for (let k = 1; k <= maxParcelas; k++) {
+      const entrou = porForma.reduce((s, f) => s + f.fracao * Math.min(k, f.parcelas) * f.parcela, 0);
+      if (entrou >= custo - 1e-6) {
+        mesRetorno = k;
+        break;
+      }
+    }
+  }
+  const umaForma = formas.length === 1;
+  const parcela = porForma[0]?.parcela ?? 0;
+  const parcelas = formas[0]?.parcelas ?? 1;
 
   const pesoTotal = canais.reduce((s, c) => s + c.percentualMix, 0);
   const porCanal = canais.map((c) => {
-    const efetivo = preco * (1 - Math.min(1, c.desconto));
+    const efetivo = recebido * (1 - Math.min(1, c.desconto));
     return { ...c, efetivo, margem: efetivo - custo, margemPct: efetivo > 0 ? ((efetivo - custo) / efetivo) * 100 : null };
   });
   const precoMedio = pesoTotal > 0 ? porCanal.reduce((s, c) => s + c.efetivo * c.percentualMix, 0) / pesoTotal : null;
@@ -223,7 +282,7 @@ function SimulacaoMargem({
       </div>
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-4">
-        <Indicador rotulo="Preço de venda" valor={formatBRL(preco)} />
+        <Indicador rotulo={descontoMedio > 0 ? "Recebido em média" : "Preço de venda"} valor={formatBRL(recebido)} />
         <Indicador rotulo="Custo direto (COGS)" valor={formatBRL(custo)} />
         <Indicador
           rotulo="Margem"
@@ -233,24 +292,71 @@ function SimulacaoMargem({
         <Indicador rotulo="Markup" valor={markupPct != null ? formatPct(markupPct) : "—"} />
       </div>
 
-      {preco > 0 && (
+      {preco > 0 && umaForma && (
         <p className="mt-2 text-[10.5px] text-text-muted">
           {parcelas > 1 ? `${parcelas}× de ${formatBRL(parcela)}` : "À vista"} — o custo de {formatBRL(custo)} sai inteiro no mês do
           onboarding.{" "}
-          {mesRetorno != null &&
-            (mesRetorno <= parcelas
-              ? mesRetorno <= 1
+          {porForma[0]?.retorno != null &&
+            (porForma[0].retorno <= parcelas
+              ? porForma[0].retorno <= 1
                 ? "A primeira parcela já cobre o custo."
-                : `O caixa da implementação volta na ${mesRetorno}ª parcela.`
+                : `O caixa da implementação volta na ${porForma[0].retorno}ª parcela.`
               : "As parcelas não chegam a cobrir o custo.")}
         </p>
+      )}
+
+      {preco > 0 && !umaForma && (
+        <div className="mt-3 border-t border-border-soft pt-2.5">
+          <p className="mb-1 flex items-center text-[10.5px] font-semibold text-text-muted">
+            Por forma de pagamento
+            <InfoTooltip texto="Cada fatia de clientes paga no seu número de parcelas (com o desconto da forma, se houver). O custo sai inteiro no mês do onboarding em todas." />
+          </p>
+          <table className="w-full border-collapse text-[11px]">
+            <thead>
+              <tr className="text-left text-[9.5px] uppercase tracking-wide text-text-faint">
+                <th className="py-1 font-medium">Forma</th>
+                <th className="py-1 text-right font-medium">% dos clientes</th>
+                <th className="py-1 text-right font-medium">Recebe</th>
+                <th className="py-1 text-right font-medium">Parcela</th>
+                <th className="py-1 text-right font-medium">Margem</th>
+                <th className="py-1 text-right font-medium">Caixa volta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {porForma.map((f, i) => (
+                <tr key={i} className="border-t border-border-soft">
+                  <td className="py-1">
+                    {nomeForma(f.parcelas)}
+                    {f.desconto > 0 && <span className="ml-1 text-text-faint">({formatPct(f.desconto * 100)} off)</span>}
+                  </td>
+                  <td className="py-1 text-right font-mono">{formatPct(f.fracao * 100)}</td>
+                  <td className="py-1 text-right font-mono">{formatBRL(f.valor)}</td>
+                  <td className="py-1 text-right font-mono">{f.parcelas > 1 ? `${f.parcelas}× ${formatBRL(f.parcela)}` : "—"}</td>
+                  <td className={`py-1 text-right font-mono ${f.margem >= 0 ? "text-success" : "text-danger"}`}>{formatBRL(f.margem)}</td>
+                  <td className="py-1 text-right font-mono">
+                    {f.retorno == null ? "—" : f.retorno <= 1 ? "na 1ª" : f.retorno <= f.parcelas ? `na ${f.retorno}ª` : "não cobre"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-1.5 text-[10.5px] text-text-muted">
+            O custo de {formatBRL(custo)} sai inteiro no onboarding.{" "}
+            {mesRetorno != null
+              ? mesRetorno <= 1
+                ? "No mix, o primeiro mês já cobre o custo."
+                : `No mix, o caixa da implementação volta no ${mesRetorno}º mês.`
+              : "No mix, o que entra não chega a cobrir o custo."}
+          </p>
+        </div>
       )}
 
       {custo > 0 && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10.5px]">
           <span className="text-text-faint">Preço pra margem de:</span>
           {MARGENS_ALVO.map((m) => {
-            const alvo = Math.ceil(custo / (1 - m / 100) / 10) * 10;
+            // Preço de tabela que, depois dos descontos do mix de pagamento, deixa essa margem.
+            const alvo = Math.ceil(custo / (1 - m / 100) / (1 - descontoMedio || 1) / 10) * 10;
             return (
               <button
                 key={m}
@@ -312,6 +418,62 @@ function SimulacaoMargem({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Mix de formas de pagamento da implementação: quantos % dos clientes pagam em quantas parcelas. */
+function FormasPagamentoEditor({ formas, onChange, somaPct }: { formas: LinhaForma[]; onChange: (f: LinhaForma[]) => void; somaPct: number }) {
+  const atualizar = (i: number, patch: Partial<LinhaForma>) => onChange(formas.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+  const somaOk = Math.abs(somaPct - 100) < 0.05;
+  return (
+    <div className="rounded-lg border border-border-soft px-3.5 py-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center text-[11.5px] font-semibold text-text-muted">
+          Formas de pagamento
+          <InfoTooltip texto="Quantos % dos clientes novos pagam à vista, em 3×, 5×, 10×... Cada forma pode ter um desconto (ex: à vista com 10% off). A projeção divide cada leva de clientes por este mix; o custo sai inteiro no mês do onboarding." />
+        </p>
+        <button type="button" onClick={() => onChange(SUGESTAO_FORMAS)} className="text-[11px] text-primary-deep underline decoration-dotted">
+          usar à vista / 3× / 5× / 10×
+        </button>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <div className="grid grid-cols-[90px_110px_110px_auto] gap-2 text-[10px] text-text-faint">
+          <span>Parcelas</span>
+          <span>% dos clientes</span>
+          <span>Desconto (opcional)</span>
+          <span></span>
+        </div>
+        {formas.map((f, i) => (
+          <div key={i} className="grid grid-cols-[90px_110px_110px_auto] items-center gap-2">
+            <input type="number" min="1" step="1" value={f.parcelas} onChange={(e) => atualizar(i, { parcelas: e.target.value })} className="input" aria-label="Parcelas" />
+            <div className="flex items-center gap-1">
+              <input type="number" min="0" max="100" step="1" value={f.pct} onChange={(e) => atualizar(i, { pct: e.target.value })} className="input w-full" aria-label="% dos clientes" />
+              <span className="text-[11px] text-text-faint">%</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <input type="number" min="0" max="100" step="0.5" value={f.desconto} onChange={(e) => atualizar(i, { desconto: e.target.value })} placeholder="0" className="input w-full" aria-label="Desconto" />
+              <span className="text-[11px] text-text-faint">%</span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="text-text-faint">{nomeForma(Math.max(1, Math.round(Number(f.parcelas) || 1)))}</span>
+              {formas.length > 1 && (
+                <button type="button" onClick={() => onChange(formas.filter((_, j) => j !== i))} className="text-danger" aria-label="Remover forma">
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-between text-[10.5px]">
+        <button type="button" onClick={() => onChange([...formas, { parcelas: "", pct: "", desconto: "" }])} className="font-medium text-primary-deep">
+          + forma de pagamento
+        </button>
+        <span className={somaOk ? "text-text-faint" : "font-medium text-danger"}>
+          {somaOk ? "soma 100% dos clientes" : `soma ${somaPct.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% — ajuste pra 100% antes de salvar`}
+        </span>
+      </div>
     </div>
   );
 }

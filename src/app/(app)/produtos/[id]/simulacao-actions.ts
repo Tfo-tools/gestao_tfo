@@ -23,7 +23,7 @@ export async function recalcularSimulacao(
     supabase
       .from("produtos")
       .select(
-        "data_inicio_desenvolvimento, data_lancamento_estimada, tipo_precificacao, tem_implementacao, preco_implementacao, implementacao_parcelas",
+        "data_inicio_desenvolvimento, data_lancamento_estimada, tipo_precificacao, tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento",
       )
       .eq("id", produtoId)
       .single(),
@@ -343,6 +343,8 @@ export async function recalcularSimulacao(
         ? {
             preco_venda: Number(produto.preco_implementacao),
             parcelas: Number(produto.implementacao_parcelas ?? 1),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            formas: (produto.implementacao_formas_pagamento as any) ?? null,
             custo_total: custoImplementacaoTotal,
           }
         : null,

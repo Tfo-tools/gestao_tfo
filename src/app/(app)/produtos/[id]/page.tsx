@@ -27,7 +27,7 @@ export default async function ProdutoDetailPage({
     supabase
       .from("produtos")
       .select(
-        "id, nome, descricao, data_inicio_desenvolvimento, data_lancamento_estimada, tipo_precificacao, tem_implementacao, preco_implementacao, implementacao_parcelas",
+        "id, nome, descricao, data_inicio_desenvolvimento, data_lancamento_estimada, tipo_precificacao, tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento",
       )
       .eq("id", id)
       .single(),
@@ -141,6 +141,8 @@ export default async function ProdutoDetailPage({
           temImplementacao={produto.tem_implementacao}
           precoImplementacao={produto.preco_implementacao}
           parcelas={produto.implementacao_parcelas ?? 1}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formasPagamento={(produto.implementacao_formas_pagamento as any) ?? null}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           etapas={(etapasImplementacao ?? []) as any}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any

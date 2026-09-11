@@ -115,11 +115,22 @@ export type ComboInput = {
   ativo_a_partir_de: string | null;
 };
 
+export type FormaPagamentoImplementacao = {
+  /** Número de parcelas mensais (1 = à vista). */
+  parcelas: number;
+  /** Fatia dos clientes novos que paga assim (0 a 1; normalizada pela soma das formas). */
+  pct: number;
+  /** Desconto sobre o preço pra quem escolhe esta forma (0 a 1), ex: à vista com 10% off. */
+  desconto?: number | null;
+};
+
 export type ImplementacaoInput = {
   /** Cobrança única na primeira contratação do produto — módulo adicionado depois não cobra de novo. */
   preco_venda: number;
-  /** Em quantas parcelas mensais a cobrança é diluída (1 = à vista). */
+  /** Em quantas parcelas mensais a cobrança é diluída (1 = à vista). Vale quando não há formas. */
   parcelas: number;
+  /** Mix de formas de pagamento (ex: 30% à vista, 30% em 3×, 20% em 5×, 20% em 10×). */
+  formas?: FormaPagamentoImplementacao[] | null;
   /** Custo direto de entregar a implementação (soma das etapas) — entra em COGS. */
   custo_total: number;
 };
@@ -390,6 +401,14 @@ function custoContratacoesNoMes(contratacoes: ContratacaoInput[], mes: Date): To
     if (iniciouAntes && aindaAtiva) acumular(totais, subgrupoDeCargo(c.cargo, c.categoria), c.custo_mensal);
   }
   return totais;
+}
+
+/** Formas de pagamento normalizadas (frações somando 1). Sem mix válido, todos pagam em `parcelas`. */
+export function formasDePagamento(impl: ImplementacaoInput): { parcelas: number; fracao: number; desconto: number }[] {
+  const formas = (impl.formas ?? []).filter((f) => f.pct > 0 && f.parcelas >= 1);
+  const soma = formas.reduce((s, f) => s + f.pct, 0);
+  if (formas.length === 0 || soma <= 0) return [{ parcelas: Math.max(1, impl.parcelas), fracao: 1, desconto: 0 }];
+  return formas.map((f) => ({ parcelas: f.parcelas, fracao: f.pct / soma, desconto: Math.min(1, Math.max(0, f.desconto ?? 0)) }));
 }
 
 export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
@@ -803,17 +822,21 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     let implementacoesAtivas = 0;
     let custoImplementacao = 0;
     if (input.implementacao) {
-      const parcelas = Math.max(1, input.implementacao.parcelas);
       // Equivalente em clientes pagando preço cheio: 3 clientes com 50% de desconto valem 1,5.
       const pagantesEquivalentes = Math.max(0, novosClientes - descontoImplementacaoDoMes);
       // Quem tem desconto parcial continua sendo UMA cobrança na contagem; só o isento não paga.
       const cobrancasNovas = Math.max(0, novosClientes - novosClientesIsentosImplementacao);
       if (cobrancasNovas > 0 && input.implementacao.preco_venda > 0) {
-        parcelasImplementacaoAtivas.push({
-          valorMensal: (pagantesEquivalentes * input.implementacao.preco_venda) / parcelas,
-          quantidade: cobrancasNovas,
-          mesFim: i + parcelas,
-        });
+        // Cada leva de clientes novos se divide pelo mix de formas de pagamento: cada fatia vira um
+        // lote com o seu número de parcelas (e o desconto da forma, se houver). Sem mix, é uma forma só.
+        for (const forma of formasDePagamento(input.implementacao)) {
+          const parcelas = Math.max(1, Math.round(forma.parcelas));
+          parcelasImplementacaoAtivas.push({
+            valorMensal: (pagantesEquivalentes * forma.fracao * input.implementacao.preco_venda * (1 - forma.desconto)) / parcelas,
+            quantidade: cobrancasNovas * forma.fracao,
+            mesFim: i + parcelas,
+          });
+        }
       }
       parcelasImplementacaoAtivas = parcelasImplementacaoAtivas.filter((p) => p.mesFim > i);
       receitaImplementacao = parcelasImplementacaoAtivas.reduce((acc, p) => acc + p.valorMensal, 0);
