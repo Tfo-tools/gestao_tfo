@@ -12,36 +12,43 @@ export type IndicadorDef = {
   key: IndicadorKey;
   titulo: string;
   formula: string;
-  editarLinks: { label: string; href: string }[];
+  /** Cada link recebe o cenário atual pra montar a URL — assim nunca abre a tela "solta", sem
+   * saber de qual plano se trata. */
+  editarLinks: { label: string; href: (cenarioId: string) => string }[];
 };
+
+const hrefVendas = (cenarioId: string) => (cenarioId ? `/plano/${cenarioId}/vendas` : "/cenarios");
+const hrefPlanoCustos = (cenarioId: string) => (cenarioId ? `/plano/${cenarioId}/custos` : "/cenarios");
+const hrefContratacoes = (cenarioId: string) => (cenarioId ? `/contratacoes?cenario=${cenarioId}` : "/contratacoes");
+const hrefFomento = () => "/fomento";
 
 export const INDICADORES: IndicadorDef[] = [
   {
     key: "meta",
     titulo: "Meta do período — clientes pagantes",
     formula: "Clientes ativos ao fim do período selecionado.",
-    editarLinks: [{ label: "Crescimento e churn em Produtos", href: "/produtos" }],
+    editarLinks: [{ label: "Crescimento e churn (Vendas)", href: hrefVendas }],
   },
   {
     key: "break_even",
     titulo: "Break-even",
     formula: "Primeiro mês em que o EBITDA acumulado desde o início do período selecionado deixa de ser negativo.",
     editarLinks: [
-      { label: "Plano de Custos", href: "/plano-de-custos" },
-      { label: "Produtos (preço e crescimento)", href: "/produtos" },
+      { label: "Plano de Custos", href: hrefPlanoCustos },
+      { label: "Vendas (preço e crescimento)", href: hrefVendas },
     ],
   },
   {
     key: "margem_operacional",
     titulo: "Margem operacional",
     formula: "EBITDA acumulado ÷ Receita acumulada, no período selecionado.",
-    editarLinks: [{ label: "Plano de Custos", href: "/plano-de-custos" }],
+    editarLinks: [{ label: "Plano de Custos", href: hrefPlanoCustos }],
   },
   {
     key: "margem_bruta",
     titulo: "Margem bruta",
     formula: "(Receita − COGS − DAS do Simples Nacional) ÷ Receita, no período selecionado.",
-    editarLinks: [{ label: "Plano de Custos (custos COGS do produto)", href: "/plano-de-custos" }],
+    editarLinks: [{ label: "Plano de Custos (custos COGS do produto)", href: hrefPlanoCustos }],
   },
   {
     key: "cac",
@@ -49,8 +56,8 @@ export const INDICADORES: IndicadorDef[] = [
     formula:
       "Fully-loaded: (Marketing + Vendas + Outros S&M — mídia, ferramentas, folha comercial própria e compartilhada, comissões, terceirizados) ÷ novos clientes adquiridos, no período selecionado.",
     editarLinks: [
-      { label: "Custos COGS (equipe comercial)", href: "/contratacoes" },
-      { label: "Plano de Custos (marketing)", href: "/plano-de-custos" },
+      { label: "Custos COGS (equipe comercial)", href: hrefContratacoes },
+      { label: "Plano de Custos (marketing)", href: hrefPlanoCustos },
     ],
   },
   {
@@ -58,19 +65,20 @@ export const INDICADORES: IndicadorDef[] = [
     titulo: "LTV",
     formula:
       "(ARPU × margem bruta do produto) ÷ churn mensal — a margem bruta desconta o COGS (infra/suporte) do ARPU antes de dividir pelo churn, ponderado pelos clientes ativos de cada mês.",
-    editarLinks: [{ label: "Preços e churn em Produtos", href: "/produtos" }],
+    editarLinks: [{ label: "Preços e churn (Vendas)", href: hrefVendas }],
   },
   {
     key: "churn",
     titulo: "Churn médio",
     formula: "Churn mensal de cada fase, ponderado pelos clientes ativos do mês.",
-    editarLinks: [{ label: "Churn por fase em Produtos", href: "/produtos" }],
+    editarLinks: [{ label: "Churn por fase (Vendas)", href: hrefVendas }],
   },
   {
     key: "retorno_investimento",
     titulo: "Retorno do investimento",
-    formula: "Mês em que o EBITDA acumulado (desde o início do período) recupera todo o capital captado vinculado ao cenário.",
-    editarLinks: [{ label: "Fomentos e Investimentos", href: "/fomento" }],
+    formula:
+      "Mês em que o EBITDA acumulado (desde o início do período) recupera o capital NOVO vinculado ao cenário — o investimento ainda não aplicado. Fomento e parcelas já recebidas ficam fora da conta.",
+    editarLinks: [{ label: "Fomentos e Investimentos", href: hrefFomento }],
   },
 ];
 

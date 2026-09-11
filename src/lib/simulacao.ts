@@ -1,5 +1,13 @@
+import { calcularCogsMes, type CogsPremissas, type PerfilCustoHora } from "@/lib/cogs";
 import { FASES, type FaseValue } from "@/lib/fases";
 import { subgrupoDeCargo, type SubgrupoConta } from "@/lib/subgrupo-conta";
+
+export type TrimestreFaseInput = {
+  /** 0 = primeiros 3 meses da fase, 1 = meses 4–6, ... */
+  indice: number;
+  taxa_crescimento_mensal: number | null;
+  taxa_churn_mensal: number | null;
+};
 
 export type FaseInput = {
   fase: FaseValue;
@@ -7,7 +15,29 @@ export type FaseInput = {
   data_fim: string | null;
   taxa_crescimento_mensal: number | null;
   taxa_churn_mensal: number | null;
+  /** Taxas por bloco de 3 meses dentro da fase. Sem bloco pro mês, vale a taxa da fase acima. */
+  trimestres?: TrimestreFaseInput[];
 };
+
+/**
+ * Taxas do mês: procura o trimestre da fase em que o mês cai (contado do início da fase);
+ * se não houver bloco cadastrado pra ele, usa o último bloco anterior definido — assim uma fase
+ * aberta (maturidade) continua com a última taxa informada; sem nenhum bloco, vale a taxa da fase.
+ */
+export function taxasDoMes(fase: FaseInput, mes: Date): { crescimento: number; churn: number } {
+  const padrao = { crescimento: fase.taxa_crescimento_mensal ?? 0, churn: fase.taxa_churn_mensal ?? 0 };
+  const blocos = fase.trimestres ?? [];
+  if (blocos.length === 0 || !fase.data_inicio) return padrao;
+  const inicio = new Date(fase.data_inicio + "T00:00:00");
+  const mesesNaFase = (mes.getFullYear() - inicio.getFullYear()) * 12 + (mes.getMonth() - inicio.getMonth());
+  const indice = Math.max(0, Math.floor(mesesNaFase / 3));
+  const candidato = [...blocos].filter((b) => b.indice <= indice).sort((a, b) => b.indice - a.indice)[0];
+  if (!candidato) return padrao;
+  return {
+    crescimento: candidato.taxa_crescimento_mensal ?? padrao.crescimento,
+    churn: candidato.taxa_churn_mensal ?? padrao.churn,
+  };
+}
 
 export type BetaInput = {
   quantidade: number;
@@ -63,14 +93,78 @@ export type BetaModuloInput = {
 export type ModuloInput = {
   nome: string;
   preco: number;
-  /** Gatilho por fase do ciclo de vida — usado quando `meses_apos_lancamento` não é definido. */
+  /** Gatilho por fase do ciclo de vida — usado quando nem `data_disponibilidade` nem `meses_apos_lancamento` são definidos. */
   fase_lancamento: FaseValue | null;
-  /** Gatilho por tempo: quantos meses após o lançamento comercial do produto o módulo entra (ex: melhorias do Fashion Mind, 12/24 meses). Tem prioridade sobre `fase_lancamento`. */
+  /** Gatilho por tempo: quantos meses após o lançamento comercial do produto o módulo entra (ex: melhorias do Fashion Mind, 12/24 meses). Usado quando `data_disponibilidade` não é definida; tem prioridade sobre `fase_lancamento`. */
   meses_apos_lancamento: number | null;
+  /** Gatilho por data exata (mês) em que o módulo passa a estar disponível — tem prioridade sobre os outros dois quando definido. */
+  data_disponibilidade: string | null;
   adesao_inicial_pct: number;
   crescimento_adesao_mensal_pct: number;
+  /** Teto da curva de adesão — a % pra onde ela converge (em vez de sempre ir a 100%). Null = 100%. */
+  percentual_permanencia_estimado: number | null;
   /** Beta testers do módulo — sempre testam ANTES do lançamento oficial, sem pagar; convertem no mês do lançamento. */
   betaTesters: BetaModuloInput[];
+};
+
+export type ComboInput = {
+  /** % da base de clientes (dos produtos do combo) que compra no formato combo. */
+  percentual_clientes_combo: number;
+  desconto_pct: number;
+  /** Combo só é vendável a partir do lançamento do último produto que o compõe. */
+  ativo_a_partir_de: string | null;
+};
+
+export type ImplementacaoInput = {
+  /** Cobrança única na primeira contratação do produto — módulo adicionado depois não cobra de novo. */
+  preco_venda: number;
+  /** Em quantas parcelas mensais a cobrança é diluída (1 = à vista). */
+  parcelas: number;
+  /** Custo direto de entregar a implementação (soma das etapas) — entra em COGS. */
+  custo_total: number;
+};
+
+export type CanalParceiroFaseInput = {
+  fase: FaseValue;
+  /** Quantos parceiros NOVOS entram nessa fase (não é acumulado) — cada leva começa sua própria
+   * curva de intensidade a partir do início da fase. */
+  quantidade_parceiros: number;
+};
+
+export type CanalInput = {
+  tipo_canal: "direto" | "self_service" | "representante" | "associacao";
+  /** % sobre a receita mensal dos clientes desse canal, pago todo mês enquanto forem clientes. */
+  comissao_pct: number | null;
+  /** Pago uma vez, por cada novo cliente que entra por esse canal. */
+  valor_fixo_fechamento: number | null;
+  /** Desconto aplicado ao preço pago pelos clientes desse canal. */
+  desconto_cliente_pct: number | null;
+  /** Duração do desconto em meses — null/associação = permanente (nunca expira). */
+  desconto_cliente_meses: number | null;
+  /** Crédito único, no fechamento — reduz receita (destino cliente) ou soma custo (destino parceiro). */
+  credito_uso_valor: number | null;
+  credito_uso_destino: "cliente" | "parceiro" | null;
+  /** Clientes desse canal ficam de fora do custo "único por cliente" (implementação/onboarding). */
+  isencao_implementacao: boolean;
+  /** Desconto na implementação pra cliente vindo deste canal. A isenção é o caso de 100%. */
+  desconto_implementacao_pct: number | null;
+  /** Média de clientes/mês que um parceiro novo traz logo no início da parceria. */
+  media_clientes_parceiro_inicial: number | null;
+  /** Queda mensal (%) sobre a intensidade atual, até chegar no piso mínimo. */
+  queda_intensidade_mensal_pct: number | null;
+  /** Piso mínimo de clientes/mês por parceiro — a intensidade nunca cai abaixo disso. */
+  media_clientes_parceiro_minima: number | null;
+  /**
+   * Fatia da produção deste canal que vai para ESTE produto (0 a 1), vinda do "% das vendas" da
+   * matriz do canal, normalizado entre os produtos dele. Sem isso, os mesmos parceiros gerariam
+   * o volume inteiro para cada produto do portfólio — multiplicando os clientes.
+   */
+  peso_no_canal: number;
+  /** Self-service: quanto custa de mídia levar uma pessoa a iniciar o teste grátis. */
+  custo_por_trial: number | null;
+  /** Self-service: quantos testes iniciados viram cliente pagante. */
+  taxa_conversao_trial: number | null;
+  parceirosPorFase: CanalParceiroFaseInput[];
 };
 
 export type CustoFixoInput = {
@@ -108,14 +202,45 @@ export type SimulacaoInput = {
   alocacoes: AlocacaoInput[];
   planos: PlanoInput[];
   modulos: ModuloInput[];
+  canais: CanalInput[];
+  /**
+   * true em produto de NÍVEIS (Basic → Starter → Premium), onde o cliente está em um plano só e
+   * `preco` é o valor total daquele nível. false em módulos add-on clássicos, que se somam ao
+   * plano base — aí somar os preços é o comportamento certo.
+   */
+  modulosExclusivos: boolean;
+  /** Fim do período do cenário — a projeção para aqui em vez de rodar 60 meses fixos por produto. */
+  dataFimCenario: string | null;
+  /** Combos em que este produto entra — o desconto é lançado aqui, no próprio produto, pra que a
+   * margem bruta de cada um fique medível. */
+  combos: ComboInput[];
+  implementacao: ImplementacaoInput | null;
+  /** Regras de escala do COGS por conta (1.1.x). Sem isso, COGS vem só dos custos lançados à mão. */
+  cogs?: CogsPremissas | null;
+  /** Custo/hora por perfil (cargo × contratação × senioridade) — pra suporte e CS proativo. */
+  custoHoraPorPerfil?: (perfil: Partial<PerfilCustoHora>) => number;
   custosFixos: CustoFixoInput[];
   custosVariaveis: CustoVariavelInput[];
   meses?: number;
+  /**
+   * Cenário espelhado que começa depois do produto: no mês `mes` (início do cenário) a base de
+   * clientes passa a ser `clientes_ativos` — o saldo do cenário de origem naquele ponto, editável.
+   * Os meses anteriores continuam sendo simulados (módulos, canais e betas seguem o calendário),
+   * só o estoque de clientes é substituído. Sem isso, vale a base que a própria simulação acumulou.
+   */
+  pontoPartida?: { mes: string; clientes_ativos: number } | null;
 };
 
 export type MesResultado = {
   mes_referencia: string;
   novos_clientes: number;
+  /** Quebra dos clientes novos por origem — "direto" é o que não veio de parceiro (crescimento
+   * próprio + conversão de beta). */
+  novos_direto: number;
+  novos_representante: number;
+  novos_associacao: number;
+  /** Quantos clientes saíram no mês — o % de churn sozinho não mostra o tamanho da perda. */
+  clientes_perdidos: number;
   clientes_ativos: number;
   beta_testers_ativos: number;
   mrr: number;
@@ -124,6 +249,10 @@ export type MesResultado = {
   ltv: number | null;
   receita_bruta: number;
   receita_modulos: number;
+  /** Parcelas de implementação faturadas no mês, já líquidas do desconto de cada canal. */
+  receita_implementacao: number;
+  /** Quantas implementações estão em cobrança no mês — uma por cliente em andamento. */
+  implementacoes_ativas: number;
   cogs: number;
   opex_sm: number;
   opex_pd: number;
@@ -132,6 +261,12 @@ export type MesResultado = {
   cogs_suporte: number;
   cogs_infraestrutura: number;
   cogs_outros: number;
+  // Detalhe do COGS calculado por regra (uma linha por conta do plano de contas).
+  cogs_llm: number;
+  cogs_software: number;
+  cogs_gateway: number;
+  cogs_cs_proativo: number;
+  cogs_suporte_reativo: number;
   sm_marketing: number;
   sm_vendas: number;
   sm_outros: number;
@@ -202,8 +337,9 @@ function calcularArpu(planos: PlanoInput[], fase: FaseValue, mes: Date, dataLanc
   if (somaMix <= 0) return 0;
 
   return comMix.reduce((acc, p) => {
-    const precoBase = precoEfetivo(p, fase, mes, dataLancamento);
-    const mensal = p.tipo_cobranca === "mensal" ? precoBase : p.tipo_cobranca === "semestral" ? precoBase / 6 : precoBase / 12;
+    // `preco` é sempre o valor mensal, independente da cobrança — "anual"/"semestral" definem só o
+    // tempo mínimo de permanência do cliente (compromisso), não o valor digitado.
+    const mensal = precoEfetivo(p, fase, mes, dataLancamento);
     return acc + mensal * (Number(p.mix_percentual) / somaMix);
   }, 0);
 }
@@ -245,9 +381,33 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
   const dataBase = input.dataInicioProduto ?? input.fases.find((f) => f.data_inicio)?.data_inicio;
   if (!dataBase) return [];
 
-  const totalMeses = input.meses ?? 60;
+  // A projeção vai até o fim do período do cenário. Sem isso, cada produto rodava 60 meses a
+  // partir da PRÓPRIA data de início — e como as datas diferem, os produtos sumiam da projeção em
+  // meses diferentes, o que parecia uma queda de faturamento no último ano.
+  const totalMeses = (() => {
+    if (input.dataFimCenario) {
+      const inicio = new Date(dataBase + "T00:00:00");
+      const fim = new Date(input.dataFimCenario + "T00:00:00");
+      const meses = (fim.getFullYear() - inicio.getFullYear()) * 12 + (fim.getMonth() - inicio.getMonth()) + 1;
+      if (meses > 0) return meses;
+    }
+    return input.meses ?? 60;
+  })();
 
   let clientesAtivos = 0;
+
+  // Cliente é unidade indivisível: não entra nem sai meio cliente. Mas truncar a fração todo mês
+  // enviesaria a projeção pra baixo, e arredondar entrada e saída isoladamente faz elas se
+  // cancelarem em base pequena (base 5: crescimento 1,15→1 e churn 0,5→1, net zero pra sempre).
+  // Por isso guardamos a sobra de cada fluxo e ela entra no mês seguinte: cada mês é inteiro e o
+  // acumulado do período bate com a matemática contínua.
+  const residuos = new Map<string, number>();
+  const inteiroComResiduo = (valor: number, chave: string) => {
+    const comSobra = valor + (residuos.get(chave) ?? 0);
+    const inteiro = Math.max(0, Math.round(comSobra));
+    residuos.set(chave, comSobra - inteiro);
+    return inteiro;
+  };
   let betaAtivos = 0;
   const adocaoModulos = new Map<number, number>();
   // Beta testers de módulo: convertem no mês do lançamento oficial. Enquanto durar a condição
@@ -259,16 +419,43 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
   // (desconto por tempo limitado) — cada entrada é um lote independente, escopado à fase/beta
   // que a originou, sem acumular com outras condições de outras fases ou módulos.
   let condicoesEspeciaisAtivas: { quantidade: number; desconto: number; mesFim: number }[] = [];
+  // Canais de parceiro (representante/associação): cada lote de clientes trazido num mês carrega
+  // seu próprio desconto e prazo — associação normalmente entra com mesFim=Infinity (permanente).
+  let descontosCanalAtivos: { quantidade: number; desconto: number; mesFim: number }[] = [];
+  // Crédito de uso concedido ao cliente vira SALDO, não desconto de um mês só: R$100 num produto
+  // de R$109 é quase um mês grátis; no de R$61, quase dois. Deduzir tudo no mês de entrada
+  // estouraria a receita daquele mês e o excedente se perderia.
+  let saldoCreditoCliente = 0;
+  // Total acumulado de clientes já trazidos por cada canal (índice em input.canais), sem descontar
+  // por churn — mesma simplificação já usada nos lotes de beta — usado pra cobrar comissão
+  // recorrente sobre a receita atual desses clientes.
+  const canalClientesAcumulados = new Map<number, number>();
+  // Parcelas de implementação ainda em aberto — cada leva de clientes novos gera uma, diluída
+  // pelo número de parcelas contratado.
+  let parcelasImplementacaoAtivas: { valorMensal: number; quantidade: number; mesFim: number }[] = [];
+  /** Índices dos lotes de beta que já viraram clientes pagantes — cada lote converte uma vez só. */
+  const betasConvertidos = new Set<number>();
   const resultados: MesResultado[] = [];
+
+  const mesPontoPartida = input.pontoPartida ? `${input.pontoPartida.mes.slice(0, 7)}-01` : null;
 
   for (let i = 0; i < totalMeses; i++) {
     const mes = addMonths(dataBase, i);
     const fase = faseParaMes(input.fases, mes);
 
+    // Saldo de abertura do cenário: substitui a base acumulada antes de o mês ser calculado.
+    if (mesPontoPartida && isoMonth(mes) === mesPontoPartida) {
+      clientesAtivos = Math.max(0, Math.round(input.pontoPartida!.clientes_ativos));
+    }
+
     if (!fase) {
       resultados.push({
         mes_referencia: isoMonth(mes),
         novos_clientes: 0,
+        novos_direto: 0,
+        novos_representante: 0,
+        novos_associacao: 0,
+        clientes_perdidos: 0,
         clientes_ativos: 0,
         beta_testers_ativos: 0,
         mrr: 0,
@@ -277,6 +464,8 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         ltv: null,
         receita_bruta: 0,
         receita_modulos: 0,
+        receita_implementacao: 0,
+        implementacoes_ativas: 0,
         cogs: 0,
         opex_sm: 0,
         opex_pd: 0,
@@ -285,6 +474,11 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         cogs_suporte: 0,
         cogs_infraestrutura: 0,
         cogs_outros: 0,
+        cogs_llm: 0,
+        cogs_software: 0,
+        cogs_gateway: 0,
+        cogs_cs_proativo: 0,
+        cogs_suporte_reativo: 0,
         sm_marketing: 0,
         sm_vendas: 0,
         sm_outros: 0,
@@ -292,8 +486,8 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       continue;
     }
 
-    const taxaCrescimento = fase.taxa_crescimento_mensal ?? 0;
-    const taxaChurn = fase.taxa_churn_mensal ?? 0;
+    // Taxa do trimestre da fase em que o mês cai (ou a da fase, se não houver bloco).
+    const { crescimento: taxaCrescimento, churn: taxaChurn } = taxasDoMes(fase, mes);
 
     // Pró-rata no mês exato do lançamento comercial (meio do mês civil).
     let fatorProRata = 1;
@@ -313,14 +507,21 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       mesesDesdeLancamentoProduto = (mes.getFullYear() - lanc.getFullYear()) * 12 + (mes.getMonth() - lanc.getMonth());
     }
 
-    // Beta testers do produto: testam de graça antes do lançamento comercial (data_inicio/data_fim
-    // são só informativas) e convertem todos juntos no mês exato do lançamento — com desconto por
-    // um período (se configurado) ou preço cheio direto.
+    // Beta testers viram clientes pagantes no LANÇAMENTO ou no FIM DO PRÓPRIO TESTE — o que vier
+    // depois. Antes a conversão era sempre no mês do lançamento, o que gerava cliente pagante antes
+    // de o teste ter começado quando as datas do beta caíam depois do lançamento.
+    const mesAtualIso = isoMonth(mes).slice(0, 7);
+    const mesLancamento = input.dataLancamentoEstimada?.slice(0, 7) ?? null;
     let conversaoBeta = 0;
-    if (mesesDesdeLancamentoProduto === 0) {
-      // No mês do lançamento os beta testers convertem em clientes pagantes — deixam de ser "beta".
-      betaAtivos = 0;
-      for (const beta of input.betas) {
+
+    if (mesLancamento) {
+      input.betas.forEach((beta, bi) => {
+        if (betasConvertidos.has(bi)) return;
+        const mesFimTeste = beta.data_fim?.slice(0, 7) ?? mesLancamento;
+        const mesConversao = mesFimTeste > mesLancamento ? mesFimTeste : mesLancamento;
+        if (mesAtualIso < mesConversao) return;
+
+        betasConvertidos.add(bi);
         conversaoBeta += beta.quantidade;
         if (beta.condicao_especial_pct && beta.condicao_especial_meses) {
           condicoesEspeciaisAtivas.push({
@@ -329,23 +530,92 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
             mesFim: i + beta.condicao_especial_meses,
           });
         }
-      }
-    } else if (mesesDesdeLancamentoProduto != null && mesesDesdeLancamentoProduto < 0) {
-      // Recalcula do zero a cada mês (não acumula sobre o mês anterior) — senão o mesmo lote de
-      // beta testers seria contado de novo em cada mês que passa, inflando o total.
-      betaAtivos = 0;
-      for (const beta of input.betas) {
-        if (beta.data_inicio && new Date(beta.data_inicio + "T00:00:00") <= mes) betaAtivos += beta.quantidade;
-      }
+      });
     }
 
-    // Cresce/perde em ponto flutuante (sem arredondar a cada mês): com base pequena, arredondar
-    // o crescimento e o churn separadamente antes de somar faz eles se cancelarem (ex: base 5,
-    // crescimento 23% ~1.15→1 e churn 10% ~0.5→1, net zero todo mês) e a base trava artificialmente
-    // baixa por muitos meses. Só arredondamos pro valor exibido (abaixo, no push).
+    // Beta ativo = já começou a testar e ainda não converteu. Recalculado do zero a cada mês pra
+    // não acumular o mesmo lote mês após mês.
+    betaAtivos = 0;
+    input.betas.forEach((beta, bi) => {
+      if (betasConvertidos.has(bi)) return;
+      if (beta.data_inicio && beta.data_inicio.slice(0, 7) <= mesAtualIso) betaAtivos += beta.quantidade;
+    });
+
+    // Canais de parceiro (representante/associação) trazem clientes direto, sem funil de leads —
+    // diferente do canal "direto" (SDR), já embutido na taxa de crescimento mensal da fase. Cada
+    // fase pode ter trazido uma leva nova de parceiros, e cada leva decai a intensidade de
+    // clientes/mês com o tempo até um piso, a partir do início daquela fase.
+    // Nenhum canal vende antes do produto existir. A curva de parceiros arrancava no início da
+    // FASE, então um produto cujo desenvolvimento começa em setembro e só lança em fevereiro
+    // aparecia faturando implementação cinco meses antes de ter o que entregar.
+    const produtoJaLancado = mesLancamento === null || mesAtualIso >= mesLancamento;
+
+    const novosPorCanal: number[] = input.canais.map((canal) => {
+      if (!produtoJaLancado) return 0;
+      // Só canais de parceiro trazem cliente por curva própria. Direto e self-service vêm da taxa
+      // de crescimento da fase.
+      if (canal.tipo_canal === "direto" || canal.tipo_canal === "self_service") return 0;
+      // Canal sem fatia neste produto não traz cliente nenhum pra ele.
+      if (canal.peso_no_canal <= 0) return 0;
+      let total = 0;
+      for (const lote of canal.parceirosPorFase) {
+        if (lote.quantidade_parceiros <= 0) continue;
+        const faseDoLote = input.fases.find((f) => f.fase === lote.fase);
+        if (!faseDoLote?.data_inicio) continue;
+        const inicioLote = new Date(faseDoLote.data_inicio + "T00:00:00");
+        const idadeMeses = (mes.getFullYear() - inicioLote.getFullYear()) * 12 + (mes.getMonth() - inicioLote.getMonth());
+        if (idadeMeses < 0) continue;
+        const inicial = canal.media_clientes_parceiro_inicial ?? 0;
+        const queda = canal.queda_intensidade_mensal_pct ?? 0;
+        const piso = canal.media_clientes_parceiro_minima ?? 0;
+        const intensidadeAtual = Math.max(piso, inicial * Math.pow(1 - queda, idadeMeses));
+        total += lote.quantidade_parceiros * intensidadeAtual;
+      }
+      // Os parceiros são os mesmos pra todo o portfólio — o que este produto recebe é a fatia dele.
+      return total * canal.peso_no_canal;
+    });
+    // Arredonda por canal (cada um com seu resíduo) para que custo de fechamento, isenção de
+    // implementação e a coluna de novos por canal falem todos do mesmo número inteiro.
+    for (let ci = 0; ci < novosPorCanal.length; ci++) {
+      novosPorCanal[ci] = inteiroComResiduo(novosPorCanal[ci], `canal:${ci}`);
+    }
+    const novosClientesCanais = novosPorCanal.reduce((a, b) => a + b, 0);
+    const novosPorTipoCanal = input.canais.reduce(
+      (acc, canal, ci) => {
+        if (canal.tipo_canal === "representante") acc.representante += novosPorCanal[ci];
+        else if (canal.tipo_canal === "associacao") acc.associacao += novosPorCanal[ci];
+        return acc;
+      },
+      { representante: 0, associacao: 0 },
+    );
+
+    let novosClientesIsentosImplementacao = 0;
+    // Quanto vale a implementação dos clientes que entraram neste mês, já com o desconto de cada
+    // canal aplicado. Cliente de associação paga menos (ou nada), e é isso que puxa o ticket médio
+    // pra baixo — por isso o valor é somado coorte a coorte, não por um preço único.
+    let descontoImplementacaoDoMes = 0;
+    input.canais.forEach((canal, ci) => {
+      if (novosPorCanal[ci] <= 0) return;
+      const desconto = canal.isencao_implementacao ? 1 : (canal.desconto_implementacao_pct ?? 0);
+      if (desconto > 0) descontoImplementacaoDoMes += novosPorCanal[ci] * Math.min(1, desconto);
+      if (canal.isencao_implementacao) novosClientesIsentosImplementacao += novosPorCanal[ci];
+      if (canal.desconto_cliente_pct) {
+        descontosCanalAtivos.push({
+          quantidade: novosPorCanal[ci],
+          desconto: canal.desconto_cliente_pct,
+          mesFim: canal.desconto_cliente_meses != null ? i + canal.desconto_cliente_meses : Infinity,
+        });
+      }
+      canalClientesAcumulados.set(ci, (canalClientesAcumulados.get(ci) ?? 0) + novosPorCanal[ci]);
+    });
+
+    // Entrada direta (crescimento orgânico + conversão de beta) e saída por churn, cada uma
+    // arredondada com seu próprio resíduo. O total de novos é a soma das partes já inteiras,
+    // então a coluna "Total novos" sempre bate com direto + representantes + associações.
     const novosOrganicos = clientesAtivos * taxaCrescimento * fatorProRata;
-    const novosClientes = novosOrganicos + conversaoBeta;
-    const perdidos = clientesAtivos * taxaChurn;
+    const novosDireto = inteiroComResiduo(novosOrganicos + conversaoBeta, "direto");
+    const novosClientes = novosDireto + novosClientesCanais;
+    const perdidos = Math.min(clientesAtivos, inteiroComResiduo(clientesAtivos * taxaChurn, "saida"));
     clientesAtivos = Math.max(0, clientesAtivos + novosClientes - perdidos);
 
     const arpu = calcularArpu(input.planos, fase.fase, mes, input.dataLancamentoEstimada);
@@ -358,7 +628,22 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       0,
     );
 
-    const receitaPlanos = (arpu * clientesAtivos - descontoCondicaoEspecial) * fatorProRata;
+    // Mesmo mecanismo, pros descontos vindos de canal de parceiro (representante/associação).
+    descontosCanalAtivos = descontosCanalAtivos.filter((c) => c.mesFim > i);
+    const descontoCanalCliente = descontosCanalAtivos.reduce((acc, c) => acc + c.quantidade * arpu * c.desconto, 0);
+
+    // Crédito de uso concedido ao cliente (associação/representante): entra no saldo quando o
+    // cliente chega e é consumido mês a mês até acabar — é isso que faz "usa quase dois meses sem
+    // pagar" aparecer como dois meses de receita menor, e não como um buraco só no primeiro.
+    input.canais.forEach((canal, ci) => {
+      if (canal.tipo_canal === "direto" || !canal.credito_uso_valor || novosPorCanal[ci] <= 0) return;
+      if (canal.credito_uso_destino !== "parceiro") saldoCreditoCliente += novosPorCanal[ci] * canal.credito_uso_valor;
+    });
+
+    const receitaAntesCredito = (arpu * clientesAtivos - descontoCondicaoEspecial - descontoCanalCliente) * fatorProRata;
+    const creditoConsumido = Math.min(saldoCreditoCliente, Math.max(0, receitaAntesCredito));
+    saldoCreditoCliente -= creditoConsumido;
+    const receitaPlanos = receitaAntesCredito - creditoConsumido;
 
     // Receita de módulos add-on: ativa por fase do ciclo de vida OU por tempo desde o lançamento
     // (ex: melhorias do Fashion Mind, 12/24 meses após o MVP), com adesão inicial sobre a base
@@ -373,11 +658,14 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       return false;
     });
 
+    const lancadosNesteMes: number[] = [];
     input.modulos.forEach((modulo, mi) => {
       const lancado =
-        modulo.meses_apos_lancamento != null
-          ? mesesDesdeLancamentoProduto != null && mesesDesdeLancamentoProduto >= modulo.meses_apos_lancamento
-          : modulo.fase_lancamento != null && faseIdxAtual >= FASE_ORDEM.indexOf(modulo.fase_lancamento);
+        modulo.data_disponibilidade != null
+          ? isoMonth(mes).slice(0, 7) >= modulo.data_disponibilidade.slice(0, 7)
+          : modulo.meses_apos_lancamento != null
+            ? mesesDesdeLancamentoProduto != null && mesesDesdeLancamentoProduto >= modulo.meses_apos_lancamento
+            : modulo.fase_lancamento != null && faseIdxAtual >= FASE_ORDEM.indexOf(modulo.fase_lancamento);
       if (!lancado) return;
 
       // No mês exato do lançamento oficial, os beta testers desse módulo convertem: com desconto
@@ -398,9 +686,33 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         }
       }
 
+      const tetoAdocao = modulo.percentual_permanencia_estimado ?? 1;
       let adocaoPct = adocaoModulos.get(mi);
-      adocaoPct = adocaoPct === undefined ? modulo.adesao_inicial_pct : Math.min(1, adocaoPct * (1 + modulo.crescimento_adesao_mensal_pct));
+      adocaoPct =
+        adocaoPct === undefined
+          ? Math.min(tetoAdocao, modulo.adesao_inicial_pct)
+          : Math.min(tetoAdocao, adocaoPct * (1 + modulo.crescimento_adesao_mensal_pct));
       adocaoModulos.set(mi, adocaoPct);
+      lancadosNesteMes.push(mi);
+    });
+
+    // Em produto de NÍVEIS, o cliente está em UM plano só: quem está no Premium não paga também
+    // Basic e Starter. Se as fatias de adesão somarem mais de 100%, normalizamos — sem isso o
+    // mesmo cliente era cobrado em todos os níveis lançados, somando os preços.
+    let fatorNivelExclusivo = 1;
+    if (input.modulosExclusivos && lancadosNesteMes.length > 0) {
+      const somaAdocao = lancadosNesteMes.reduce((acc, mi) => acc + (adocaoModulos.get(mi) ?? 0), 0);
+      if (somaAdocao > 1) fatorNivelExclusivo = 1 / somaAdocao;
+    }
+
+    // Fatia da base no nível que consome LLM (ex: Premium do Mind) — o custo de API só incide nela.
+    let fracaoNivelLlm = 0;
+    lancadosNesteMes.forEach((mi) => {
+      const modulo = input.modulos[mi];
+      const adocaoPct = (adocaoModulos.get(mi) ?? 0) * fatorNivelExclusivo;
+      if (input.cogs?.llm?.ativo && input.cogs.llm.nivel_nome && modulo.nome === input.cogs.llm.nivel_nome) {
+        fracaoNivelLlm = adocaoPct;
+      }
 
       receitaModulos += adocaoPct * clientesAtivos * modulo.preco;
       receitaModulos += (betaModuloPermanentes.get(mi) ?? 0) * modulo.preco;
@@ -410,10 +722,66 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     });
     receitaModulos *= fatorProRata;
 
-    const receitaBruta = receitaPlanos + receitaModulos;
+    // Receita recorrente do produto (planos + módulos), já líquida dos descontos de beta e canal.
+    const receitaRecorrente = receitaPlanos + receitaModulos;
+
+    // Desconto de combo lançado NO PRÓPRIO PRODUTO (não na consolidação do cenário), pra que a
+    // margem bruta de cada produto fique medível. Só vale a partir do lançamento do último produto
+    // que compõe o combo — antes disso não existe combo pra vender. Não incide sobre implementação.
+    let descontoCombo = 0;
+    for (const combo of input.combos) {
+      if (combo.ativo_a_partir_de && isoMonth(mes).slice(0, 7) < combo.ativo_a_partir_de.slice(0, 7)) continue;
+      descontoCombo += receitaRecorrente * combo.percentual_clientes_combo * combo.desconto_pct;
+    }
+    const mrrLiquido = Math.max(0, receitaRecorrente - descontoCombo);
+
+    // Implementação: cobrança única na primeira contratação, diluída nas parcelas contratadas.
+    // O trabalho é feito para todo cliente novo (custo cheio), mas a receita respeita o desconto
+    // do canal por onde ele veio — um isento gera custo e nenhuma receita.
+    let receitaImplementacao = 0;
+    let implementacoesAtivas = 0;
+    let custoImplementacao = 0;
+    if (input.implementacao) {
+      const parcelas = Math.max(1, input.implementacao.parcelas);
+      // Equivalente em clientes pagando preço cheio: 3 clientes com 50% de desconto valem 1,5.
+      const pagantesEquivalentes = Math.max(0, novosClientes - descontoImplementacaoDoMes);
+      // Quem tem desconto parcial continua sendo UMA cobrança na contagem; só o isento não paga.
+      const cobrancasNovas = Math.max(0, novosClientes - novosClientesIsentosImplementacao);
+      if (cobrancasNovas > 0 && input.implementacao.preco_venda > 0) {
+        parcelasImplementacaoAtivas.push({
+          valorMensal: (pagantesEquivalentes * input.implementacao.preco_venda) / parcelas,
+          quantidade: cobrancasNovas,
+          mesFim: i + parcelas,
+        });
+      }
+      parcelasImplementacaoAtivas = parcelasImplementacaoAtivas.filter((p) => p.mesFim > i);
+      receitaImplementacao = parcelasImplementacaoAtivas.reduce((acc, p) => acc + p.valorMensal, 0);
+      implementacoesAtivas = parcelasImplementacaoAtivas.reduce((acc, p) => acc + p.quantidade, 0);
+      custoImplementacao = novosClientes * input.implementacao.custo_total;
+    }
+
+    const receitaBruta = mrrLiquido + receitaImplementacao;
 
     // Custo real das contratações (CLT + PJ) ativas neste mês, já separado por categoria fina.
     const totais = custoContratacoesNoMes(input.contratacoes, mes);
+
+    // Custo direto de entregar a implementação — COGS, lançado inteiro no mês do onboarding
+    // (o trabalho acontece ali, mesmo quando o cliente paga parcelado).
+    if (custoImplementacao > 0) acumular(totais, "outros_cogs", custoImplementacao);
+
+    // COGS por regra de escala (infra, LLM, suporte, CS, software, gateway) — ver src/lib/cogs.ts.
+    // Cada cobrança do mês (assinatura + parcela de implementação) passa pelo gateway.
+    const cogsMes = calcularCogsMes(input.cogs, {
+      mes: isoMonth(mes),
+      clientesAtivos,
+      fracaoNivelLlm,
+      transacoes: clientesAtivos + implementacoesAtivas,
+      receitaCobrada: receitaBruta,
+      custoHora: input.custoHoraPorPerfil ?? (() => 0),
+    });
+    acumular(totais, "infraestrutura", cogsMes.infraestrutura);
+    acumular(totais, "outros_cogs", cogsMes.llm + cogsMes.software + cogsMes.gateway);
+    acumular(totais, "suporte", cogsMes.suporteReativo + cogsMes.csProativo);
 
     // COGS e OPEX a partir do plano de custos da fase (equipe alocada + custos fixos/variáveis).
     for (const c of input.custosFixos.filter((c) => c.fase === fase.fase)) {
@@ -425,17 +793,48 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       acumular(totais, subgrupoDeCargo(a.cargo, a.categoria), custo);
     }
 
+    // Comissão, valor fixo de fechamento e crédito pro parceiro — custo de vendas dos canais de
+    // parceiro. Comissão recorre todo mês sobre o total já acumulado de clientes daquele canal
+    // (mesma simplificação dos lotes de beta: não desconta por churn); valor fixo e crédito pro
+    // parceiro são únicos, cobrados só no mês em que o cliente entra.
+    // Self-service: ninguém prospecta, mas o tráfego é pago. O custo é a mídia necessária pra
+    // encher o teste grátis — testes = clientes do canal ÷ conversão do teste. Vai pra marketing,
+    // não pra vendas, porque é verba de mídia e não remuneração de quem vende.
+    input.canais.forEach((canal, ci) => {
+      if (canal.tipo_canal !== "self_service") return;
+      if (canal.peso_no_canal <= 0 || !canal.custo_por_trial) return;
+      const novosDoCanal = novosDireto * canal.peso_no_canal;
+      if (novosDoCanal <= 0) return;
+      const conversaoTrial = canal.taxa_conversao_trial && canal.taxa_conversao_trial > 0 ? canal.taxa_conversao_trial : 1;
+      const trials = novosDoCanal / conversaoTrial;
+      acumular(totais, "marketing", trials * canal.custo_por_trial);
+    });
+
+    input.canais.forEach((canal, ci) => {
+      if (canal.tipo_canal === "direto" || canal.tipo_canal === "self_service") return;
+      let custoCanal = 0;
+      const acumuladoCanal = canalClientesAcumulados.get(ci) ?? 0;
+      if (canal.comissao_pct && acumuladoCanal > 0) custoCanal += acumuladoCanal * arpu * canal.comissao_pct;
+      if (novosPorCanal[ci] > 0) {
+        if (canal.valor_fixo_fechamento) custoCanal += novosPorCanal[ci] * canal.valor_fixo_fechamento;
+        if (canal.credito_uso_valor && canal.credito_uso_destino === "parceiro") custoCanal += novosPorCanal[ci] * canal.credito_uso_valor;
+      }
+      if (custoCanal > 0) acumular(totais, "vendas", custoCanal);
+    });
+
     for (const c of input.custosVariaveis.filter((c) => c.fase === fase.fase)) {
       // "por cliente" é recorrente (cobra de novo, todo mês, sobre a base inteira de clientes
       // ativos) — serve pra custo tipo gateway/hospedagem por cliente. "único por cliente" cobra
-      // só uma vez, no mês em que o cliente é adquirido (ex: custo de implementação/onboarding).
+      // só uma vez, no mês em que o cliente é adquirido (ex: custo de implementação/onboarding) —
+      // exceto os clientes de canais com isenção de implementação, que ficam de fora dessa base.
+      const baseUnicoPorCliente = Math.max(0, novosClientes - novosClientesIsentosImplementacao);
       const valor =
         c.tipo_calculo === "valor_fixo"
           ? (c.valor_base ?? 0)
           : c.tipo_calculo === "valor_por_cliente"
             ? (c.valor_base ?? 0) + (c.valor_por_unidade ?? 0) * clientesAtivos
             : c.tipo_calculo === "unico_por_cliente"
-              ? (c.valor_por_unidade ?? 0) * novosClientes
+              ? (c.valor_por_unidade ?? 0) * baseUnicoPorCliente
               : (c.percentual ?? 0) * receitaBruta;
       acumular(totais, c.subgrupo, valor);
     }
@@ -451,10 +850,19 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
 
     resultados.push({
       mes_referencia: isoMonth(mes),
-      novos_clientes: Math.round(novosClientes),
-      clientes_ativos: Math.round(clientesAtivos),
+      novos_clientes: novosClientes,
+      novos_direto: novosDireto,
+      novos_representante: novosPorTipoCanal.representante,
+      novos_associacao: novosPorTipoCanal.associacao,
+      clientes_perdidos: perdidos,
+      clientes_ativos: clientesAtivos,
       beta_testers_ativos: betaAtivos,
-      mrr: receitaBruta,
+      // MRR é só o recorrente — implementação é cobrança única, entra em receita_bruta mas não aqui.
+      mrr: mrrLiquido,
+      receita_implementacao: receitaImplementacao,
+      // Quantas parcelas de implementação estão sendo cobradas neste mês (uma por cliente em
+      // andamento) — é o denominador extra do ticket médio, junto das assinaturas.
+      implementacoes_ativas: implementacoesAtivas,
       churn_pct: taxaChurn,
       cac_all_in: cacAllIn,
       ltv,
@@ -468,6 +876,11 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       cogs_suporte: totais.suporte,
       cogs_infraestrutura: totais.infraestrutura,
       cogs_outros: totais.outros_cogs,
+      cogs_llm: cogsMes.llm,
+      cogs_software: cogsMes.software,
+      cogs_gateway: cogsMes.gateway,
+      cogs_cs_proativo: cogsMes.csProativo,
+      cogs_suporte_reativo: cogsMes.suporteReativo,
       sm_marketing: totais.marketing,
       sm_vendas: totais.vendas,
       sm_outros: totais.outros_sm,

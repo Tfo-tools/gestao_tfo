@@ -1,7 +1,15 @@
 import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
+import { horasAtendimentoPorProduto } from "@/lib/cogs";
 import type { FaseValue } from "@/lib/fases";
-import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
-import { calcularDemandaPorCargo, type FaseProdutoInput, type FunilPremissaInput, type SimulacaoMesInput } from "@/lib/necessidade-contratacao";
+import { custoMensalModelo, volumeCobertoPelaAlocacao, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
+import {
+  calcularDemandaPorCargo,
+  type CanalFunilInput,
+  type FaseProdutoInput,
+  type FunilPremissaInput,
+  type SimulacaoMesInput,
+  cargoChave,
+} from "@/lib/necessidade-contratacao";
 import { calcularImpostoSimples } from "@/lib/impostos";
 import { subgrupoDeConta, subgrupoDeCargo } from "@/lib/subgrupo-conta";
 
@@ -27,12 +35,139 @@ export type Agregado = {
   smOutros: number;
   opexPd: number;
   opexGa: number;
+  // Filiação a associações: taxa recorrente que fica DENTRO de opexGa (conta 2.3.5.1). É custo de
+  // estrutura, não de aquisição — por conceito não entra no CAC. Guardado à parte só pra poder
+  // mostrar a linha separada sem alterar nenhum total.
+  gaTaxasFiliacao: number;
+  // Quebra por ORIGEM, pra tela de custos mostrar coluna a coluna de onde vem cada real:
+  // alocações de equipe por cargo (Necessidade de Contratação) e custos da empresa por grupo.
+  alocacaoSdr: number;
+  alocacaoVendedor: number;
+  alocacaoCoordenador: number;
+  alocacaoSuporte: number;
+  alocacaoOutros: number;
+  empresaSm: number;
+  empresaPd: number;
+  empresaGa: number;
+  /** Alocações em CLT/pacote fechado (custo fixo) vs. por demanda (variável). */
+  alocacaoFixa: number;
+  alocacaoVariavel: number;
 };
 
 export type ResumoCenario = {
+  /** Horizonte simulado inteiro — começa no desenvolvimento de cada produto, antes do plano. */
   linhas: Agregado[];
+  /** Só os meses do período do cenário (data_inicio → data_fim): é o que se apresenta. */
+  linhasPeriodo: Agregado[];
+  periodo: { inicio: string | null; fim: string | null };
+  /** Capital novo (ainda não aplicado) sobre o qual o retorno é calculado — ver carregarAportes. */
   totalInvestido: number;
+  aportes: AportesCenario;
 };
+
+/** Normaliza "AAAA-MM" ou "AAAA-MM-DD" para o "AAAA-MM-01" de mes_referencia. */
+function mesIso(v: string | null | undefined): string | null {
+  return v ? `${v.slice(0, 7)}-01` : null;
+}
+
+/** Recorta as linhas mensais a um intervalo de meses (limites inclusivos; nulo = sem limite). */
+export function recortarPeriodo(linhas: Agregado[], inicio: string | null | undefined, fim: string | null | undefined): Agregado[] {
+  const i = mesIso(inicio);
+  const f = mesIso(fim);
+  return linhas.filter((l) => (!i || l.mes_referencia >= i) && (!f || l.mes_referencia <= f));
+}
+
+export type ParcelaAporte = { mes: string; valor: number; recebida: boolean };
+
+export type ProgramaAporte = {
+  id: string;
+  nome: string;
+  tipo: string;
+  status: string | null;
+  valorTotal: number;
+  valorRecebido: number;
+  /** Parte ainda não aplicada — é essa que o retorno precisa devolver. */
+  valorNaoAplicado: number;
+  entraNoRetorno: boolean;
+  tratamento: string;
+  parcelas: ParcelaAporte[];
+};
+
+export type AportesCenario = {
+  programas: ProgramaAporte[];
+  /** Entrada de capital por mês (AAAA-MM-01) — todos os programas, inclusive fomento. */
+  porMes: Map<string, number>;
+  /** Soma do que entra no cálculo de retorno. */
+  capitalNovo: number;
+};
+
+/**
+ * Captação vinculada ao cenário, com uma regra só pra todas as telas e exportações:
+ *  - TODOS os programas entram na linha de aportes (fomento, investimento, mútuo, empréstimo), nas
+ *    datas das parcelas — ou, sem parcela cadastrada, inteiro na data do aporte/assinatura prevista.
+ *    Um fomento em negociação aparece "como se estivesse aplicado", como se apresenta pro investidor.
+ *  - O retorno é calculado só sobre o investimento NOVO, o que ainda não está aplicado: fomento fica
+ *    fora (subvenção não se devolve), programa encerrado fica fora e parcela já recebida é descontada.
+ */
+export async function carregarAportes(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  cenarioId: string,
+): Promise<AportesCenario> {
+  const vazio: AportesCenario = { programas: [], porMes: new Map(), capitalNovo: 0 };
+  if (!cenarioId) return vazio;
+  const { data: vinculos } = await supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId);
+  const ids = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
+  if (ids.length === 0) return vazio;
+
+  const [{ data: programasRaw }, { data: parcelasRaw }] = await Promise.all([
+    supabase
+      .from("programas_investimento")
+      .select("id, nome, tipo, status, valor_total, valor_proposto, data_aporte, data_assinatura_prevista, created_at")
+      .in("id", ids)
+      .order("created_at"),
+    supabase.from("parcelas_investimento").select("programa_id, valor, data_prevista, status").in("programa_id", ids),
+  ]);
+
+  const porMes = new Map<string, number>();
+  const programas: ProgramaAporte[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (programasRaw ?? []) as any[]) {
+    const valorTotal = Number(p.valor_total ?? p.valor_proposto ?? 0);
+    const parcelasDoPrograma = ((parcelasRaw ?? []) as { programa_id: string; valor: number; data_prevista: string | null; status: string | null }[])
+      .filter((x) => x.programa_id === p.id);
+    let parcelas: ParcelaAporte[] = parcelasDoPrograma
+      .filter((x) => x.data_prevista)
+      .map((x) => ({ mes: `${x.data_prevista!.slice(0, 7)}-01`, valor: Number(x.valor), recebida: x.status === "recebida" }))
+      .sort((a, b) => a.mes.localeCompare(b.mes));
+    if (parcelas.length === 0) {
+      const data = p.data_aporte ?? p.data_assinatura_prevista;
+      if (data && valorTotal > 0) parcelas = [{ mes: `${String(data).slice(0, 7)}-01`, valor: valorTotal, recebida: false }];
+    }
+    for (const parc of parcelas) porMes.set(parc.mes, (porMes.get(parc.mes) ?? 0) + parc.valor);
+
+    const valorRecebido = parcelasDoPrograma.filter((x) => x.status === "recebida").reduce((s, x) => s + Number(x.valor), 0);
+    let entraNoRetorno = false;
+    let valorNaoAplicado = 0;
+    let tratamento: string;
+    if (p.tipo === "fomento") {
+      tratamento = "Fomento (não reembolsável) — entra nos aportes como aplicado; fora do cálculo de retorno";
+    } else if (p.status === "encerrado") {
+      tratamento = "Programa encerrado — já aplicado; fora do cálculo de retorno";
+    } else {
+      valorNaoAplicado = Math.max(0, valorTotal - valorRecebido);
+      entraNoRetorno = valorNaoAplicado > 0;
+      tratamento = entraNoRetorno
+        ? valorRecebido > 0
+          ? `Investimento novo — retorno calculado sobre o que falta aplicar (já recebido fica fora)`
+          : "Investimento novo — base do cálculo de retorno"
+        : "Totalmente recebido — já aplicado; fora do cálculo de retorno";
+    }
+    programas.push({ id: p.id, nome: p.nome, tipo: p.tipo, status: p.status ?? null, valorTotal, valorRecebido, valorNaoAplicado, entraNoRetorno, tratamento, parcelas });
+  }
+
+  return { programas, porMes, capitalNovo: programas.reduce((s, p) => s + (p.entraNoRetorno ? p.valorNaoAplicado : 0), 0) };
+}
 
 export type Metricas = {
   receitaAcumulada: number;
@@ -147,23 +282,37 @@ export async function agregarPorCenario(
   supabase: any,
   cenarioId: string,
 ): Promise<ResumoCenario> {
-  if (!cenarioId) return { linhas: [], totalInvestido: 0 };
+  if (!cenarioId) {
+    return {
+      linhas: [],
+      linhasPeriodo: [],
+      periodo: { inicio: null, fim: null },
+      totalInvestido: 0,
+      aportes: { programas: [], porMes: new Map(), capitalNovo: 0 },
+    };
+  }
 
-  const [{ data: simRows }, { data: vinculos }, { data: custosEmpresaRaw }, { data: alocacoesRaw }, { data: modelosRaw }, { data: fasesRaw }] =
-    await Promise.all([
-      supabase
-        .from("simulacao_mensal")
-        .select(
-          "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga",
-        )
-        .eq("cenario_id", cenarioId)
-        .order("mes_referencia"),
-      supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId),
-      supabase.from("custos_empresa").select("*, plano_contas:plano_contas_id(codigo, tipo)").eq("cenario_id", cenarioId),
-      supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioId),
-      supabase.from("modelos_contratacao").select("*"),
-      supabase.from("fases_produto").select("id, produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioId),
-    ]);
+  const [
+    { data: simRows },
+    { data: cenarioRow },
+    { data: custosEmpresaRaw },
+    { data: alocacoesRaw },
+    { data: modelosRaw },
+    { data: fasesRaw },
+  ] = await Promise.all([
+    supabase
+      .from("simulacao_mensal")
+      .select(
+        "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga, novos_direto, novos_representante, novos_associacao",
+      )
+      .eq("cenario_id", cenarioId)
+      .order("mes_referencia"),
+    supabase.from("cenarios").select("data_inicio, data_fim").eq("id", cenarioId).maybeSingle(),
+    supabase.from("custos_empresa").select("*, plano_contas:plano_contas_id(codigo, tipo)").eq("cenario_id", cenarioId),
+    supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioId),
+    supabase.from("modelos_contratacao").select("*"),
+    supabase.from("fases_produto").select("id, produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioId),
+  ]);
 
   const fasesPorProduto = new Map<string, { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]>();
   for (const f of (fasesRaw ?? []) as { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]) {
@@ -181,9 +330,16 @@ export async function agregarPorCenario(
     faseIds.length > 0
       ? await supabase
           .from("premissas_funil")
-          .select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes")
+          .select("fase_produto_id, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes, reunioes_por_oportunidade")
           .in("fase_produto_id", faseIds)
       : { data: [] };
+
+  // Matriz produto × canal: a taxa de fechamento vive aqui, e a de qualificação vem do modelo de
+  // contratação que executa o canal direto.
+  const { data: canaisRaw } = await supabase
+    .from("canais_aquisicao")
+    .select("id, tipo_canal, modelo_contratacao_id, parametros, canal_produto(produto_id, percentual_mix, taxa_fechamento)")
+    .eq("cenario_id", cenarioId);
   const faseById = new Map<string, { id: string; produto_id: string; fase: FaseValue }>(
     (fasesRaw ?? []).map((f: { id: string; produto_id: string; fase: FaseValue }) => [f.id, f]),
   );
@@ -198,9 +354,9 @@ export async function agregarPorCenario(
   const funisInput: FunilPremissaInput[] = (
     (funisRaw ?? []) as {
       fase_produto_id: string;
-      taxa_conversao: number | null;
       capacidade_vendedor_mes: number | null;
       span_of_control: number | null;
+      reunioes_por_oportunidade: number | null;
       horas_suporte_por_cliente_mes: number | null;
     }[]
   )
@@ -210,31 +366,112 @@ export async function agregarPorCenario(
       return {
         produtoId: fase.produto_id,
         fase: fase.fase,
-        taxa_conversao: f.taxa_conversao,
         capacidade_vendedor_mes: f.capacidade_vendedor_mes,
         span_of_control: f.span_of_control,
+        reunioes_por_oportunidade: f.reunioes_por_oportunidade,
         horas_suporte_por_cliente_mes: f.horas_suporte_por_cliente_mes,
       };
     })
     .filter((f): f is FunilPremissaInput => f !== null);
-  const simulacaoInput: SimulacaoMesInput[] = ((simRows ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number }[]).map((s) => ({
+  const simulacaoInput: SimulacaoMesInput[] = ((simRows ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number; novos_direto?: number | null; novos_representante?: number | null; novos_associacao?: number | null }[]).map((s) => ({
     produtoId: s.produto_id,
     mes_referencia: s.mes_referencia,
     novos_clientes: Number(s.novos_clientes),
     clientes_ativos: Number(s.clientes_ativos),
+    novos_direto: s.novos_direto != null ? Number(s.novos_direto) : undefined,
+    novos_representante: s.novos_representante != null ? Number(s.novos_representante) : undefined,
+    novos_associacao: s.novos_associacao != null ? Number(s.novos_associacao) : undefined,
   }));
-  const demandaPorCargo = calcularDemandaPorCargo({ fasesPorProduto: fasesPorProdutoInput, funis: funisInput, simulacao: simulacaoInput });
-  const demandaPorCargoMes: Record<"sdr" | "coordenador" | "suporte", Map<string, number>> = {
+  const qualificacaoPorModelo = new Map(
+    ((modelosRaw ?? []) as { id: string; parametros: ParametrosModelo }[]).map((m) => [
+      m.id,
+      m.parametros?.taxa_qualificacao ?? null,
+    ]),
+  );
+  // O canal é do cenário e carrega uma linha por produto — cada linha vira uma célula da matriz.
+  const canaisInput: CanalFunilInput[] = (
+    (canaisRaw ?? []) as {
+      id: string;
+      tipo_canal: "direto" | "representante" | "associacao";
+      modelo_contratacao_id: string | null;
+      canal_produto: { produto_id: string; percentual_mix: number; taxa_fechamento: number | null }[] | null;
+    }[]
+  ).flatMap((c) =>
+    (c.canal_produto ?? []).map((cp) => ({
+      produtoId: cp.produto_id,
+      tipo_canal: c.tipo_canal,
+      percentual_mix: Number(cp.percentual_mix),
+      taxa_fechamento: cp.taxa_fechamento,
+      taxa_qualificacao: c.modelo_contratacao_id ? (qualificacaoPorModelo.get(c.modelo_contratacao_id) ?? null) : null,
+    })),
+  );
+
+  const { data: cogsRaw } = await supabase.from("cogs_premissas").select("produto_id, parametros").eq("cenario_id", cenarioId);
+  const demandaPorCargo = calcularDemandaPorCargo({
+    fasesPorProduto: fasesPorProdutoInput,
+    funis: funisInput,
+    canais: canaisInput,
+    simulacao: simulacaoInput,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    horasSuportePorProduto: horasAtendimentoPorProduto((cogsRaw ?? []) as any),
+  });
+
+  // Canais de parceiro que cobram mensalidade por parceiro mantido.
+  const canaisComCusto = (
+    (canaisRaw ?? []) as { id: string; tipo_canal: string; parametros: { custo_mensal_parceiro?: number } | null }[]
+  )
+    .filter((c) => c.tipo_canal !== "direto" && Number(c.parametros?.custo_mensal_parceiro ?? 0) > 0)
+    .map((c) => ({ id: c.id, custoMensalPorParceiro: Number(c.parametros!.custo_mensal_parceiro) }));
+
+  const { data: parceirosFaseRaw } =
+    canaisComCusto.length > 0
+      ? await supabase
+          .from("canal_parceiros_fase")
+          .select("canal_id, fase, quantidade_parceiros")
+          .in(
+            "canal_id",
+            canaisComCusto.map((c) => c.id),
+          )
+      : { data: [] };
+
+  // O parceiro entra quando a fase começa e continua custando dali em diante. Como o canal é da
+  // empresa e as fases são de produto, usamos a data mais cedo em que qualquer produto entrou
+  // naquela fase — é quando a empresa como um todo chegou lá.
+  const inicioMaisCedoPorFase = new Map<string, string>();
+  for (const f of (fasesRaw ?? []) as { fase: FaseValue; data_inicio: string | null }[]) {
+    if (!f.data_inicio) continue;
+    const atual = inicioMaisCedoPorFase.get(f.fase);
+    if (!atual || f.data_inicio < atual) inicioMaisCedoPorFase.set(f.fase, f.data_inicio);
+  }
+
+  function parceirosAtivosNoMes(canalId: string, mesIso: string): number {
+    return (
+      (parceirosFaseRaw ?? []) as { canal_id: string; fase: string; quantidade_parceiros: number }[]
+    ).reduce((acc, pf) => {
+      if (pf.canal_id !== canalId) return acc;
+      const inicio = inicioMaisCedoPorFase.get(pf.fase);
+      if (!inicio || inicio.slice(0, 7) > mesIso.slice(0, 7)) return acc;
+      return acc + Number(pf.quantidade_parceiros);
+    }, 0);
+  }
+  const demandaPorCargoMes: Record<"sdr" | "vendedor" | "coordenador" | "suporte", Map<string, number>> = {
     sdr: new Map(demandaPorCargo.sdr.map((d) => [d.mes_referencia, d.demanda])),
+    vendedor: new Map(demandaPorCargo.vendedor.map((d) => [d.mes_referencia, d.demanda])),
     coordenador: new Map(demandaPorCargo.coordenador.map((d) => [d.mes_referencia, d.demanda])),
     suporte: new Map(demandaPorCargo.suporte.map((d) => [d.mes_referencia, d.demanda])),
   };
+  const oportunidadesPorMes = new Map(demandaPorCargo.oportunidades.map((d) => [d.mes_referencia, d.demanda]));
+  const oportunidadesDiretoPorMes = new Map(demandaPorCargo.oportunidadesDireto.map((d) => [d.mes_referencia, d.demanda]));
   function demandaCargoNoMes(cargo: string, mes: string): number {
-    const chave = cargo.trim().toLowerCase();
-    if (chave === "sdr") return demandaPorCargoMes.sdr.get(mes) ?? 0;
-    if (chave === "coordenador") return demandaPorCargoMes.coordenador.get(mes) ?? 0;
-    if (chave === "suporte") return demandaPorCargoMes.suporte.get(mes) ?? 0;
-    return 0;
+    const chave = cargoChave(cargo);
+    if (!chave) return 0;
+    return demandaPorCargoMes[chave].get(mes) ?? 0;
+  }
+  /** Volume de saída do cargo — só o SDR converte leads em reuniões; usado pelos modelos que
+   * cobram por resultado. */
+  function convertidasCargoNoMes(cargo: string, mes: string): number | undefined {
+    // Só as reuniões do canal direto são resultado do SDR — as de parceiro chegam prontas.
+    return cargoChave(cargo) === "sdr" ? (oportunidadesDiretoPorMes.get(mes) ?? 0) : undefined;
   }
 
   const porMes = new Map<string, Agregado>();
@@ -262,6 +499,17 @@ export async function agregarPorCenario(
         smOutros: 0,
         opexPd: 0,
         opexGa: 0,
+        gaTaxasFiliacao: 0,
+        alocacaoSdr: 0,
+        alocacaoVendedor: 0,
+        alocacaoCoordenador: 0,
+        alocacaoSuporte: 0,
+        alocacaoOutros: 0,
+        empresaSm: 0,
+        empresaPd: 0,
+        empresaGa: 0,
+        alocacaoFixa: 0,
+        alocacaoVariavel: 0,
       } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
@@ -307,8 +555,24 @@ export async function agregarPorCenario(
         else if (sub === "outros_sm") atual.smOutros += valor;
         else if (sub === "pd") atual.opexPd += valor;
         else if (sub === "ga") atual.opexGa += valor;
+        if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") atual.empresaSm += valor;
+        else if (sub === "pd") atual.empresaPd += valor;
+        else atual.empresaGa += valor;
       }
     }
+    // Mensalidade de manter cada parceiro (ex: associação): taxa de filiação, conta 2.3.5.1
+    // "G&A — Associações e Filiações de Classe". É custo de estrutura, não de aquisição: escala com
+    // o número de parceiros filiados, não com o que eles vendem. Por isso vai pra G&A e fica FORA
+    // do CAC — que só soma marketing + vendas + outros_sm.
+    for (const canal of canaisComCusto) {
+      const ativos = parceirosAtivosNoMes(canal.id, atual.mes_referencia);
+      if (ativos <= 0) continue;
+      const custo = ativos * canal.custoMensalPorParceiro;
+      custosEmpresa += custo;
+      atual.opexGa += custo;
+      atual.gaTaxasFiliacao += custo;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const a of (alocacoesRaw ?? []) as any[]) {
       if (!ativaNoMes(atual.mes_referencia, a.data_inicio, a.data_fim)) continue;
@@ -319,16 +583,40 @@ export async function agregarPorCenario(
       // CLT e pacote fechado (empresa_fixo_escopo) são decisões discretas — você contratou N
       // unidades, o custo é esse independente da demanda real flutuar. PJ e os modelos pay-per-use
       // (créditos/híbrido) são cobrados pela demanda real do mês (PJ só entra pelas horas usadas).
-      const demandaEquivalente =
-        tipo === "clt" || tipo === "empresa_fixo_escopo"
-          ? quantidade * (modelo.parametros.capacidade_unidade_mes ?? 1)
-          : demandaCargoNoMes(a.cargo, atual.mes_referencia);
-      const custoModelo = custoMensalModelo(tipo, modelo.parametros, demandaEquivalente).custoMensal;
+      // Modelos por demanda pagam pelo volume que ELES precisam trabalhar: se este modelo qualifica
+      // menos que o do canal, precisa de mais leads pras mesmas reuniões — e custa mais.
+      // A quantidade alocada limita o que este modelo cobre: 1 SDR PJ entrega até a capacidade
+      // dela; o que a demanda pedir além disso não é cobrado (esforço próprio das sócias).
+      const { cobrado: demandaEquivalente } = volumeCobertoPelaAlocacao(
+        tipo,
+        modelo.parametros,
+        quantidade,
+        demandaCargoNoMes(a.cargo, atual.mes_referencia),
+      );
+      // O SDR é pago por reunião agendada e por ligação; o vendedor, por venda fechada. As reuniões
+      // pagas também respeitam o teto da alocação.
+      const reunioesDoMes = Math.min(
+        convertidasCargoNoMes(a.cargo, atual.mes_referencia) ?? (oportunidadesDiretoPorMes.get(atual.mes_referencia) ?? 0),
+        demandaEquivalente,
+      );
+      const custoModelo = custoMensalModelo(tipo, modelo.parametros, demandaEquivalente, {
+        reunioes: reunioesDoMes,
+        vendas: atual.novosClientes,
+        receitaNovasVendas: atual.clientes > 0 ? (atual.receita / atual.clientes) * atual.novosClientes : 0,
+      }).custoMensal;
       custosEmpresa += custoModelo;
       // Folha CLT (pra Fator R do Simples) — só enxerga CLT contratado via Modelos de Contratação
       // (SDR/Coordenador/Suporte); CLT lançado direto em Equipe Alocada/Contratações por produto
       // não entra aqui ainda, então o Fator R pode ficar subestimado se você tiver CLT só lá.
       if (tipo === "clt") atual.custoCLT += custoModelo;
+      const chaveCargo = cargoChave(a.cargo) ?? cargoChave(modelo.cargo);
+      if (chaveCargo === "sdr") atual.alocacaoSdr += custoModelo;
+      else if (chaveCargo === "vendedor") atual.alocacaoVendedor += custoModelo;
+      else if (chaveCargo === "coordenador") atual.alocacaoCoordenador += custoModelo;
+      else if (chaveCargo === "suporte") atual.alocacaoSuporte += custoModelo;
+      else atual.alocacaoOutros += custoModelo;
+      if (tipo === "clt" || tipo === "empresa_fixo_escopo") atual.alocacaoFixa += custoModelo;
+      else atual.alocacaoVariavel += custoModelo;
       const sub = subgrupoDeCargo(modelo.cargo, modelo.categoria);
       if (sub === "marketing") atual.smMarketing += custoModelo;
       else if (sub === "vendas") atual.smVendas += custoModelo;
@@ -339,6 +627,10 @@ export async function agregarPorCenario(
 
     atual.custosEmpresa = custosEmpresa;
   }
+
+  // O desconto de combo NÃO é aplicado aqui: ele é lançado dentro da simulação de cada produto
+  // (ver ComboInput em simulacao.ts), pra que a margem bruta por produto já venha líquida. Somar
+  // de novo aqui contaria o desconto duas vezes.
 
   const linhas = [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
 
@@ -371,21 +663,19 @@ export async function agregarPorCenario(
     l.ebitda = l.receita - l.cogs - l.impostoMensal - l.smMarketing - l.smVendas - l.smOutros - l.opexPd - l.opexGa;
   }
 
-  const programaIds = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
-  let totalInvestido = 0;
-  if (programaIds.length > 0) {
-    const { data: programas } = await supabase
-      .from("programas_investimento")
-      .select("valor_total, tipo")
-      .in("id", programaIds);
-    // Fomento (subvenção não reembolsável, ex: editais) entra no capital captado do cenário, mas
-    // não conta pro "Retorno do investimento" — ele não precisa ser "recuperado" via EBITDA, ao
-    // contrário de investimento/mútuo/empréstimo, que representam capital de terceiros a devolver.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    totalInvestido = ((programas ?? []) as any[])
-      .filter((p) => p.tipo !== "fomento")
-      .reduce((s, p) => s + Number(p.valor_total ?? 0), 0);
-  }
+  // O retorno é calculado só sobre o investimento NOVO (o que ainda não está aplicado) — a regra
+  // inteira mora em carregarAportes, que também alimenta a linha de aportes das telas.
+  const aportes = await carregarAportes(supabase, cenarioId);
+  const periodo = {
+    inicio: (cenarioRow as { data_inicio?: string | null } | null)?.data_inicio ?? null,
+    fim: (cenarioRow as { data_fim?: string | null } | null)?.data_fim ?? null,
+  };
 
-  return { linhas, totalInvestido };
+  return {
+    linhas,
+    linhasPeriodo: recortarPeriodo(linhas, periodo.inicio, periodo.fim),
+    periodo,
+    totalInvestido: aportes.capitalNovo,
+    aportes,
+  };
 }

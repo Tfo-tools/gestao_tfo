@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { calcularSimulacao, type SimulacaoInput } from "@/lib/simulacao";
 import { subgrupoDeConta } from "@/lib/subgrupo-conta";
 import type { FaseValue } from "@/lib/fases";
+import { pontoPartidaDoProduto, type PontoPartida } from "@/lib/ponto-partida";
 
 type PlanoRow = { id: string; tipo_cobranca: string; preco: number; mix_percentual: number | null; reajuste_anual_pct: number | null };
 type PlanoFaseRow = { plano_id: string; fase: string; preco: number };
@@ -20,18 +21,21 @@ export async function recalcularSimulacao(
   const [{ data: produto }, { data: fases }, { data: planos }] = await Promise.all([
     supabase
       .from("produtos")
-      .select("data_inicio_desenvolvimento, data_lancamento_estimada")
+      .select(
+        "data_inicio_desenvolvimento, data_lancamento_estimada, tipo_precificacao, tem_implementacao, preco_implementacao, implementacao_parcelas",
+      )
       .eq("id", produtoId)
       .single(),
     supabase
       .from("fases_produto")
-      .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal")
+      .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, fases_trimestres(indice, taxa_crescimento_mensal, taxa_churn_mensal)")
       .eq("produto_id", produtoId)
       .eq("cenario_id", cenarioId),
     supabase
       .from("planos_precificacao")
       .select("id, tipo_cobranca, preco, mix_percentual, reajuste_anual_pct")
-      .eq("produto_id", produtoId),
+      .eq("produto_id", produtoId)
+      .eq("cenario_id", cenarioId),
   ]);
 
   if (!produto) {
@@ -85,9 +89,85 @@ export async function recalcularSimulacao(
         : Promise.resolve({ data: [] as PlanoFaseRow[] }),
       supabase
         .from("modulos_produto")
-        .select("id, nome, preco, fase_lancamento, meses_apos_lancamento, adesao_inicial_pct, crescimento_adesao_mensal_pct")
-        .eq("produto_id", produtoId),
+        .select(
+          "id, nome, preco, fase_lancamento, meses_apos_lancamento, data_disponibilidade, adesao_inicial_pct, crescimento_adesao_mensal_pct, percentual_permanencia_estimado",
+        )
+        .eq("produto_id", produtoId)
+        .eq("cenario_id", cenarioId),
     ]);
+
+  // O canal é do cenário. Trazemos a matriz INTEIRA (todos os produtos), porque além do que vale
+  // pra este produto precisamos do total do canal pra saber que fatia da produção dos parceiros
+  // é dele.
+  const { data: canaisRaw } = await supabase
+    .from("canais_aquisicao")
+    .select(
+      "id, tipo_canal, parametros, canal_produto(produto_id, percentual_mix, desconto_cliente_pct, desconto_cliente_meses, isencao_implementacao)",
+    )
+    .eq("cenario_id", cenarioId);
+
+  const canalIds = (canaisRaw ?? []).map((c) => c.id);
+  const { data: parceirosRaw } =
+    canalIds.length > 0
+      ? await supabase.from("canal_parceiros_fase").select("canal_id, fase, quantidade_parceiros").in("canal_id", canalIds)
+      : { data: [] };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parceirosPorCanalId = new Map<string, any[]>();
+  for (const p of parceirosRaw ?? []) {
+    const atual = parceirosPorCanalId.get(p.canal_id) ?? [];
+    atual.push({ fase: p.fase as FaseValue, quantidade_parceiros: Number(p.quantidade_parceiros) });
+    parceirosPorCanalId.set(p.canal_id, atual);
+  }
+
+  // Combos em que este produto entra: o desconto é lançado aqui, no próprio produto. O combo só
+  // passa a valer a partir do lançamento do ÚLTIMO produto que o compõe — antes disso não existe
+  // combo pra vender.
+  const { data: itensDesteProduto } = await supabase
+    .from("combo_produtos_itens")
+    .select("combo_id")
+    .eq("produto_id", produtoId);
+  const comboIdsDoProduto = (itensDesteProduto ?? []).map((i) => i.combo_id);
+
+  const [{ data: combosRaw }, { data: todosItensRaw }] =
+    comboIdsDoProduto.length > 0
+      ? await Promise.all([
+          supabase
+            .from("combos_produtos")
+            .select("id, desconto_pct, percentual_clientes_combo")
+            .in("id", comboIdsDoProduto)
+            .not("percentual_clientes_combo", "is", null),
+          supabase.from("combo_produtos_itens").select("combo_id, produto_id").in("combo_id", comboIdsDoProduto),
+        ])
+      : [{ data: [] }, { data: [] }];
+
+  const produtoIdsDosCombos = [...new Set((todosItensRaw ?? []).map((i) => i.produto_id))];
+  const { data: produtosDosCombos } =
+    produtoIdsDosCombos.length > 0
+      ? await supabase.from("produtos").select("id, data_lancamento_estimada").in("id", produtoIdsDosCombos)
+      : { data: [] };
+  const lancamentoPorProduto = new Map((produtosDosCombos ?? []).map((p) => [p.id, p.data_lancamento_estimada]));
+
+  const { data: etapasImplementacao } = await supabase
+    .from("implementacao_etapas")
+    .select("horas, valor_hora")
+    .eq("produto_id", produtoId)
+    .eq("cenario_id", cenarioId);
+  const custoImplementacaoTotal = (etapasImplementacao ?? []).reduce(
+    (acc, e) => acc + Number(e.horas) * Number(e.valor_hora),
+    0,
+  );
+
+  // Premissas de COGS do produto neste cenário + tabela de custo/hora (suporte e CS são horas × R$/h).
+  const [{ data: cogsRaw }, { data: custoHoraRaw }] = await Promise.all([
+    supabase.from("cogs_premissas").select("parametros").eq("produto_id", produtoId).eq("cenario_id", cenarioId).maybeSingle(),
+    supabase.from("tabela_custo_hora").select("cargo, tipo_contratacao, senioridade, valor_hora"),
+  ]);
+  const custoHoraPorPerfil = (perfil: { cargo?: string; tipo_contratacao?: string; senioridade?: string }) => {
+    const linha = (custoHoraRaw ?? []).find(
+      (t) => t.cargo === perfil.cargo && t.tipo_contratacao === perfil.tipo_contratacao && t.senioridade === perfil.senioridade,
+    );
+    return linha ? Number(linha.valor_hora) : 0;
+  };
 
   const moduloIds = (modulosRaw ?? []).map((m) => m.id);
   const { data: betasModuloRaw } =
@@ -116,15 +196,27 @@ export async function recalcularSimulacao(
     precosPorFaseByPlano.set(pf.plano_id, atual);
   }
 
+  const { data: cenario } = await supabase.from("cenarios").select("data_fim, ponto_partida").eq("id", cenarioId).single();
+  const pontoPartida = pontoPartidaDoProduto(cenario?.ponto_partida as PontoPartida | null, produtoId);
+
   const input: SimulacaoInput = {
     dataInicioProduto: produto.data_inicio_desenvolvimento,
     dataLancamentoEstimada: produto.data_lancamento_estimada,
+    modulosExclusivos: produto.tipo_precificacao === "modulos",
+    dataFimCenario: cenario?.data_fim ?? null,
+    pontoPartida,
     fases: fases.map((f) => ({
       fase: f.fase as FaseValue,
       data_inicio: f.data_inicio,
       data_fim: f.data_fim,
       taxa_crescimento_mensal: f.taxa_crescimento_mensal,
       taxa_churn_mensal: f.taxa_churn_mensal,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      trimestres: ((f as any).fases_trimestres ?? []).map((t: { indice: number; taxa_crescimento_mensal: number | null; taxa_churn_mensal: number | null }) => ({
+        indice: Number(t.indice),
+        taxa_crescimento_mensal: t.taxa_crescimento_mensal != null ? Number(t.taxa_crescimento_mensal) : null,
+        taxa_churn_mensal: t.taxa_churn_mensal != null ? Number(t.taxa_churn_mensal) : null,
+      })),
     })),
     betas: (betas ?? []).map((b) => ({
       quantidade: b.quantidade,
@@ -172,14 +264,70 @@ export async function recalcularSimulacao(
       preco: Number(m.preco),
       fase_lancamento: (m.fase_lancamento as FaseValue) ?? null,
       meses_apos_lancamento: m.meses_apos_lancamento,
+      data_disponibilidade: m.data_disponibilidade,
       adesao_inicial_pct: Number(m.adesao_inicial_pct),
       crescimento_adesao_mensal_pct: Number(m.crescimento_adesao_mensal_pct),
+      percentual_permanencia_estimado: m.percentual_permanencia_estimado != null ? Number(m.percentual_permanencia_estimado) : null,
       betaTesters: (betasModuloByModuloId.get(m.id) ?? []).map((b) => ({
         quantidade: Number(b.quantidade),
         condicao_especial_pct: b.condicao_especial_pct,
         condicao_especial_meses: b.condicao_especial_meses,
       })),
     })),
+    canais: (canaisRaw ?? []).map((c) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const p = (c.parametros ?? {}) as any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const linhas = (c.canal_produto ?? []) as any[];
+      // A remuneração do parceiro é do canal; o benefício ao cliente é da linha deste produto.
+      const doProduto = linhas.find((l) => l.produto_id === produtoId) ?? {};
+      const mixDoProduto = Number(doProduto.percentual_mix ?? 0);
+      const mixDoCanal = linhas.reduce((acc, l) => acc + Number(l.percentual_mix ?? 0), 0);
+      return {
+        peso_no_canal: mixDoCanal > 0 ? mixDoProduto / mixDoCanal : 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tipo_canal: c.tipo_canal as any,
+        comissao_pct: p.comissao_pct ?? null,
+        valor_fixo_fechamento: p.valor_fixo_fechamento ?? null,
+        desconto_cliente_pct: doProduto.desconto_cliente_pct ?? null,
+        // Duração em branco = desconto permanente (o motor trata null como "nunca expira").
+        desconto_cliente_meses: doProduto.desconto_cliente_meses ?? null,
+        credito_uso_valor: p.credito_uso_valor ?? null,
+        credito_uso_destino: p.credito_uso_destino ?? null,
+        isencao_implementacao: doProduto.isencao_implementacao === true,
+        desconto_implementacao_pct: doProduto.desconto_implementacao_pct ?? null,
+        media_clientes_parceiro_inicial: p.media_clientes_parceiro_inicial ?? null,
+        queda_intensidade_mensal_pct: p.queda_intensidade_mensal_pct ?? null,
+        media_clientes_parceiro_minima: p.media_clientes_parceiro_minima ?? null,
+        custo_por_trial: p.custo_por_trial ?? null,
+        taxa_conversao_trial: p.taxa_conversao_trial ?? null,
+        parceirosPorFase: parceirosPorCanalId.get(c.id) ?? [],
+      };
+    }),
+    combos: (combosRaw ?? []).map((combo) => {
+      const produtosDoCombo = (todosItensRaw ?? []).filter((i) => i.combo_id === combo.id).map((i) => i.produto_id);
+      const lancamentos = produtosDoCombo
+        .map((pid) => lancamentoPorProduto.get(pid))
+        .filter((d): d is string => Boolean(d));
+      // O combo só existe quando o último produto dele já lançou.
+      const ativo_a_partir_de = lancamentos.length > 0 ? lancamentos.sort().at(-1)! : null;
+      return {
+        percentual_clientes_combo: Number(combo.percentual_clientes_combo),
+        desconto_pct: Number(combo.desconto_pct),
+        ativo_a_partir_de,
+      };
+    }),
+    implementacao:
+      produto.tem_implementacao && produto.preco_implementacao != null
+        ? {
+            preco_venda: Number(produto.preco_implementacao),
+            parcelas: Number(produto.implementacao_parcelas ?? 1),
+            custo_total: custoImplementacaoTotal,
+          }
+        : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cogs: (cogsRaw?.parametros as any) ?? null,
+    custoHoraPorPerfil,
     custosFixos: (custosFixosRaw ?? []).map((c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const conta = c.plano_contas as any;
@@ -228,9 +376,30 @@ export async function recalcularSimulacao(
   }
 
   revalidatePath(`/produtos/${produtoId}`);
+  // Sem isto a tabela de projeção em Vendas continuava mostrando o cálculo anterior mesmo depois
+  // de recalcular — a página não era invalidada.
+  revalidatePath(`/plano/${cenarioId}/vendas`);
+  revalidatePath(`/plano/${cenarioId}`);
   revalidatePath("/");
   revalidatePath("/relatorios");
   revalidatePath("/relatorios/mensal");
   revalidatePath("/contratacoes/necessidade");
   return { error: null, success: true };
+}
+
+/** Recalcula a projeção de todos os produtos do cenário (globais + exclusivos dele). Usado depois
+ * de espelhar um cenário, mudar o período ou o ponto de partida — sem isso a tela mostraria a
+ * projeção antiga (ou nenhuma) até alguém clicar em "Recalcular projeção". */
+export async function recalcularTodosProdutos(cenarioId: string): Promise<{ falhas: string[] }> {
+  const supabase = await createClient();
+  const { data: produtos } = await supabase
+    .from("produtos")
+    .select("id, nome")
+    .or(`cenario_id.is.null,cenario_id.eq.${cenarioId}`);
+  const falhas: string[] = [];
+  for (const p of produtos ?? []) {
+    const r = await recalcularSimulacao(p.id, cenarioId);
+    if (r.error) falhas.push(`${p.nome}: ${r.error}`);
+  }
+  return { falhas };
 }

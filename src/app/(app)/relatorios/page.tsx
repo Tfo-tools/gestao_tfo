@@ -2,8 +2,16 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { AlocacaoInvestimento } from "./alocacao-investimento";
-import { agregarPorCenario, computeMetricas, type Agregado, type Metricas } from "@/lib/relatorios-cenario";
-import { grupoLabelDe } from "@/lib/grupo-dre";
+import {
+  agregarPorCenario,
+  computeMetricas,
+  recortarPeriodo,
+  type Agregado,
+  type Metricas,
+  type ProgramaAporte,
+} from "@/lib/relatorios-cenario";
+import { ExportarInvestidor } from "./exportar-investidor";
+import { grupoDeConta, GRUPO_TOOLTIP as GRUPO_TOOLTIP_DRE } from "@/lib/grupo-dre";
 import { calcularRetornoPrograma, agregarRetornoProgramas } from "@/lib/retorno-investidor";
 
 function formatBRL(v: number) {
@@ -49,13 +57,12 @@ export default async function RelatoriosPage({
 }
 
 const GRUPO_TOOLTIP: Record<string, string> = {
-  COGS: "Cost of Goods Sold (Custo dos Produtos/Serviços Vendidos): custos diretos para entregar o produto — ex: infraestrutura, hospedagem, APIs de terceiros.",
-  "S&M": "Sales & Marketing (Vendas e Marketing): custos para atrair e converter clientes — ex: anúncios, comissões, equipe comercial.",
-  "P&D": "Pesquisa e Desenvolvimento: custos da equipe e ferramentas que constroem e evoluem o produto.",
-  "G&A": "General & Administrative (Geral e Administrativo): custos de gestão da empresa — ex: contabilidade, jurídico, administrativo.",
+  COGS: GRUPO_TOOLTIP_DRE.cogs,
+  "S&M": GRUPO_TOOLTIP_DRE.sm,
+  "P&D": GRUPO_TOOLTIP_DRE.pd,
+  "G&A": GRUPO_TOOLTIP_DRE.ga,
+  Marca: GRUPO_TOOLTIP_DRE.marca,
 };
-
-const grupoDe = grupoLabelDe;
 
 type DespesaGrupoRow = {
   data_gasto: string;
@@ -80,25 +87,28 @@ async function RelatorioReal() {
 
   // Mesma cascata de DRE da aba Planos: Receita (–) COGS (–) Impostos (=) Margem Bruta (–) S&M
   // (–) P&D (–) G&A (=) EBITDA — pra manter as duas telas comparáveis, mesmo sem receita lançada.
-  let cogsMes = 0, cogsAcum = 0, smMes = 0, smAcum = 0, pdMes = 0, pdAcum = 0, gaMes = 0, gaAcum = 0, outrasMes = 0, outrasAcum = 0;
+  let cogsMes = 0, cogsAcum = 0, smMes = 0, smAcum = 0, pdMes = 0, pdAcum = 0, gaMes = 0, gaAcum = 0, marcaMes = 0, marcaAcum = 0, outrasMes = 0, outrasAcum = 0;
   for (const d of despesasTyped) {
     const conta = d.plano_contas;
     if (!conta) continue;
-    const grupo = grupoDe(conta.codigo, conta.tipo);
+    const grupo = grupoDeConta(conta.codigo, conta.tipo);
     const valor = Number(d.valor_total);
     const noMes = d.data_gasto.startsWith(mesAtual);
-    if (grupo === "COGS") {
+    if (grupo === "cogs") {
       cogsAcum += valor;
       if (noMes) cogsMes += valor;
-    } else if (grupo === "S&M") {
+    } else if (grupo === "sm") {
       smAcum += valor;
       if (noMes) smMes += valor;
-    } else if (grupo === "P&D") {
+    } else if (grupo === "pd") {
       pdAcum += valor;
       if (noMes) pdMes += valor;
-    } else if (grupo === "G&A") {
+    } else if (grupo === "ga") {
       gaAcum += valor;
       if (noMes) gaMes += valor;
+    } else if (grupo === "marca") {
+      marcaAcum += valor;
+      if (noMes) marcaMes += valor;
     } else {
       outrasAcum += valor;
       if (noMes) outrasMes += valor;
@@ -114,8 +124,8 @@ async function RelatorioReal() {
   const impostosAcum = 0;
   const margemBrutaMes = receitaMes - cogsMes - impostosMes;
   const margemBrutaAcum = receitaAcumulada - cogsAcum - impostosAcum;
-  const ebitdaMes = margemBrutaMes - smMes - pdMes - gaMes;
-  const ebitdaAcumulado = margemBrutaAcum - smAcum - pdAcum - gaAcum;
+  const ebitdaMes = margemBrutaMes - smMes - pdMes - gaMes - marcaMes;
+  const ebitdaAcumulado = margemBrutaAcum - smAcum - pdAcum - gaAcum - marcaAcum;
 
   return (
     <>
@@ -173,6 +183,14 @@ async function RelatorioReal() {
               negativo
               tooltip={GRUPO_TOOLTIP["G&A"]}
               href="/relatorios/linha?grupo=ga"
+            />
+            <LinhaDreReal
+              label="(–) Marca: Lançamento e Fortalecimento"
+              mes={marcaMes}
+              acumulado={marcaAcum}
+              negativo
+              tooltip={GRUPO_TOOLTIP["Marca"]}
+              href="/relatorios/linha?grupo=marca"
             />
             <tr className="border-t-2 border-text bg-wine-soft">
               <td className="flex items-center px-2 py-2.5 font-bold">
@@ -304,10 +322,22 @@ function TopCustosChart({ despesas }: { despesas: DespesaGrupoRow[] }) {
   );
 }
 
-async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; inicio?: string; fim?: string }) {
+export async function RelatorioPlanos({
+  cenario,
+  inicio,
+  fim,
+  ocultarSeletorCenario,
+}: {
+  cenario?: string;
+  inicio?: string;
+  fim?: string;
+  /** Usado quando essa tela é renderizada dentro de /plano/[cenarioId] — o cenário já vem fixo
+   * pela URL, então não faz sentido oferecer um seletor que troca de cenário sem trocar de rota. */
+  ocultarSeletorCenario?: boolean;
+}) {
   const supabase = await createClient();
 
-  const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base").order("created_at");
+  const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base, data_inicio, data_fim").order("created_at");
 
   const cenarioId = cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
   const nome = (cenarios ?? []).find((c) => c.id === cenarioId)?.nome ?? "—";
@@ -318,21 +348,10 @@ async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; ini
     ? await supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioId).order("created_at")
     : { data: [] };
 
-  // Aportes/fomentos por mês (data prevista da parcela) — pra linha de investimento no gráfico.
-  const { data: vinculosPrograma } = cenarioId
-    ? await supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId)
-    : { data: [] };
-  const programaIds = ((vinculosPrograma ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
-  const { data: parcelasRaw } =
-    programaIds.length > 0
-      ? await supabase.from("parcelas_investimento").select("valor, data_prevista").in("programa_id", programaIds)
-      : { data: [] };
-  const investimentoPorMes = new Map<string, number>();
-  for (const p of (parcelasRaw ?? []) as { valor: number; data_prevista: string | null }[]) {
-    if (!p.data_prevista) continue;
-    const mesKey = `${p.data_prevista.slice(0, 7)}-01`;
-    investimentoPorMes.set(mesKey, (investimentoPorMes.get(mesKey) ?? 0) + Number(p.valor));
-  }
+  // Aportes/fomentos por mês (data prevista da parcela) — todos os programas vinculados, inclusive
+  // fomento. A regra (o que entra na linha e o que entra no retorno) é a de carregarAportes.
+  const investimentoPorMes = resumo.aportes.porMes;
+  const programaIds = resumo.aportes.programas.map((p) => p.id);
 
   // Retorno do investidor via diluição de equity (MOIC/ROI/TIR) — só programas que não são
   // fomento (subvenção não tem cap table) e que já têm valuation pós-money cadastrado.
@@ -375,14 +394,21 @@ async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; ini
   // Período de análise: todo o horizonte simulado por padrão, recortado pro intervalo de mês
   // escolhido — mes_referencia é sempre "AAAA-MM-01", os inputs <input type="month"> mandam
   // "AAAA-MM", então completamos com "-01" pra comparar.
-  const primeiroMes = resumo.linhas[0]?.mes_referencia ?? null;
-  const ultimoMes = resumo.linhas[resumo.linhas.length - 1]?.mes_referencia ?? null;
-  const inicioEfetivo = inicio ? `${inicio}-01` : (primeiroMes ?? "");
-  const fimEfetivo = fim ? `${fim}-01` : (ultimoMes ?? "");
-  const linhasPeriodo = resumo.linhas.filter((l) => l.mes_referencia >= inicioEfetivo && l.mes_referencia <= fimEfetivo);
+  // Sem filtro, o recorte é o PERÍODO DO CENÁRIO (data_inicio → data_fim): a simulação começa
+  // no desenvolvimento de cada produto, meses antes do plano, e mostrar isso por padrão obrigava
+  // a filtrar toda vez pra apresentar. O filtro continua podendo ampliar ou reduzir.
+  const primeiroMes = resumo.periodo.inicio ?? resumo.linhas[0]?.mes_referencia ?? null;
+  const ultimoMes = resumo.periodo.fim ?? resumo.linhas[resumo.linhas.length - 1]?.mes_referencia ?? null;
+  const linhasPeriodo = recortarPeriodo(resumo.linhas, inicio ?? primeiroMes, fim ?? ultimoMes);
 
   const metricas = computeMetricas(linhasPeriodo, resumo.totalInvestido);
-  const totalAportesPeriodo = linhasPeriodo.reduce((s, l) => s + (investimentoPorMes.get(l.mes_referencia) ?? 0), 0);
+  const mesesDoPeriodo = new Set(linhasPeriodo.map((l) => l.mes_referencia));
+  const aportesPeriodoPorPrograma = resumo.aportes.programas
+    .map((p) => ({ ...p, valorPeriodo: p.parcelas.filter((x) => mesesDoPeriodo.has(x.mes)).reduce((s, x) => s + x.valor, 0) }))
+    .filter((p) => p.valorPeriodo > 0);
+  const totalAportesPeriodo = aportesPeriodoPorPrograma.reduce((s, p) => s + p.valorPeriodo, 0);
+  const inicioSel = inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "");
+  const fimSel = fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "");
 
   const semDados = resumo.linhas.length === 0;
 
@@ -396,24 +422,30 @@ async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; ini
       </div>
 
       <form method="get" className="mb-6 grid grid-cols-[1fr_auto_auto_auto] items-end gap-4">
-        <input type="hidden" name="aba" value="planos" />
-        <div>
-          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Cenário</label>
-          <select name="cenario" defaultValue={cenarioId} className="input w-full">
-            {(cenarios ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome}
-              </option>
-            ))}
-          </select>
-        </div>
+        {ocultarSeletorCenario ? (
+          <input type="hidden" name="cenario" value={cenarioId} />
+        ) : (
+          <>
+            <input type="hidden" name="aba" value="planos" />
+            <div>
+              <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Cenário</label>
+              <select name="cenario" defaultValue={cenarioId} className="input w-full">
+                {(cenarios ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
         <div>
           <label className="mb-1.5 block text-[11px] font-medium text-text-muted">De</label>
-          <input type="month" name="inicio" defaultValue={inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "")} className="input" />
+          <input type="month" name="inicio" defaultValue={inicioSel} className="input" />
         </div>
         <div>
           <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Até</label>
-          <input type="month" name="fim" defaultValue={fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "")} className="input" />
+          <input type="month" name="fim" defaultValue={fimSel} className="input" />
         </div>
         <button type="submit" className="rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
           Aplicar
@@ -426,21 +458,23 @@ async function RelatorioPlanos({ cenario, inicio, fim }: { cenario?: string; ini
         </div>
       ) : (
         <>
+          <ExportarInvestidor cenarioId={cenarioId} inicio={inicioSel} fim={fimSel} />
           <MetricasInvestidor
             nome={nome}
             metricas={metricas}
             totalInvestido={resumo.totalInvestido}
             retornoInvestidor={retornoInvestidor}
             cenarioId={cenarioId}
-            inicio={inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "")}
-            fim={fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "")}
+            inicio={inicioSel}
+            fim={fimSel}
           />
           <IndicadoresPeriodo
             metricas={metricas}
             totalAportesPeriodo={totalAportesPeriodo}
+            aportesPorPrograma={aportesPeriodoPorPrograma}
             cenarioId={cenarioId}
-            inicio={inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "")}
-            fim={fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "")}
+            inicio={inicioSel}
+            fim={fimSel}
           />
           <AlocacaoInvestimento cenarioId={cenarioId} itens={alocacoes ?? []} nomeCenario={nome} />
           <GraficoReceitaEInvestimento nome={nome} linhasPeriodo={linhasPeriodo} investimentoPorMes={investimentoPorMes} />
@@ -468,7 +502,7 @@ function MetricasInvestidor({
   fim: string;
 }) {
   function hrefDetalhe(indicador: string) {
-    return `/relatorios/detalhe?indicador=${indicador}&cenario=${cenarioId}&inicio=${inicio}&fim=${fim}`;
+    return `/plano/${cenarioId}/indicadores/${indicador}?inicio=${inicio}&fim=${fim}`;
   }
 
   return (
@@ -562,23 +596,28 @@ function Metrica({ href, label, valor, detalhe }: { href: string; label: string;
 function IndicadoresPeriodo({
   metricas,
   totalAportesPeriodo,
+  aportesPorPrograma,
   cenarioId,
   inicio,
   fim,
 }: {
   metricas: Metricas;
   totalAportesPeriodo: number;
+  aportesPorPrograma: (ProgramaAporte & { valorPeriodo: number })[];
   cenarioId: string;
   inicio: string;
   fim: string;
 }) {
-  const hrefEbitda = `/relatorios/detalhe?indicador=margem_operacional&cenario=${cenarioId}&inicio=${inicio}&fim=${fim}`;
-  const hrefLinha = (grupo: string) => `/relatorios/linha?grupo=${grupo}&cenario=${cenarioId}&inicio=${inicio}&fim=${fim}`;
+  const hrefEbitda = `/plano/${cenarioId}/indicadores/margem_operacional?inicio=${inicio}&fim=${fim}`;
+  // Sempre leva pro detalhamento dentro do Plano (dados projetados) — nunca pro drill-down de
+  // despesas reais, que fica só na aba Realizado. A tela de detalhe já mostra a cascata inteira
+  // (COGS/S&M/P&D/G&A) mês a mês, então qualquer linha aqui aponta pro mesmo lugar de propósito.
+  const hrefLinha = (_grupo?: string) => hrefEbitda;
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
       <h2 className="mb-4 font-heading text-sm font-semibold">DRE do período selecionado</h2>
       <p className="mb-3 text-[11px] text-text-muted">
-        Os valores aqui são a projeção do cenário; clique numa linha pra ver os lançamentos reais já feitos nessas contas, pra conferência.
+        Os valores aqui são a projeção do cenário; clique numa linha pra ver o cálculo detalhado mês a mês, com os dados usados.
       </p>
       <table className="w-full border-collapse text-[12.5px]">
         <tbody>
@@ -607,9 +646,29 @@ function IndicadoresPeriodo({
           <tr className="border-t border-border-soft">
             <td className="flex items-center px-2 py-2.5 text-text-muted">
               5. Aportes e Investimentos (Capital)
-              <InfoTooltip texto="Fora da DRE — não abate do EBITDA acima. Mostra só que houve captação de capital nesse período (parcelas de fomento/investimento/mútuo/empréstimo previstas ou recebidas para o cenário)." />
+              <InfoTooltip texto="Fora da DRE — não abate do EBITDA acima. Soma todos os programas vinculados ao cenário (fomento, investimento, mútuo, empréstimo) nas datas previstas das parcelas. O fomento entra como se já estivesse aplicado; o retorno é calculado só sobre o investimento novo." />
             </td>
             <td className="px-2 py-2.5 text-right font-mono text-text-muted">{formatBRL(totalAportesPeriodo)}</td>
+          </tr>
+          {aportesPorPrograma.map((p) => (
+            <tr key={p.id} className="text-[11.5px]">
+              <td className="py-1 pl-6 pr-2 text-text-muted">
+                {p.nome}
+                <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${p.entraNoRetorno ? "bg-wine-soft text-wine-deep" : "bg-bg text-text-faint"}`}>
+                  {p.entraNoRetorno ? "investimento novo · entra no retorno" : p.tipo === "fomento" ? "fomento · fora do retorno" : "já aplicado · fora do retorno"}
+                </span>
+              </td>
+              <td className="px-2 py-1 text-right font-mono text-text-muted">{formatBRL(p.valorPeriodo)}</td>
+            </tr>
+          ))}
+          <tr className="border-t border-border-soft bg-bg">
+            <td className="flex items-center px-2 py-2.5 font-semibold">
+              (=) EBITDA + aportes (caixa gerado no período)
+              <InfoTooltip texto="O resultado operacional do período somado ao capital que entra. Mostra se a captação (existente + nova) cobre a queima até o break-even." />
+            </td>
+            <td className={`px-2 py-2.5 text-right font-mono font-semibold ${metricas.ebitdaAcumulado + totalAportesPeriodo < 0 ? "text-danger" : "text-success"}`}>
+              {formatBRL(metricas.ebitdaAcumulado + totalAportesPeriodo)}
+            </td>
           </tr>
           <tr className="border-t border-border-soft">
             <td className="px-2 py-2.5">Clientes ativos (início → fim do período)</td>
