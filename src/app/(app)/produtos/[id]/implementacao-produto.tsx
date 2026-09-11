@@ -241,7 +241,8 @@ function SimulacaoMargem({
   const recebido = preco * (1 - descontoMedio);
   const margem = recebido - custo;
   const margemPct = recebido > 0 ? (margem / recebido) * 100 : null;
-  const markupPct = custo > 0 ? (margem / custo) * 100 : null;
+  // Markup como índice, do jeito que se fala no Brasil: preço ÷ custo (3 = o preço é 3 vezes o custo).
+  const markup = custo > 0 ? recebido / custo : null;
   const porForma = formas.map((f) => {
     const valor = preco * (1 - f.desconto);
     const parcela = valor / f.parcelas;
@@ -276,7 +277,7 @@ function SimulacaoMargem({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center text-[11.5px] font-semibold text-text-muted">
           Simulação de margem
-          <InfoTooltip texto="Recalcula enquanto você digita. Margem = quanto sobra sobre o preço de venda. Markup = quanto o preço está acima do custo. Valores antes de impostos (DAS)." />
+          <InfoTooltip texto="Recalcula enquanto você digita. Margem = quanto sobra sobre o preço de venda. Markup = preço ÷ custo, em índice (markup 3 = o preço é 3 vezes o custo). Valores antes de impostos (DAS)." />
         </p>
         {naoSalvo && <span className="rounded bg-cream px-2 py-0.5 text-[10.5px] font-medium text-cream-deep">simulação — ainda não salvo</span>}
       </div>
@@ -289,7 +290,10 @@ function SimulacaoMargem({
           valor={`${formatBRL(margem)}${margemPct != null ? ` · ${formatPct(margemPct)}` : ""}`}
           destaque={margem >= 0 ? "ok" : "ruim"}
         />
-        <Indicador rotulo="Markup" valor={markupPct != null ? formatPct(markupPct) : "—"} />
+        <Indicador
+          rotulo="Markup"
+          valor={markup != null ? markup.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
+        />
       </div>
 
       {preco > 0 && umaForma && (
