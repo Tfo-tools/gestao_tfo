@@ -700,12 +700,14 @@ function IndicadoresPeriodo({
   // Sempre leva pro detalhamento dentro do Plano (dados projetados) — nunca pro drill-down de
   // despesas reais, que fica só na aba Realizado. A tela de detalhe já mostra a cascata inteira
   // (COGS/S&M/P&D/G&A) mês a mês, então qualquer linha aqui aponta pro mesmo lugar de propósito.
-  const hrefLinha = (_grupo?: string) => hrefEbitda;
+  // Cada linha abre o que a compõe (origem por origem, por produto); o EBITDA abre a cascata mês a mês.
+  const hrefLinha = (grupo: string) => `/plano/${cenarioId}/indicadores/${grupo}?inicio=${inicio}&fim=${fim}`;
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
       <h2 className="mb-4 font-heading text-sm font-semibold">DRE do período selecionado</h2>
       <p className="mb-3 text-[11px] text-text-muted">
-        Os valores aqui são a projeção do cenário; clique numa linha pra ver o cálculo detalhado mês a mês, com os dados usados.
+        Os valores aqui são a projeção do cenário; clique em COGS, S&amp;M, P&amp;D ou G&amp;A pra ver o que entra em cada linha,
+        origem por origem e por produto — e no EBITDA pra ver a cascata mês a mês.
       </p>
       <table className="w-full border-collapse text-[12.5px]">
         <tbody>

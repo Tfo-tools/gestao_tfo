@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { agregarPorCenario, computeMetricas, fluxoTir, recortarPeriodo, type Agregado } from "@/lib/relatorios-cenario";
 import { indicadorPorKey } from "@/lib/indicadores";
@@ -56,7 +57,11 @@ export default async function PlanoIndicadorDetalhePage({
         </div>
       ) : (
         <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-          <TabelaIndicador indicador={def.key} linhas={linhas} totalInvestido={resumo.totalInvestido} capitalNovoPorMes={resumo.aportes.capitalNovoPorMes} />
+          {def.key === "cogs" || def.key === "sm" || def.key === "pd" || def.key === "ga" ? (
+            <ComposicaoGrupo grupo={def.key} linhas={linhas} cenarioId={cenarioId} />
+          ) : (
+            <TabelaIndicador indicador={def.key} linhas={linhas} totalInvestido={resumo.totalInvestido} capitalNovoPorMes={resumo.aportes.capitalNovoPorMes} />
+          )}
         </div>
       )}
 
@@ -427,6 +432,170 @@ function TabelaIndicador({
   }
 
   return null;
+}
+
+const ORIGEM: Record<string, { rotulo: string; href: (cenarioId: string) => string }> = {
+  regra_cogs: { rotulo: "Regras de COGS (card CSP)", href: (c) => `/plano/${c}/custos` },
+  implementacao: { rotulo: "Implementação (Produtos)", href: (c) => `/produtos?cenario=${c}` },
+  canais: { rotulo: "Canais de aquisição (Vendas)", href: (c) => `/plano/${c}/vendas` },
+  empresa: { rotulo: "Custos da empresa (Plano de Custos)", href: (c) => `/plano/${c}/custos` },
+  equipe: { rotulo: "Necessidade de Contratação", href: (c) => `/contratacoes/necessidade?cenario=${c}` },
+  feiras: { rotulo: "Feiras e eventos (Marketing)", href: (c) => `/plano/${c}/custos` },
+  contratacoes: { rotulo: "Contratações por produto", href: (c) => `/contratacoes?cenario=${c}` },
+  lancado: { rotulo: "Plano de custos da fase", href: (c) => `/plano/${c}/custos` },
+};
+
+const CAMPO_GRUPO: Record<"cogs" | "sm" | "pd" | "ga", (l: Agregado) => number> = {
+  cogs: (l) => l.cogs,
+  sm: (l) => l.smMarketing + l.smVendas + l.smOutros,
+  pd: (l) => l.opexPd,
+  ga: (l) => l.opexGa,
+};
+
+/**
+ * O que compõe uma linha da DRE no período: cada origem (regra, canal, custo lançado, equipe),
+ * aberta por produto quando vem de um produto, com o total por ano e onde se ajusta. A soma das
+ * origens fecha com a linha da DRE — se não fechar, a diferença aparece explícita.
+ */
+function ComposicaoGrupo({ grupo, linhas, cenarioId }: { grupo: "cogs" | "sm" | "pd" | "ga"; linhas: Agregado[]; cenarioId: string }) {
+  const anos = [...new Set(linhas.map((l) => l.mes_referencia.slice(0, 4)))];
+  type Item = { origem: string; rotulo: string; porProduto: Map<string, Record<string, number>>; porAno: Record<string, number>; total: number; porMes: Map<string, number> };
+  const itens = new Map<string, Item>();
+  for (const l of linhas) {
+    for (const [chave, valor] of Object.entries(l.composicao ?? {})) {
+      const [g, origem, rotulo, produto] = chave.split("|");
+      if (g !== grupo) continue;
+      const k = `${origem}|${rotulo}`;
+      const it: Item = itens.get(k) ?? { origem, rotulo, porProduto: new Map(), porAno: {}, total: 0, porMes: new Map() };
+      const ano = l.mes_referencia.slice(0, 4);
+      it.porAno[ano] = (it.porAno[ano] ?? 0) + valor;
+      it.total += valor;
+      it.porMes.set(l.mes_referencia, (it.porMes.get(l.mes_referencia) ?? 0) + valor);
+      if (produto) {
+        const pp: Record<string, number> = it.porProduto.get(produto) ?? {};
+        pp[ano] = (pp[ano] ?? 0) + valor;
+        pp.total = (pp.total ?? 0) + valor;
+        it.porProduto.set(produto, pp);
+      }
+      itens.set(k, it);
+    }
+  }
+  const lista = [...itens.values()].sort((a, b) => b.total - a.total);
+  const totalGrupo = linhas.reduce((s, l) => s + CAMPO_GRUPO[grupo](l), 0);
+  const somaOrigens = lista.reduce((s, i) => s + i.total, 0);
+  const receita = linhas.reduce((s, l) => s + l.receita, 0);
+  const diferenca = totalGrupo - somaOrigens;
+  const top = lista.slice(0, 5);
+
+  return (
+    <>
+      <CalculoBox
+        linhas={[
+          `Total da linha no período: ${formatBRL(totalGrupo)}${receita > 0 ? ` (${formatPct((totalGrupo / receita) * 100)} da receita)` : ""}`,
+          `${lista.length} origem(ns) — abertas por produto quando o custo nasce num produto`,
+          Math.abs(diferenca) < 1
+            ? "A soma das origens fecha com a linha da DRE"
+            : `Diferença não classificada: ${formatBRL(diferenca)} (projeção calculada antes desta versão — clique em Recalcular projeção em Vendas)`,
+        ]}
+      />
+      {lista.length === 0 ? (
+        <p className="text-[12.5px] text-text-muted">Nada entra nesta linha no período.</p>
+      ) : (
+        <div className="mb-6 overflow-x-auto">
+          <table className="w-full border-collapse text-[12.5px]">
+            <thead>
+              <tr className="text-left text-text-muted">
+                <td className="px-2 py-1.5 font-medium">O que entra</td>
+                <td className="px-2 py-1.5 font-medium">Onde ajustar</td>
+                {anos.map((a) => (
+                  <td key={a} className="px-2 py-1.5 text-right font-medium">
+                    {a}
+                  </td>
+                ))}
+                <td className="px-2 py-1.5 text-right font-medium">Total</td>
+                <td className="px-2 py-1.5 text-right font-medium">% da linha</td>
+              </tr>
+            </thead>
+            <tbody>
+              {lista.map((it) => (
+                <Fragment key={`${it.origem}|${it.rotulo}`}>
+                  <tr className="border-t border-border-soft">
+                    <td className="px-2 py-1.5 font-medium">{it.rotulo}</td>
+                    <td className="px-2 py-1.5 text-[11.5px]">
+                      <Link href={ORIGEM[it.origem]?.href(cenarioId) ?? "#"} className="text-primary-deep underline decoration-dotted">
+                        {ORIGEM[it.origem]?.rotulo ?? it.origem} →
+                      </Link>
+                    </td>
+                    {anos.map((a) => (
+                      <td key={a} className="px-2 py-1.5 text-right font-mono">
+                        {it.porAno[a] ? formatBRL(it.porAno[a]) : "—"}
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right font-mono font-semibold">{formatBRL(it.total)}</td>
+                    <td className="px-2 py-1.5 text-right font-mono">{totalGrupo ? formatPct((it.total / totalGrupo) * 100) : "—"}</td>
+                  </tr>
+                  {it.porProduto.size > 1 &&
+                    [...it.porProduto.entries()]
+                      .sort((a, b) => (b[1].total ?? 0) - (a[1].total ?? 0))
+                      .map(([produto, v]) => (
+                        <tr key={produto} className="text-[11.5px] text-text-muted">
+                          <td className="py-1 pl-6 pr-2">{produto}</td>
+                          <td></td>
+                          {anos.map((a) => (
+                            <td key={a} className="px-2 py-1 text-right font-mono">
+                              {v[a] ? formatBRL(v[a]) : "—"}
+                            </td>
+                          ))}
+                          <td className="px-2 py-1 text-right font-mono">{formatBRL(v.total ?? 0)}</td>
+                          <td className="px-2 py-1 text-right font-mono">{totalGrupo ? formatPct(((v.total ?? 0) / totalGrupo) * 100) : "—"}</td>
+                        </tr>
+                      ))}
+                  {it.porProduto.size === 1 && (
+                    <tr className="text-[11px] text-text-faint">
+                      <td className="py-0.5 pl-6 pr-2" colSpan={anos.length + 4}>
+                        todo de {[...it.porProduto.keys()][0]}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-text bg-bg font-semibold">
+                <td className="px-2 py-2">Total da linha na DRE</td>
+                <td></td>
+                {anos.map((a) => (
+                  <td key={a} className="px-2 py-2 text-right font-mono">
+                    {formatBRL(linhas.filter((l) => l.mes_referencia.startsWith(a)).reduce((s, l) => s + CAMPO_GRUPO[grupo](l), 0))}
+                  </td>
+                ))}
+                <td className="px-2 py-2 text-right font-mono">{formatBRL(totalGrupo)}</td>
+                <td className="px-2 py-2 text-right font-mono">100%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      {lista.length > 0 && (
+        <>
+          <h3 className="mb-2 font-heading text-[12.5px] font-semibold">Mês a mês</h3>
+          <Table
+            head={["Mês", "Total da linha", ...top.map((t) => t.rotulo), ...(lista.length > top.length ? ["Demais"] : [])]}
+            rows={linhas.map((l) => {
+              const totalMes = CAMPO_GRUPO[grupo](l);
+              const doTop = top.reduce((s, t) => s + (t.porMes.get(l.mes_referencia) ?? 0), 0);
+              return [
+                formatMes(l.mes_referencia),
+                formatBRL(totalMes),
+                ...top.map((t) => formatBRL(t.porMes.get(l.mes_referencia) ?? 0)),
+                ...(lista.length > top.length ? [formatBRL(totalMes - doTop)] : []),
+              ];
+            })}
+          />
+        </>
+      )}
+    </>
+  );
 }
 
 /** Conta feita, com os números de verdade — antes da tabela mês a mês, pra dar pra conferir de

@@ -14,6 +14,8 @@ export type LinhaCustos = {
   suporteCs: number;
   gateway: number;
   implementacao: number;
+  /** Custos da empresa lançados em contas de COGS (1.1.x), ex: infra compartilhada. */
+  empresaCogs: number;
   parceiros: number;
   midia: number;
   equipeVariavel: number;
@@ -32,10 +34,11 @@ const VARIAVEIS: Coluna[] = [
   { chave: "llm", label: "LLM", tooltip: "1.1.2 — tokens × preço, só clientes do nível com IA." },
   { chave: "suporteCs", label: "Suporte + CS", tooltip: "1.1.3 — horas por cliente × custo/hora, pelas regras de COGS." },
   { chave: "gateway", label: "Gateway", tooltip: "1.1.5 — Asaas: % + fixo por cobrança, no mix de meios do produto." },
-  { chave: "implementacao", label: "Implantação", tooltip: "1.1.6 — custo das etapas de implementação por cliente novo." },
+  { chave: "implementacao", label: "Implantação", tooltip: "1.1.6 — custo das etapas de implementação por cliente novo (e outros COGS lançados no plano da fase)." },
+  { chave: "empresaCogs", label: "COGS da empresa", tooltip: "Custos da empresa lançados em contas 1.1.x (ex: infra compartilhada no card CSP, modo Compartilhado)." },
   { chave: "parceiros", label: "Parceiros", tooltip: "S&M — fechamento, comissão e crédito ao parceiro (canais representante/associação)." },
   { chave: "midia", label: "Mídia", tooltip: "S&M — impulsionamento do self-service (testes × custo por teste)." },
-  { chave: "equipeVariavel", label: "Equipe p/ demanda", tooltip: "Alocações PJ/agência/bot cobradas pelo volume do mês (SDR, vendedor, suporte)." },
+  { chave: "equipeVariavel", label: "Equipe p/ demanda", tooltip: "Alocações PJ/agência/bot cobradas pelo volume do mês (SDR, vendedor). A alocação de Suporte não soma aqui: o custo de suporte vem das regras de COGS (coluna Suporte + CS)." },
 ];
 const FIXOS: Coluna[] = [
   { chave: "equipeFixa", label: "Equipe CLT", tooltip: "Alocações CLT e pacote fechado — custo independe do volume." },
@@ -88,6 +91,17 @@ export function TabelaCustos({ linhas, cenarioId }: { linhas: LinhaCustos[]; cen
           <InfoTooltip texto="Mês a mês, consolidado entre produtos: a receita e cada tipo de custo em coluna própria. Variáveis escalam com clientes, receita ou vendas; fixos são estrutura. É aqui que a progressão configurada nos cards aparece acontecendo." />
         </h2>
         <div className="flex items-center gap-2">
+          <span className="text-[10.5px] text-text-faint">
+            O que entra em:{" "}
+            {(["cogs", "sm", "pd", "ga"] as const).map((g, i) => (
+              <span key={g}>
+                {i > 0 && " · "}
+                <a href={`/plano/${cenarioId}/indicadores/${g}`} className="text-primary-deep underline decoration-dotted">
+                  {{ cogs: "COGS", sm: "S&M", pd: "P&D", ga: "G&A" }[g]}
+                </a>
+              </span>
+            ))}
+          </span>
           <a href={`/plano/${cenarioId}/custos/export`} className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-primary-deep hover:bg-bg">
             Exportar Excel
           </a>

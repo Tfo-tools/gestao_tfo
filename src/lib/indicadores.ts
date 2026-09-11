@@ -8,7 +8,11 @@ export type IndicadorKey =
   | "churn"
   | "retorno_investimento"
   | "pmv"
-  | "tir";
+  | "tir"
+  | "cogs"
+  | "sm"
+  | "pd"
+  | "ga";
 
 export type IndicadorDef = {
   key: IndicadorKey;
@@ -101,6 +105,36 @@ export const INDICADORES: IndicadorDef[] = [
       { label: "Fomentos e Investimentos", href: hrefFomento },
       { label: "Plano de Custos", href: hrefPlanoCustos },
     ],
+  },
+  {
+    key: "cogs",
+    titulo: "COGS — o que entra na linha",
+    formula:
+      "Custo de entregar o serviço: regras de COGS de cada produto (infra, LLM, suporte reativo e CS proativo em horas × custo/hora, software, gateway), custo das etapas de implementação × clientes novos, e custos lançados em contas 1.1.x. Nada de aquisição de cliente entra aqui.",
+    editarLinks: [{ label: "Plano de Custos (card CSP)", href: hrefPlanoCustos }],
+  },
+  {
+    key: "sm",
+    titulo: "Vendas e Marketing (S&M) — o que entra na linha",
+    formula:
+      "Tudo o que traz cliente: mídia do self-service, fechamento/comissão/crédito pagos a parceiros, equipe comercial alocada (SDR, vendedor, coordenador), feiras e eventos, e custos da empresa em contas 2.1.x. É o numerador do CAC.",
+    editarLinks: [
+      { label: "Canais de aquisição (Vendas)", href: hrefVendas },
+      { label: "Equipe comercial (Necessidade de Contratação)", href: (cenarioId: string) => `/contratacoes/necessidade?cenario=${cenarioId}` },
+    ],
+  },
+  {
+    key: "pd",
+    titulo: "P&D — o que entra na linha",
+    formula: "Desenvolvimento de produto: custos da empresa em contas 2.2.x, equipe alocada de P&D e contratações por produto.",
+    editarLinks: [{ label: "Plano de Custos (Desenvolvimento)", href: hrefPlanoCustos }],
+  },
+  {
+    key: "ga",
+    titulo: "G&A — o que entra na linha",
+    formula:
+      "Estrutura: custos da empresa em contas 2.3.x e 2.4.x (marca), filiação mensal às associações parceiras (fora do CAC) e equipe alocada de G&A.",
+    editarLinks: [{ label: "Plano de Custos", href: hrefPlanoCustos }],
   },
 ];
 

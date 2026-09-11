@@ -61,10 +61,27 @@ export type Agregado = {
   empresaSm: number;
   empresaPd: number;
   empresaGa: number;
-  /** Alocações em CLT/pacote fechado (custo fixo) vs. por demanda (variável). */
+  /** Alocações em CLT/pacote fechado (custo fixo) vs. por demanda (variável). Só as que entram no
+   * EBITDA — a alocação de Suporte só dimensiona (o custo vem das regras de COGS 1.1.3). */
   alocacaoFixa: number;
   alocacaoVariavel: number;
+  /** Custos da empresa lançados em contas de COGS (1.1.x) — ex: modo Compartilhado do card CSP. */
+  empresaCogs: number;
+  /**
+   * De onde vem cada real do mês, por linha da DRE: chave "grupo|origem|rótulo|produto" → R$.
+   * grupo = cogs | sm | pd | ga; origem = onde se edita (regra_cogs, implementacao, canais,
+   * empresa, equipe, feiras, contratacoes, lancado). A soma de um grupo fecha com a linha da DRE.
+   */
+  composicao: Record<string, number>;
 };
+
+export type GrupoDre = "cogs" | "sm" | "pd" | "ga";
+
+function compor(atual: Agregado, grupo: GrupoDre, origem: string, rotulo: string, valor: number, produto = "") {
+  if (Math.abs(valor) < 0.005) return;
+  const chave = `${grupo}|${origem}|${rotulo}|${produto}`;
+  atual.composicao[chave] = (atual.composicao[chave] ?? 0) + valor;
+}
 
 export type ResumoCenario = {
   /** Horizonte simulado inteiro — começa no desenvolvimento de cada produto, antes do plano. */
@@ -417,7 +434,7 @@ export async function agregarPorCenario(
     supabase
       .from("simulacao_mensal")
       .select(
-        "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga, novos_direto, novos_representante, novos_associacao, preco_medio_venda, novos_acoes",
+        "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga, novos_direto, novos_representante, novos_associacao, preco_medio_venda, novos_acoes, cogs_infraestrutura, cogs_llm, cogs_suporte_reativo, cogs_cs_proativo, cogs_suporte, cogs_software, cogs_gateway, cogs_outros",
       )
       .eq("cenario_id", cenarioId)
       .order("mes_referencia"),
@@ -433,6 +450,24 @@ export async function agregarPorCenario(
   const custoAcoesPorMes = new Map<string, number>();
   for (const a of (acoesRaw ?? []) as AcaoMarketing[]) {
     for (const [mes, v] of custoAcaoPorMes(a)) custoAcoesPorMes.set(mes, (custoAcoesPorMes.get(mes) ?? 0) + v);
+  }
+
+  // Nome de cada produto e o custo da implementação por cliente novo (soma das etapas) — pra
+  // separar, no detalhamento do COGS, a implementação dos outros custos lançados.
+  const [{ data: produtosRaw }, { data: etapasRaw }] = await Promise.all([
+    supabase.from("produtos").select("id, nome, tem_implementacao, preco_implementacao"),
+    supabase.from("implementacao_etapas").select("produto_id, horas, valor_hora").eq("cenario_id", cenarioId),
+  ]);
+  const nomeProduto = new Map<string, string>(
+    ((produtosRaw ?? []) as { id: string; nome: string }[]).map((p) => [p.id, p.nome]),
+  );
+  const custoImplPorCliente = new Map<string, number>();
+  for (const p of (produtosRaw ?? []) as { id: string; tem_implementacao: boolean | null; preco_implementacao: number | null }[]) {
+    if (!p.tem_implementacao || p.preco_implementacao == null) continue;
+    const total = ((etapasRaw ?? []) as { produto_id: string; horas: number; valor_hora: number }[])
+      .filter((e) => e.produto_id === p.id)
+      .reduce((s, e) => s + Number(e.horas) * Number(e.valor_hora), 0);
+    custoImplPorCliente.set(p.id, total);
   }
 
   const fasesPorProduto = new Map<string, { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]>();
@@ -637,6 +672,8 @@ export async function agregarPorCenario(
         empresaGa: 0,
         alocacaoFixa: 0,
         alocacaoVariavel: 0,
+        empresaCogs: 0,
+        composicao: {},
       } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
@@ -648,6 +685,25 @@ export async function agregarPorCenario(
     atual.opexPd += Number(row.opex_pd ?? 0);
     atual.opexGa += Number(row.opex_ga ?? 0);
     porMes.set(row.mes_referencia, atual);
+
+    // Composição do que veio do produto — as mesmas colunas que o motor gravou, separadas por regra.
+    const produto = nomeProduto.get(row.produto_id) ?? "Produto";
+    const n = (k: string) => Number(row[k] ?? 0);
+    const implementacao = n("novos_clientes") * (custoImplPorCliente.get(row.produto_id) ?? 0);
+    compor(atual, "cogs", "regra_cogs", "Infraestrutura e cloud (1.1.1)", n("cogs_infraestrutura"), produto);
+    compor(atual, "cogs", "regra_cogs", "APIs / LLM (1.1.2)", n("cogs_llm"), produto);
+    compor(atual, "cogs", "regra_cogs", "Suporte reativo — horas × custo/hora (1.1.3)", n("cogs_suporte_reativo"), produto);
+    compor(atual, "cogs", "regra_cogs", "CS proativo — horas × custo/hora (1.1.3)", n("cogs_cs_proativo"), produto);
+    compor(atual, "cogs", "lancado", "Suporte lançado no plano da fase (1.1.3)", n("cogs_suporte") - n("cogs_suporte_reativo") - n("cogs_cs_proativo"), produto);
+    compor(atual, "cogs", "regra_cogs", "Software de atendimento (1.1.4)", n("cogs_software"), produto);
+    compor(atual, "cogs", "regra_cogs", "Gateway de pagamento (1.1.5)", n("cogs_gateway"), produto);
+    compor(atual, "cogs", "implementacao", "Implementação — etapas × clientes novos (1.1.6)", implementacao, produto);
+    compor(atual, "cogs", "lancado", "Outros COGS lançados no plano da fase", n("cogs_outros") - n("cogs_llm") - n("cogs_software") - n("cogs_gateway") - implementacao, produto);
+    compor(atual, "sm", "canais", "Mídia do self-service e marketing do produto", n("sm_marketing"), produto);
+    compor(atual, "sm", "canais", "Parceiros: fechamento, comissão e crédito (e equipe do produto)", n("sm_vendas"), produto);
+    compor(atual, "sm", "lancado", "Outros S&M do produto", n("sm_outros"), produto);
+    compor(atual, "pd", "contratacoes", "Equipe e custos de P&D do produto", n("opex_pd"), produto);
+    compor(atual, "ga", "contratacoes", "Equipe e custos de G&A do produto", n("opex_ga"), produto);
 
     const novos = Number(row.novos_clientes ?? 0);
     atual.novosClientes += novos;
@@ -672,7 +728,7 @@ export async function agregarPorCenario(
 
   // Custos compartilhados da empresa (não ligados a um produto) — entram uma vez no EBITDA
   // consolidado, sem ratear entre produtos.
-  const modeloById = new Map(((modelosRaw ?? []) as { id: string; cargo: string; categoria: "pd" | "sm" | "ga"; tipo_modelo: string; parametros: ParametrosModelo }[]).map((m) => [m.id, m]));
+  const modeloById = new Map(((modelosRaw ?? []) as { id: string; nome?: string; cargo: string; categoria: "pd" | "sm" | "ga"; tipo_modelo: string; parametros: ParametrosModelo }[]).map((m) => [m.id, m]));
   for (const atual of porMes.values()) {
     const mesDate = new Date(atual.mes_referencia + "T00:00:00");
 
@@ -685,14 +741,30 @@ export async function agregarPorCenario(
       custosEmpresa += valor;
       if (valor !== 0 && c.plano_contas) {
         const sub = subgrupoDeConta(c.plano_contas.codigo, c.plano_contas.tipo);
+        const rotulo = `${c.item} (${c.plano_contas.codigo})`;
         if (sub === "marketing") atual.smMarketing += valor;
         else if (sub === "vendas") atual.smVendas += valor;
         else if (sub === "outros_sm") atual.smOutros += valor;
         else if (sub === "pd") atual.opexPd += valor;
         else if (sub === "ga") atual.opexGa += valor;
-        if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") atual.empresaSm += valor;
-        else if (sub === "pd") atual.empresaPd += valor;
-        else atual.empresaGa += valor;
+        else if (sub === "suporte" || sub === "infraestrutura" || sub === "outros_cogs") {
+          // Custo da empresa em conta de COGS (ex: infra compartilhada lançada no card CSP, modo
+          // Compartilhado) — antes ficava fora do EBITDA; é custo de entregar o serviço.
+          atual.cogs += valor;
+          atual.empresaCogs += valor;
+          compor(atual, "cogs", "empresa", rotulo, valor);
+        }
+        if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") {
+          atual.empresaSm += valor;
+          compor(atual, "sm", "empresa", rotulo, valor);
+        } else if (sub === "pd") {
+          atual.empresaPd += valor;
+          compor(atual, "pd", "empresa", rotulo, valor);
+        } else if (sub === "ga") {
+          atual.empresaGa += valor;
+          compor(atual, "ga", "empresa", rotulo, valor);
+        }
+        // Financeiro (3.x), capital e ativos ficam fora da DRE operacional — e fora das colunas.
       }
     }
     // Feiras e eventos: custo de marketing da empresa (não de um produto), no mês em que é pago.
@@ -702,6 +774,7 @@ export async function agregarPorCenario(
       atual.smMarketing += custoAcoes;
       atual.empresaSm += custoAcoes;
       atual.smFeirasEventos += custoAcoes;
+      compor(atual, "sm", "feiras", "Feiras e eventos (2.1.8)", custoAcoes);
     }
 
     // Mensalidade de manter cada parceiro (ex: associação): taxa de filiação, conta 2.3.5.1
@@ -714,7 +787,9 @@ export async function agregarPorCenario(
       const custo = ativos * canal.custoMensalPorParceiro;
       custosEmpresa += custo;
       atual.opexGa += custo;
+      atual.empresaGa += custo;
       atual.gaTaxasFiliacao += custo;
+      compor(atual, "ga", "canais", "Filiação de associações parceiras (2.3.5.1)", custo);
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -759,14 +834,22 @@ export async function agregarPorCenario(
       else if (chaveCargo === "coordenador") atual.alocacaoCoordenador += custoModelo;
       else if (chaveCargo === "suporte") atual.alocacaoSuporte += custoModelo;
       else atual.alocacaoOutros += custoModelo;
-      if (tipo === "clt" || tipo === "empresa_fixo_escopo") atual.alocacaoFixa += custoModelo;
-      else atual.alocacaoVariavel += custoModelo;
       const sub = subgrupoDeCargo(modelo.cargo, modelo.categoria);
+      // Alocação de Suporte só dimensiona equipe: o custo de suporte vem das regras de COGS (1.1.3).
+      // Ela não entra no EBITDA — e por isso também não entra nas colunas de equipe.
+      if (sub !== "suporte") {
+        if (tipo === "clt" || tipo === "empresa_fixo_escopo") atual.alocacaoFixa += custoModelo;
+        else atual.alocacaoVariavel += custoModelo;
+      }
+      const rotuloEquipe = `${modelo.nome ?? a.cargo} — ${a.cargo}`;
       if (sub === "marketing") atual.smMarketing += custoModelo;
       else if (sub === "vendas") atual.smVendas += custoModelo;
       else if (sub === "outros_sm") atual.smOutros += custoModelo;
       else if (sub === "pd") atual.opexPd += custoModelo;
       else if (sub === "ga") atual.opexGa += custoModelo;
+      if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") compor(atual, "sm", "equipe", rotuloEquipe, custoModelo);
+      else if (sub === "pd") compor(atual, "pd", "equipe", rotuloEquipe, custoModelo);
+      else if (sub === "ga") compor(atual, "ga", "equipe", rotuloEquipe, custoModelo);
     }
 
     atual.custosEmpresa = custosEmpresa;

@@ -226,6 +226,7 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
       suporteCs: (m.cogs_suporte_reativo ?? 0) + (m.cogs_cs_proativo ?? 0),
       gateway,
       implementacao: Math.max(0, (m.cogs_outros ?? 0) - llm - software - gateway),
+      empresaCogs: l.empresaCogs,
       parceiros: m.sm_vendas ?? 0,
       midia: m.sm_marketing ?? 0,
       equipeVariavel: l.alocacaoVariavel,

@@ -95,6 +95,19 @@ O hub `/plano/[cenarioId]` conecta tudo isso. `/cenarios` → clicar no nome do 
 - Salvar preço/parcelas recalcula o produto em todos os cenários (são do produto); salvar/editar/
   excluir etapa recalcula só o cenário da etapa. Valores antes de impostos (DAS).
 
+## O que entra em cada linha da DRE (confirmado em 2026-09-11)
+
+- Clicar em COGS, S&M, P&D ou G&A (Indicadores) abre a composição: cada origem, por produto, por
+  ano, com onde ajustar. A soma fecha com a linha (`Agregado.composicao`).
+- **Suporte reativo e CS proativo** = 100% custo de pessoas, calculado por horas necessárias ×
+  custo/hora do perfil (tabela de custo/hora), em COGS 1.1.3. A alocação de Suporte em
+  Necessidade de Contratação só dimensiona — não soma no EBITDA nem nas colunas de equipe.
+- **Aquisição nunca cai no COGS**: SDR/vendedor (alocações S&M), fechamento/comissão/crédito a
+  parceiros e mídia do self-service vão pra S&M; filiação mensal às associações vai pra G&A (fora do
+  CAC). Do cliente de canal, só entram no COGS a implementação (custo de entrega) e o gateway.
+- Custo da empresa em conta 1.1.x (ex: infra compartilhada) entra no COGS; financeiro (3.x),
+  capital e ativos ficam fora da DRE operacional.
+
 ## Produtos (tela) x Vendas (tela) — divisão de responsabilidade
 
 - **Produtos** = só planos de precificação + módulos add-on. **Não tem** fase, crescimento, churn,

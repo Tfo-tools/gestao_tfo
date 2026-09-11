@@ -46,6 +46,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
       suporteCs: (m.cogs_suporte_reativo ?? 0) + (m.cogs_cs_proativo ?? 0),
       gateway,
       implementacao: Math.max(0, (m.cogs_outros ?? 0) - llm - software - gateway),
+      empresaCogs: l.empresaCogs,
       parceiros: m.sm_vendas ?? 0,
       midia: m.sm_marketing ?? 0,
       equipeVariavel: l.alocacaoVariavel,
@@ -60,7 +61,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
 
   const VAR: Col[] = [
     { header: "Infra (1.1.1)", key: "infra" }, { header: "LLM (1.1.2)", key: "llm" }, { header: "Suporte + CS (1.1.3)", key: "suporteCs" },
-    { header: "Gateway (1.1.5)", key: "gateway" }, { header: "Implantação (1.1.6)", key: "implementacao" }, { header: "Parceiros (S&M)", key: "parceiros" },
+    { header: "Gateway (1.1.5)", key: "gateway" }, { header: "Implantação (1.1.6)", key: "implementacao" }, { header: "COGS da empresa (1.1.x)", key: "empresaCogs" }, { header: "Parceiros (S&M)", key: "parceiros" },
     { header: "Mídia (S&M)", key: "midia" }, { header: "Equipe por demanda", key: "equipeVariavel" },
   ];
   const FIX: Col[] = [
