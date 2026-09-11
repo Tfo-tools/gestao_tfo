@@ -61,6 +61,30 @@ O hub `/plano/[cenarioId]` conecta tudo isso. `/cenarios` → clicar no nome do 
   marketing, vendas, outros S&M). O "foco do investimento" escolhido na tela vira coluna própria e
   destacada; o resto do grupo vai em "Outros". Totais, EBITDA e acumulados saem como fórmulas.
 - Fecha com o EBITDA do app: Receita − variáveis − fixos = EBITDA de `agregarPorCenario`.
+- Uso do recurso = **Orçamento proposto** do programa (Fomento & Investimento → programa →
+  Orçamento). A conta do plano de contas define a frente; as frentes do capital novo vêm marcadas
+  como foco. "Destinação do investimento (%)" em Indicadores fica como resumo opcional.
+
+## Indicadores — TIR e preço médio de venda (confirmado em 2026-09-11)
+
+- **PMV = preço médio de venda**, não ticket médio: mensalidade de tabela de cada venda nova
+  (planos pelo mix + níveis/módulos pela adesão), sem descontos e sem implementação, ponderada
+  pelas vendas (`simulacao_mensal.preco_medio_venda`). Ticket médio (receita ÷ clientes) aparece
+  ao lado só pra comparar. A barra de Vendas mostra o PMV.
+- **TIR** anualizada do fluxo mensal do período, sem valor de saída. Com capital novo: sai no mês
+  do aporte e volta como EBITDA (mesma base do "Capital coberto por caixa próprio"). Sem capital
+  novo: TIR do projeto sobre o EBITDA. Alimenta a meta de TIR do cenário.
+
+## Marketing — feiras e eventos (confirmado em 2026-09-11)
+
+- Painel no card **Marketing** do Plano de Custos (tabela `acoes_marketing`, conta 2.1.8).
+- **Feira**: mês/ano, custo estimado e retorno (clientes por ferramenta e plano). Custo em 3
+  parcelas até o mês da feira; vendas no mês da feira.
+- **Eventos**: ano, quantidade, custo médio e retorno por evento. Custo do ano em 12 parcelas fixas;
+  clientes do ano distribuídos nos 12 meses.
+- Vendas entram no **canal direto** ao preço do plano/nível escolhido (sem plano = mix do produto);
+  o lote encolhe com o churn. Nível ainda não lançado paga a média até lançar. Venda antes do
+  lançamento do produto entra no mês do lançamento. Custo entra em Marketing (e no CAC).
 
 ## Produtos (tela) x Vendas (tela) — divisão de responsabilidade
 
@@ -70,7 +94,7 @@ O hub `/plano/[cenarioId]` conecta tudo isso. `/cenarios` → clicar no nome do 
   **Não tem** planos, preços nem módulos — isso foi removido de lá.
 - Layout de Vendas é **matriz**: uma seção por fase (abre/fecha), dentro dela uma tabela com os
   produtos em coluna — não é mais um bloco por produto empilhado com todas as fases dentro.
-- KPI no topo de Vendas: só Receita, CAC, LTV, PMV (ticket médio) — indicadores que **não**
+- KPI no topo de Vendas: só Receita, CAC, LTV, PMV (preço médio de venda — ver seção de Indicadores) — indicadores que **não**
   dependem de custo. ROI, TIR, margem e EBITDA ficam em Custos.
 - Churn digitado é sempre "mensal-equivalente": pra planos semestrais/anuais, deve ser aplicado
   de forma composta só no mês de renovação, não mês a mês (proposto, **ainda não implementado no

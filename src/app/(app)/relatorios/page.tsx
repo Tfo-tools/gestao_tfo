@@ -11,6 +11,8 @@ import {
   type ProgramaAporte,
 } from "@/lib/relatorios-cenario";
 import { ExportarInvestidor } from "./exportar-investidor";
+import { carregarOrcamentoProgramas, LABEL_CATEGORIA_USO, somaPorCategoria, type LinhaOrcamento } from "@/lib/orcamento-programa";
+import type { FocoInvestimento } from "@/lib/indicadores-investidor";
 import { grupoDeConta, GRUPO_TOOLTIP as GRUPO_TOOLTIP_DRE } from "@/lib/grupo-dre";
 import { calcularRetornoPrograma, agregarRetornoProgramas } from "@/lib/retorno-investidor";
 
@@ -353,6 +355,17 @@ export async function RelatorioPlanos({
   const investimentoPorMes = resumo.aportes.porMes;
   const programaIds = resumo.aportes.programas.map((p) => p.id);
 
+  // Uso do recurso = orçamento proposto de cada programa (Fomento & Investimento → Orçamento).
+  // As frentes onde o capital NOVO vai ser aplicado viram o foco padrão da planilha do investidor.
+  const orcamento = await carregarOrcamentoProgramas(supabase, programaIds);
+  const idsNovos = new Set(resumo.aportes.programas.filter((p) => p.entraNoRetorno).map((p) => p.id));
+  const orcamentoFoco = orcamento.some((l) => idsNovos.has(l.programa_id)) ? orcamento.filter((l) => idsNovos.has(l.programa_id)) : orcamento;
+  const focosPadrao = orcamentoFoco.length > 0 ? ([...somaPorCategoria(orcamentoFoco).keys()] as FocoInvestimento[]) : null;
+  const origemFoco =
+    orcamentoFoco.length > 0
+      ? `o orçamento proposto de ${[...new Set(orcamentoFoco.map((l) => resumo.aportes.programas.find((p) => p.id === l.programa_id)?.nome))].join(" e ")}`
+      : null;
+
   // Retorno do investidor via diluição de equity (MOIC/ROI/TIR) — só programas que não são
   // fomento (subvenção não tem cap table) e que já têm valuation pós-money cadastrado.
   const { data: programasComValuation } =
@@ -401,7 +414,7 @@ export async function RelatorioPlanos({
   const ultimoMes = resumo.periodo.fim ?? resumo.linhas[resumo.linhas.length - 1]?.mes_referencia ?? null;
   const linhasPeriodo = recortarPeriodo(resumo.linhas, inicio ?? primeiroMes, fim ?? ultimoMes);
 
-  const metricas = computeMetricas(linhasPeriodo, resumo.totalInvestido);
+  const metricas = computeMetricas(linhasPeriodo, resumo.totalInvestido, resumo.aportes.capitalNovoPorMes);
   const mesesDoPeriodo = new Set(linhasPeriodo.map((l) => l.mes_referencia));
   const aportesPeriodoPorPrograma = resumo.aportes.programas
     .map((p) => ({ ...p, valorPeriodo: p.parcelas.filter((x) => mesesDoPeriodo.has(x.mes)).reduce((s, x) => s + x.valor, 0) }))
@@ -458,7 +471,7 @@ export async function RelatorioPlanos({
         </div>
       ) : (
         <>
-          <ExportarInvestidor cenarioId={cenarioId} inicio={inicioSel} fim={fimSel} />
+          <ExportarInvestidor cenarioId={cenarioId} inicio={inicioSel} fim={fimSel} focosPadrao={focosPadrao} origemFoco={origemFoco} />
           <MetricasInvestidor
             nome={nome}
             metricas={metricas}
@@ -476,6 +489,7 @@ export async function RelatorioPlanos({
             inicio={inicioSel}
             fim={fimSel}
           />
+          <UsoDoRecurso programas={resumo.aportes.programas} orcamento={orcamento} />
           <AlocacaoInvestimento cenarioId={cenarioId} itens={alocacoes ?? []} nomeCenario={nome} />
           <GraficoReceitaEInvestimento nome={nome} linhasPeriodo={linhasPeriodo} investimentoPorMes={investimentoPorMes} />
         </>
@@ -551,6 +565,16 @@ function MetricasInvestidor({
           detalhe="ARPU × margem bruta ÷ churn"
         />
         <Metrica
+          href={hrefDetalhe("pmv")}
+          label="Preço médio de venda"
+          valor={metricas.precoMedioVenda != null ? formatBRL(metricas.precoMedioVenda) : "recalcule a projeção"}
+          detalhe={
+            metricas.ticketMedio != null
+              ? `mensalidade de tabela das vendas · ticket médio ${formatBRL(metricas.ticketMedio)}`
+              : "mensalidade de tabela, ponderada pelas vendas"
+          }
+        />
+        <Metrica
           href={hrefDetalhe("churn")}
           label="Churn médio"
           valor={metricas.churnMedio != null ? `${metricas.churnMedio.toFixed(1)}%/mês` : "—"}
@@ -569,6 +593,18 @@ function MetricasInvestidor({
           }
         />
         <Metrica
+          href={hrefDetalhe("tir")}
+          label={metricas.tirBase === "capital_novo" ? "TIR do capital novo" : "TIR do projeto"}
+          valor={metricas.tirAnualPct != null ? `${metricas.tirAnualPct.toFixed(1)}% a.a.` : "não se aplica"}
+          detalhe={
+            metricas.tirAnualPct != null
+              ? metricas.tirBase === "capital_novo"
+                ? "capital novo sai no aporte, volta como EBITDA"
+                : "fluxo de EBITDA do período (queima = investimento)"
+              : "o fluxo não tem saída e retorno no período"
+          }
+        />
+        <Metrica
           href="/fomento"
           label="Retorno do investidor (equity)"
           valor={retornoInvestidor.temValuation && retornoInvestidor.roiPct != null ? `${retornoInvestidor.roiPct.toFixed(0)}%` : "sem valuation cadastrado"}
@@ -578,6 +614,58 @@ function MetricasInvestidor({
               : "cadastre o valuation em Fomento pra calcular"
           }
         />
+      </div>
+    </div>
+  );
+}
+
+/** Como o recurso de cada programa vinculado vai ser usado — lido do Orçamento proposto. */
+function UsoDoRecurso({ programas, orcamento }: { programas: ProgramaAporte[]; orcamento: LinhaOrcamento[] }) {
+  if (programas.length === 0) return null;
+  return (
+    <div className="mb-5 rounded-xl border border-border bg-surface p-5">
+      <h2 className="mb-1 flex items-center font-heading text-[13px] font-semibold">
+        Uso do recurso — orçamento proposto
+        <InfoTooltip texto="Vem da tela Fomento & Investimento → programa → Orçamento proposto (atividade, período, rubrica, conta do plano de contas e valor). A conta define a frente: marketing, vendas, produto (P&D), operação (COGS) ou estrutura (G&A). Também é a base do 'foco do investimento' da planilha." />
+      </h2>
+      <p className="mb-3 text-[11px] text-text-muted">Onde cada programa vinculado ao cenário aplica o dinheiro</p>
+      <div className="flex flex-col gap-2.5">
+        {programas.map((p) => {
+          const linhas = orcamento.filter((l) => l.programa_id === p.id);
+          const total = linhas.reduce((s, l) => s + l.valor, 0);
+          const porCategoria = [...somaPorCategoria(linhas).entries()].sort((a, b) => b[1] - a[1]);
+          return (
+            <div key={p.id} className="rounded-lg border border-border-soft px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3 text-[12px]">
+                <span className="font-medium">
+                  {p.nome}{" "}
+                  <span className="text-[10.5px] font-normal text-text-faint">
+                    {p.entraNoRetorno ? "investimento novo" : p.tipo === "fomento" ? "fomento" : "já aplicado"}
+                  </span>
+                </span>
+                <Link href={`/fomento/${p.id}/orcamento`} className="text-[11px] text-primary-deep underline">
+                  {linhas.length > 0 ? "Editar orçamento →" : "Cadastrar orçamento →"}
+                </Link>
+              </div>
+              {linhas.length === 0 ? (
+                <p className="mt-1 text-[11px] text-text-faint">Sem orçamento proposto cadastrado.</p>
+              ) : (
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-text-muted">
+                  {porCategoria.map(([cat, v]) => (
+                    <span key={cat}>
+                      {LABEL_CATEGORIA_USO[cat]}: <span className="font-mono text-text">{formatBRL(v)}</span>{" "}
+                      <span className="text-text-faint">({total > 0 ? ((v / total) * 100).toFixed(0) : 0}%)</span>
+                    </span>
+                  ))}
+                  <span className="text-text-faint">
+                    · total {formatBRL(total)}
+                    {Math.abs(total - p.valorTotal) > 1 && ` de ${formatBRL(p.valorTotal)} do programa`}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

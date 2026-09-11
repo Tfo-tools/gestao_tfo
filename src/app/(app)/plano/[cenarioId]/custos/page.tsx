@@ -9,6 +9,11 @@ import { CogsPremissasForm, type ProdutoCogs, type PerfilHora } from "./cogs-pre
 import { TabelaCustos, type LinhaCustos } from "./tabela-custos";
 import { CustosCategoriaCard, type CustoFixoRow, type CustoVariavelRow } from "./custos-categoria-card";
 import { AvisoTelaGrande } from "@/components/aviso-tela-grande";
+import { FeirasEventos, type ProdutoPlanos } from "./feiras-eventos";
+import type { AcaoMarketing } from "@/lib/acoes-marketing";
+
+// Salvar uma feira/evento recalcula a projeção de todos os produtos — leva alguns segundos.
+export const maxDuration = 60;
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -37,7 +42,7 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
   const resumo = await agregarPorCenario(supabase, cenarioId);
   // Tudo nesta tela fala do período do cenário — o que a simulação calcula antes do início é
   // preparação, não entra nos indicadores nem nos totais apresentados.
-  const metricas = computeMetricas(resumo.linhasPeriodo, resumo.totalInvestido);
+  const metricas = computeMetricas(resumo.linhasPeriodo, resumo.totalInvestido, resumo.aportes.capitalNovoPorMes);
   const ultimaLinha = resumo.linhasPeriodo[resumo.linhasPeriodo.length - 1];
 
   const [{ data: fixosRaw }, { data: variaveisRaw }, { data: custosEmpresaRaw }] = await Promise.all([
@@ -91,11 +96,23 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
     (simRows ?? []).reduce((s, r) => s + Number((r as Record<string, unknown>)[campo] ?? 0), 0);
 
   // Premissas de COGS por produto + perfis de custo/hora + níveis (pro seletor do LLM).
-  const [{ data: cogsRaw }, { data: perfisRaw }, { data: modulosRaw }] = await Promise.all([
+  const [{ data: cogsRaw }, { data: perfisRaw }, { data: modulosRaw }, { data: planosRaw }, { data: acoesRaw }, { data: produtosCenario }] = await Promise.all([
     supabase.from("cogs_premissas").select("produto_id, parametros").eq("cenario_id", cenarioId),
     supabase.from("tabela_custo_hora").select("cargo, tipo_contratacao, senioridade, valor_hora").order("cargo"),
-    supabase.from("modulos_produto").select("produto_id, nome").order("data_disponibilidade"),
+    // Só os níveis deste cenário — sem o filtro, cada cenário espelhado repetia os níveis na lista.
+    supabase.from("modulos_produto").select("produto_id, nome, preco").eq("cenario_id", cenarioId).order("data_disponibilidade"),
+    supabase.from("planos_precificacao").select("produto_id, nome_plano, tipo_cobranca, preco").eq("cenario_id", cenarioId),
+    supabase.from("acoes_marketing").select("*").eq("cenario_id", cenarioId).order("created_at"),
+    supabase.from("produtos").select("id, nome").or(`cenario_id.is.null,cenario_id.eq.${cenarioId}`).order("nome"),
   ]);
+  const produtosPlanos: ProdutoPlanos[] = (produtosCenario ?? []).map((p) => ({
+    id: p.id,
+    nome: p.nome,
+    planos: (planosRaw ?? [])
+      .filter((pl) => pl.produto_id === p.id)
+      .map((pl) => ({ nome: pl.nome_plano ?? pl.tipo_cobranca, preco: Number(pl.preco) })),
+    niveis: (modulosRaw ?? []).filter((m) => m.produto_id === p.id).map((m) => ({ nome: m.nome, preco: Number(m.preco) })),
+  }));
   const somaSimProduto = (produtoId: string, campo: string) =>
     (simRows ?? []).filter((r) => r.produto_id === produtoId).reduce((s, r) => s + Number((r as Record<string, unknown>)[campo] ?? 0), 0);
   const produtosCogs: ProdutoCogs[] = (produtos ?? []).map((p) => {
@@ -251,7 +268,7 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
           cac: metricas.cacMedio,
           ltv: metricas.ltvMedio,
           roiPct: metricas.roiPct,
-          tirPct: null,
+          tirPct: metricas.tirAnualPct,
         }}
       />
 
@@ -288,7 +305,13 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
               receitaPorProduto={receitaPorProduto}
               derivados={derivados.filter((d) => d.categoria === chave)}
               atalhos={atalhosPorCategoria[chave] ?? []}
-              painel={chave === "csp" ? <CogsPremissasForm cenarioId={cenarioId} produtos={produtosCogs} perfis={perfisHora} /> : undefined}
+              painel={
+                chave === "csp" ? (
+                  <CogsPremissasForm cenarioId={cenarioId} produtos={produtosCogs} perfis={perfisHora} />
+                ) : chave === "marketing" ? (
+                  <FeirasEventos cenarioId={cenarioId} acoes={(acoesRaw ?? []) as AcaoMarketing[]} produtos={produtosPlanos} />
+                ) : undefined
+              }
             />
           );
         })}

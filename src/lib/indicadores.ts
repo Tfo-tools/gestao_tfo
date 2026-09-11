@@ -6,7 +6,9 @@ export type IndicadorKey =
   | "cac"
   | "ltv"
   | "churn"
-  | "retorno_investimento";
+  | "retorno_investimento"
+  | "pmv"
+  | "tir";
 
 export type IndicadorDef = {
   key: IndicadorKey;
@@ -79,6 +81,26 @@ export const INDICADORES: IndicadorDef[] = [
     formula:
       "Mês em que o EBITDA acumulado (desde o início do período) recupera o capital NOVO vinculado ao cenário — o investimento ainda não aplicado. Fomento e parcelas já recebidas ficam fora da conta.",
     editarLinks: [{ label: "Fomentos e Investimentos", href: hrefFomento }],
+  },
+  {
+    key: "pmv",
+    titulo: "Preço médio de venda (PMV)",
+    formula:
+      "Mensalidade de tabela de cada venda nova — planos pelo mix de venda + níveis/módulos pela fatia de adesão —, ponderada pelos clientes novos de cada produto no período. Não é o ticket médio: não carrega descontos (beta, canal, combo) nem implementação.",
+    editarLinks: [
+      { label: "Planos e níveis (Produtos)", href: (cenarioId: string) => (cenarioId ? `/produtos?cenario=${cenarioId}` : "/produtos") },
+      { label: "Vendas", href: hrefVendas },
+    ],
+  },
+  {
+    key: "tir",
+    titulo: "TIR — taxa interna de retorno",
+    formula:
+      "Taxa que zera o valor presente do fluxo mensal do período, anualizada. Com capital novo vinculado: o capital sai no mês do aporte e volta como EBITDA (mesma base do Capital coberto por caixa próprio). Sem capital novo: TIR do projeto sobre o fluxo de EBITDA — os meses negativos são o investimento que a operação consome. Não inclui valor de saída (leitura conservadora).",
+    editarLinks: [
+      { label: "Fomentos e Investimentos", href: hrefFomento },
+      { label: "Plano de Custos", href: hrefPlanoCustos },
+    ],
   },
 ];
 

@@ -27,12 +27,16 @@ export type LinhaMensalInvestidor = {
   mes: string;
   clientes: number;
   novos: number;
+  /** Dos novos, quantos vieram de feiras e eventos. */
+  novosAcoes: number;
   perdidos: number;
   mrr: number;
   receita: number;
   impostos: number;
   operacao: number;
   marketing: number;
+  /** Dentro de marketing: custo de feiras e eventos. */
+  feirasEventos: number;
   vendas: number;
   outrosSm: number;
   produto: number;
@@ -97,12 +101,14 @@ export function linhasMensaisInvestidor(
       mes: l.mes_referencia,
       clientes: l.clientes,
       novos: l.novosClientes,
+      novosAcoes: l.novosAcoes ?? 0,
       perdidos: extras.perdidosPorMes.get(l.mes_referencia) ?? 0,
       mrr: extras.mrrPorMes.get(l.mes_referencia) ?? 0,
       receita: l.receita,
       impostos,
       operacao,
       marketing,
+      feirasEventos: l.smFeirasEventos ?? 0,
       vendas,
       outrosSm,
       produto,
@@ -118,7 +124,7 @@ export function linhasMensaisInvestidor(
   });
 }
 
-const SOMAVEIS = ["novos", "perdidos", "receita", "impostos", "operacao", "marketing", "vendas", "outrosSm", "produto", "estrutura", "variaveis", "fixos", "custosTotais", "ebitda", "aportes"] as const;
+const SOMAVEIS = ["novos", "novosAcoes", "perdidos", "receita", "impostos", "operacao", "marketing", "feirasEventos", "vendas", "outrosSm", "produto", "estrutura", "variaveis", "fixos", "custosTotais", "ebitda", "aportes"] as const;
 
 export function resumoAnualInvestidor(mensal: LinhaMensalInvestidor[]): LinhaAnualInvestidor[] {
   const porAno = new Map<string, LinhaMensalInvestidor[]>();
@@ -235,6 +241,7 @@ export function indicadoresInvestidor(input: {
     // Eficiência
     { grupo: "Margens e unit economics", nome: "Margem bruta", valor: margemBrutaPct, formato: "pct", calculo: "(Receita − COGS − DAS) ÷ Receita. COGS inclui infraestrutura, APIs/LLM, suporte/CS, gateway e implementação.", referencia: "Bom 70–75% · Alto > 80%", leitura: faixa(margemBrutaPct, (v) => v > 0.8, (v) => v >= 0.7) },
     { grupo: "Margens e unit economics", nome: "Margem EBITDA do período", valor: metricas.margemOperacional != null ? metricas.margemOperacional / 100 : null, formato: "pct", calculo: "EBITDA acumulado ÷ receita acumulada.", referencia: "—", leitura: null },
+    { grupo: "Margens e unit economics", nome: "Preço médio de venda (PMV)", valor: metricas.precoMedioVenda, formato: "brl", calculo: "Mensalidade de tabela de cada venda nova (planos pelo mix + níveis/módulos pela adesão), ponderada pelas vendas do período. Sem descontos e sem implementação.", referencia: "Compare com o ticket médio (abaixo): a diferença são descontos, beta testers e combos.", leitura: null },
     { grupo: "Margens e unit economics", nome: "Ticket médio mensal por cliente (ARPA)", valor: arpa, formato: "brl", calculo: "MRR ÷ clientes ativos, média do período.", referencia: "Define o perfil do cliente (SMB, mid-market, enterprise).", leitura: null },
     { grupo: "Margens e unit economics", nome: "CAC (all-in)", valor: cac, formato: "brl", calculo: "(Marketing + Vendas + Outros S&M — mídia, ferramentas, equipe comercial, comissões, parceiros) ÷ novos clientes do período.", referencia: "Precisa incluir salários, comissões e ferramentas (CAC mascarado é red flag).", leitura: null },
     { grupo: "Margens e unit economics", nome: "LTV", valor: ltv, formato: "brl", calculo: "ARPU × margem bruta ÷ churn mensal, ponderado pelos clientes ativos de cada mês.", referencia: "—", leitura: null },
@@ -255,6 +262,18 @@ export function indicadoresInvestidor(input: {
     { grupo: "Retorno do investimento novo", nome: "Capital recuperado pelo EBITDA", valor: capitalNovo > 0 ? metricas.investimentoRecuperado / capitalNovo : null, formato: "pct", calculo: "EBITDA acumulado do período ÷ capital novo.", referencia: "—", leitura: null },
     { grupo: "Retorno do investimento novo", nome: "Mês de recuperação do capital novo", valor: capitalNovo > 0 ? (metricas.paybackMes ? formatarMesAno(metricas.paybackMes) : "não recuperado no período") : "sem capital novo vinculado", formato: "texto", calculo: "Primeiro mês em que o EBITDA acumulado ≥ capital novo.", referencia: "—", leitura: null },
   ];
+  lista.push({
+    grupo: "Retorno do investimento novo",
+    nome: metricas.tirBase === "capital_novo" ? "TIR do capital novo (a.a.)" : "TIR do projeto (a.a.)",
+    valor: metricas.tirAnualPct != null ? metricas.tirAnualPct / 100 : "não se aplica no período",
+    formato: metricas.tirAnualPct != null ? "pct" : "texto",
+    calculo:
+      metricas.tirBase === "capital_novo"
+        ? "Taxa que zera o valor presente do fluxo mensal: capital novo sai no mês do aporte e volta como EBITDA. Anualizada. Sem valor de saída (conservadora)."
+        : "Taxa que zera o valor presente do fluxo de EBITDA mensal (meses negativos = investimento que a operação consome). Anualizada. Sem valor de saída.",
+    referencia: "Compare com a taxa mínima de atratividade do investidor.",
+    leitura: null,
+  });
   if (input.retornoEquity?.moic != null) {
     lista.push({ grupo: "Retorno do investimento novo", nome: "MOIC do investidor (equity)", valor: input.retornoEquity.moic, formato: "x", calculo: "Valor da participação na última reavaliação ÷ valor investido (cadastro de valuation em Fomento).", referencia: "—", leitura: null });
   }

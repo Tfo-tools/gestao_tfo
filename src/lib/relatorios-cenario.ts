@@ -12,6 +12,7 @@ import {
 } from "@/lib/necessidade-contratacao";
 import { calcularImpostoSimples } from "@/lib/impostos";
 import { subgrupoDeConta, subgrupoDeCargo } from "@/lib/subgrupo-conta";
+import { custoAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
 
 export type Agregado = {
   mes_referencia: string;
@@ -39,6 +40,17 @@ export type Agregado = {
   // estrutura, não de aquisição — por conceito não entra no CAC. Guardado à parte só pra poder
   // mostrar a linha separada sem alterar nenhum total.
   gaTaxasFiliacao: number;
+  /** Feiras e eventos (acoes_marketing): fica DENTRO de smMarketing — guardado à parte só pra exibir. */
+  smFeirasEventos: number;
+  /** Clientes novos vindos de feiras/eventos (já dentro de novosClientes). */
+  novosAcoes: number;
+  /** Σ preço médio de venda × novos clientes, por produto — base do PMV ponderado pelas vendas. */
+  pmvPonderado: number;
+  /** Novos clientes dos produtos que têm preço médio de venda no mês (denominador do PMV). */
+  novosComPmv: number;
+  /** Fallback do PMV em mês sem venda nova: Σ preço médio × clientes ativos, e esses clientes. */
+  pmvPonderadoBase: number;
+  clientesComPmv: number;
   // Quebra por ORIGEM, pra tela de custos mostrar coluna a coluna de onde vem cada real:
   // alocações de equipe por cargo (Necessidade de Contratação) e custos da empresa por grupo.
   alocacaoSdr: number;
@@ -99,6 +111,8 @@ export type AportesCenario = {
   porMes: Map<string, number>;
   /** Soma do que entra no cálculo de retorno. */
   capitalNovo: number;
+  /** Capital novo por mês de entrada (parcelas não recebidas dos programas que entram no retorno). */
+  capitalNovoPorMes: Map<string, number>;
 };
 
 /**
@@ -114,7 +128,7 @@ export async function carregarAportes(
   supabase: any,
   cenarioId: string,
 ): Promise<AportesCenario> {
-  const vazio: AportesCenario = { programas: [], porMes: new Map(), capitalNovo: 0 };
+  const vazio: AportesCenario = { programas: [], porMes: new Map(), capitalNovo: 0, capitalNovoPorMes: new Map() };
   if (!cenarioId) return vazio;
   const { data: vinculos } = await supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId);
   const ids = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
@@ -166,7 +180,20 @@ export async function carregarAportes(
     programas.push({ id: p.id, nome: p.nome, tipo: p.tipo, status: p.status ?? null, valorTotal, valorRecebido, valorNaoAplicado, entraNoRetorno, tratamento, parcelas });
   }
 
-  return { programas, porMes, capitalNovo: programas.reduce((s, p) => s + (p.entraNoRetorno ? p.valorNaoAplicado : 0), 0) };
+  const capitalNovoPorMes = new Map<string, number>();
+  for (const p of programas) {
+    if (!p.entraNoRetorno) continue;
+    const aReceber = p.parcelas.filter((x) => !x.recebida);
+    // Sem parcela datada, o que falta aplicar entra no 1º mês do período (tratado em computeMetricas).
+    for (const parc of aReceber) capitalNovoPorMes.set(parc.mes, (capitalNovoPorMes.get(parc.mes) ?? 0) + parc.valor);
+  }
+
+  return {
+    programas,
+    porMes,
+    capitalNovo: programas.reduce((s, p) => s + (p.entraNoRetorno ? p.valorNaoAplicado : 0), 0),
+    capitalNovoPorMes,
+  };
 }
 
 export type Metricas = {
@@ -191,11 +218,74 @@ export type Metricas = {
   paybackMes: string | null;
   investimentoRecuperado: number;
   roiPct: number | null;
+  /** Preço médio de venda (mensalidade de tabela) ponderado pelas vendas do período. */
+  precoMedioVenda: number | null;
+  /** Ticket médio: receita ÷ clientes ativos, média do período (inclui implementação e descontos). */
+  ticketMedio: number | null;
+  /** TIR anualizada (%) — ver tirDoPeriodo. */
+  tirAnualPct: number | null;
+  /** "capital_novo" quando há investimento novo no fluxo; "projeto" quando é só o fluxo de EBITDA. */
+  tirBase: "capital_novo" | "projeto";
 };
+
+/**
+ * TIR mensal de um fluxo de caixa (índice 0 = primeiro mês). Procura a taxa que zera o valor
+ * presente varrendo de −95% a +500% ao mês e refinando por bisseção na primeira troca de sinal.
+ * Sem saída e entrada de caixa no fluxo (só positivos ou só negativos), não existe TIR → null.
+ */
+export function tirMensal(fluxos: number[]): number | null {
+  if (!fluxos.some((f) => f < 0) || !fluxos.some((f) => f > 0)) return null;
+  const vpl = (r: number) => fluxos.reduce((s, f, t) => s + f / Math.pow(1 + r, t), 0);
+  const grade: number[] = [];
+  for (let r = -0.95; r < 5; r += r < 0.2 ? 0.005 : 0.05) grade.push(r);
+  for (let i = 1; i < grade.length; i++) {
+    let a = grade[i - 1];
+    let b = grade[i];
+    let va = vpl(a);
+    const vb = vpl(b);
+    if (!Number.isFinite(va) || !Number.isFinite(vb) || va === 0) {
+      if (va === 0) return a;
+      continue;
+    }
+    if (va * vb > 0) continue;
+    for (let k = 0; k < 80; k++) {
+      const m = (a + b) / 2;
+      const vm = vpl(m);
+      if (va * vm <= 0) b = m;
+      else {
+        a = m;
+        va = vm;
+      }
+    }
+    return (a + b) / 2;
+  }
+  return null;
+}
+
+/**
+ * Fluxo da TIR no período, mês a mês. Mesma base do "Capital coberto por caixa próprio": com capital
+ * novo vinculado, ele sai (negativo) no mês em que entra na empresa e volta como EBITDA; sem capital
+ * novo, é a TIR do projeto — os meses de EBITDA negativo são o investimento que a operação consome.
+ * Não inclui valor de saída/perpetuidade (é uma leitura conservadora).
+ */
+export function fluxoTir(linhas: Agregado[], capitalNovoPorMes?: Map<string, number>): number[] {
+  const temCapital = capitalNovoPorMes && [...capitalNovoPorMes.values()].some((v) => v > 0);
+  const primeiro = linhas[0]?.mes_referencia ?? "";
+  return linhas.map((l, i) => {
+    let aporte = 0;
+    if (temCapital) {
+      for (const [mes, v] of capitalNovoPorMes!) {
+        // Capital que entrou antes do período conta no 1º mês dele.
+        if (mes === l.mes_referencia || (i === 0 && mes < primeiro)) aporte += v;
+      }
+    }
+    return l.ebitda - aporte;
+  });
+}
 
 /** Todas as métricas calculadas só a partir das linhas já filtradas pro período selecionado —
  * break-even e payback recomeçam do zero no início do período, não carregam saldo de fora dele. */
-export function computeMetricas(linhas: Agregado[], totalInvestido: number): Metricas {
+export function computeMetricas(linhas: Agregado[], totalInvestido: number, capitalNovoPorMes?: Map<string, number>): Metricas {
   // DRE em cascata, igual ao modelo de referência: Receita (–) COGS (–) Impostos (=) Margem Bruta
   // (–) S&M (–) P&D (–) G&A (=) EBITDA. Os impostos entram no EBITDA agora — antes ficavam de fora,
   // só afetando a margem bruta, mas o modelo de referência deixa claro que eles pesam no resultado.
@@ -265,6 +355,30 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number): Met
     paybackMes,
     investimentoRecuperado: acumuladoPayback,
     roiPct: totalInvestido > 0 ? (acumuladoPayback / totalInvestido) * 100 : null,
+    ...precoETir(linhas, totalInvestido, capitalNovoPorMes),
+  };
+}
+
+function precoETir(linhas: Agregado[], totalInvestido: number, capitalNovoPorMes?: Map<string, number>) {
+  const novosComPmv = linhas.reduce((s, l) => s + (l.novosComPmv ?? 0), 0);
+  const pmvPonderado = linhas.reduce((s, l) => s + (l.pmvPonderado ?? 0), 0);
+  const clientesComPmv = linhas.reduce((s, l) => s + (l.clientesComPmv ?? 0), 0);
+  const pmvBase = linhas.reduce((s, l) => s + (l.pmvPonderadoBase ?? 0), 0);
+  const receita = linhas.reduce((s, l) => s + l.receita, 0);
+  const clientesMes = linhas.reduce((s, l) => s + l.clientes, 0);
+  // Capital novo sem data (programa sem parcela nem data prevista) entra no 1º mês do período.
+  const capital =
+    capitalNovoPorMes && capitalNovoPorMes.size > 0
+      ? capitalNovoPorMes
+      : totalInvestido > 0 && linhas[0]
+        ? new Map([[linhas[0].mes_referencia, totalInvestido]])
+        : undefined;
+  const tir = tirMensal(fluxoTir(linhas, capital));
+  return {
+    precoMedioVenda: novosComPmv > 0 ? pmvPonderado / novosComPmv : clientesComPmv > 0 ? pmvBase / clientesComPmv : null,
+    ticketMedio: clientesMes > 0 ? receita / clientesMes : null,
+    tirAnualPct: tir != null ? (Math.pow(1 + tir, 12) - 1) * 100 : null,
+    tirBase: (capital ? "capital_novo" : "projeto") as "capital_novo" | "projeto",
   };
 }
 
@@ -288,7 +402,7 @@ export async function agregarPorCenario(
       linhasPeriodo: [],
       periodo: { inicio: null, fim: null },
       totalInvestido: 0,
-      aportes: { programas: [], porMes: new Map(), capitalNovo: 0 },
+      aportes: { programas: [], porMes: new Map(), capitalNovo: 0, capitalNovoPorMes: new Map() },
     };
   }
 
@@ -303,7 +417,7 @@ export async function agregarPorCenario(
     supabase
       .from("simulacao_mensal")
       .select(
-        "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga, novos_direto, novos_representante, novos_associacao",
+        "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga, novos_direto, novos_representante, novos_associacao, preco_medio_venda, novos_acoes",
       )
       .eq("cenario_id", cenarioId)
       .order("mes_referencia"),
@@ -313,6 +427,13 @@ export async function agregarPorCenario(
     supabase.from("modelos_contratacao").select("*"),
     supabase.from("fases_produto").select("id, produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioId),
   ]);
+
+  const { data: acoesRaw } = await supabase.from("acoes_marketing").select("*").eq("cenario_id", cenarioId);
+  // Custo de feiras e eventos por mês — entra na linha de Marketing (S&M) do cenário.
+  const custoAcoesPorMes = new Map<string, number>();
+  for (const a of (acoesRaw ?? []) as AcaoMarketing[]) {
+    for (const [mes, v] of custoAcaoPorMes(a)) custoAcoesPorMes.set(mes, (custoAcoesPorMes.get(mes) ?? 0) + v);
+  }
 
   const fasesPorProduto = new Map<string, { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]>();
   for (const f of (fasesRaw ?? []) as { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]) {
@@ -500,6 +621,12 @@ export async function agregarPorCenario(
         opexPd: 0,
         opexGa: 0,
         gaTaxasFiliacao: 0,
+        smFeirasEventos: 0,
+        novosAcoes: 0,
+        pmvPonderado: 0,
+        novosComPmv: 0,
+        pmvPonderadoBase: 0,
+        clientesComPmv: 0,
         alocacaoSdr: 0,
         alocacaoVendedor: 0,
         alocacaoCoordenador: 0,
@@ -531,6 +658,14 @@ export async function agregarPorCenario(
     // Churn e LTV ponderados pelos clientes ativos do produto naquele mês — dá a média
     // consolidada certa em vez de simplesmente somar taxas de produtos diferentes.
     const clientesRow = Number(row.clientes_ativos ?? 0);
+    atual.novosAcoes += Number(row.novos_acoes ?? 0);
+    if (row.preco_medio_venda != null) {
+      const pmv = Number(row.preco_medio_venda);
+      atual.pmvPonderado += pmv * novos;
+      atual.novosComPmv += novos;
+      atual.pmvPonderadoBase += pmv * clientesRow;
+      atual.clientesComPmv += clientesRow;
+    }
     if (row.churn_pct != null) atual.churnPonderado += Number(row.churn_pct) * clientesRow;
     if (row.ltv != null) atual.ltvPonderado += Number(row.ltv) * clientesRow;
   }
@@ -560,6 +695,15 @@ export async function agregarPorCenario(
         else atual.empresaGa += valor;
       }
     }
+    // Feiras e eventos: custo de marketing da empresa (não de um produto), no mês em que é pago.
+    const custoAcoes = custoAcoesPorMes.get(atual.mes_referencia) ?? 0;
+    if (custoAcoes > 0) {
+      custosEmpresa += custoAcoes;
+      atual.smMarketing += custoAcoes;
+      atual.empresaSm += custoAcoes;
+      atual.smFeirasEventos += custoAcoes;
+    }
+
     // Mensalidade de manter cada parceiro (ex: associação): taxa de filiação, conta 2.3.5.1
     // "G&A — Associações e Filiações de Classe". É custo de estrutura, não de aquisição: escala com
     // o número de parceiros filiados, não com o que eles vendem. Por isso vai pra G&A e fica FORA

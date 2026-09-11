@@ -6,8 +6,9 @@ import { calcularSimulacao, type SimulacaoInput } from "@/lib/simulacao";
 import { subgrupoDeConta } from "@/lib/subgrupo-conta";
 import type { FaseValue } from "@/lib/fases";
 import { pontoPartidaDoProduto, type PontoPartida } from "@/lib/ponto-partida";
+import { vendasAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
 
-type PlanoRow = { id: string; tipo_cobranca: string; preco: number; mix_percentual: number | null; reajuste_anual_pct: number | null };
+type PlanoRow = { id: string; nome_plano: string | null; tipo_cobranca: string; preco: number; mix_percentual: number | null; reajuste_anual_pct: number | null };
 type PlanoFaseRow = { plano_id: string; fase: string; preco: number };
 
 export type SimulacaoActionState = { error: string | null; success?: boolean };
@@ -33,7 +34,7 @@ export async function recalcularSimulacao(
       .eq("cenario_id", cenarioId),
     supabase
       .from("planos_precificacao")
-      .select("id, tipo_cobranca, preco, mix_percentual, reajuste_anual_pct")
+      .select("id, nome_plano, tipo_cobranca, preco, mix_percentual, reajuste_anual_pct")
       .eq("produto_id", produtoId)
       .eq("cenario_id", cenarioId),
   ]);
@@ -199,12 +200,32 @@ export async function recalcularSimulacao(
   const { data: cenario } = await supabase.from("cenarios").select("data_fim, ponto_partida").eq("id", cenarioId).single();
   const pontoPartida = pontoPartidaDoProduto(cenario?.ponto_partida as PontoPartida | null, produtoId);
 
+  // Feiras e eventos do cenário: vendas deste produto, mês a mês, com o plano/nível fechado
+  // (casado pelo nome dentro do cenário — assim sobrevive à cópia de cenário).
+  const { data: acoesRaw } = await supabase.from("acoes_marketing").select("*").eq("cenario_id", cenarioId);
+  const vendasAcoes = ((acoesRaw ?? []) as AcaoMarketing[]).flatMap((a) =>
+    vendasAcaoPorMes(a, produtoId).map((v) => {
+      const indice =
+        v.retorno.plano_tipo === "plano"
+          ? ((planos ?? []) as PlanoRow[]).findIndex((p) => p.nome_plano === v.retorno.plano_nome)
+          : v.retorno.plano_tipo === "modulo"
+            ? (modulosRaw ?? []).findIndex((m) => m.nome === v.retorno.plano_nome)
+            : -1;
+      return {
+        mes: v.mes,
+        clientes: v.clientes,
+        plano: indice >= 0 && v.retorno.plano_tipo ? { tipo: v.retorno.plano_tipo, indice } : null,
+      };
+    }),
+  );
+
   const input: SimulacaoInput = {
     dataInicioProduto: produto.data_inicio_desenvolvimento,
     dataLancamentoEstimada: produto.data_lancamento_estimada,
     modulosExclusivos: produto.tipo_precificacao === "modulos",
     dataFimCenario: cenario?.data_fim ?? null,
     pontoPartida,
+    vendasAcoes,
     fases: fases.map((f) => ({
       fase: f.fase as FaseValue,
       data_inicio: f.data_inicio,

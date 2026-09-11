@@ -333,7 +333,7 @@ async function clonarModulos(
 
 /**
  * Copia o que vive no CENÁRIO (não na fase): canais de aquisição com matriz e parceiros, regras
- * de COGS e etapas de implementação. Separado pra poder completar um clone feito antes destas
+ * de COGS, feiras e eventos e etapas de implementação. Separado pra poder completar um clone feito antes destas
  * tabelas existirem — nunca sobrescreve o que o destino já tem.
  */
 export async function copiarConfiguracoesDeCenario(
@@ -376,6 +376,21 @@ export async function copiarConfiguracoesDeCenario(
       await supabase
         .from("cogs_premissas")
         .insert((cogsOrigem as Row[]).map((c) => ({ ...semColunasDeSistema(c), produto_id: mapProdutoId(c.produto_id), cenario_id: destinoId })));
+    }
+  }
+
+  // Feiras e eventos (o retorno aponta pra produtos — remapeia os exclusivos do cenário de origem)
+  const { data: acoesDestino } = await supabase.from("acoes_marketing").select("id").eq("cenario_id", destinoId).limit(1);
+  if (!acoesDestino || acoesDestino.length === 0) {
+    const { data: acoesOrigem } = await supabase.from("acoes_marketing").select("*").eq("cenario_id", origemId);
+    if (acoesOrigem && acoesOrigem.length > 0) {
+      await supabase.from("acoes_marketing").insert(
+        (acoesOrigem as Row[]).map((a) => ({
+          ...semColunasDeSistema(a),
+          cenario_id: destinoId,
+          retorno: ((a.retorno ?? []) as Row[]).map((r) => ({ ...r, produto_id: mapProdutoId(r.produto_id) })),
+        })),
+      );
     }
   }
 

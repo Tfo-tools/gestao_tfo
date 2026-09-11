@@ -229,6 +229,16 @@ export type SimulacaoInput = {
    * só o estoque de clientes é substituído. Sem isso, vale a base que a própria simulação acumulou.
    */
   pontoPartida?: { mes: string; clientes_ativos: number } | null;
+  /** Vendas fechadas em feiras e eventos (já distribuídas por mês) — entram no canal direto. */
+  vendasAcoes?: VendaAcaoInput[];
+};
+
+export type VendaAcaoInput = {
+  mes: string;
+  clientes: number;
+  /** Plano/nível fechado. A receita desses clientes usa o preço dele (em vez do preço médio do
+   * mix), e o lote vai encolhendo com o churn do produto. Sem plano, vale o mix. */
+  plano: { tipo: "plano" | "modulo"; indice: number } | null;
 };
 
 export type MesResultado = {
@@ -270,6 +280,11 @@ export type MesResultado = {
   sm_marketing: number;
   sm_vendas: number;
   sm_outros: number;
+  /** Mensalidade de tabela de uma venda nova no mês: planos pelo mix + níveis/módulos pela adesão.
+   * Sem descontos e sem implementação — é o preço de venda, não o ticket médio (receita ÷ clientes). */
+  preco_medio_venda: number | null;
+  /** Clientes novos vindos de feiras e eventos (já incluídos em novos_direto). */
+  novos_acoes: number;
 };
 
 function addMonths(dateStr: string, n: number): Date {
@@ -435,6 +450,11 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
   let parcelasImplementacaoAtivas: { valorMensal: number; quantidade: number; mesFim: number }[] = [];
   /** Índices dos lotes de beta que já viraram clientes pagantes — cada lote converte uma vez só. */
   const betasConvertidos = new Set<number>();
+  // Feiras e eventos: venda fechada antes do lançamento fica guardada e entra no mês em que o
+  // produto lança (não há o que cobrar antes). Cada lote com plano definido paga o preço daquele
+  // plano/nível e vai encolhendo com o churn do produto.
+  let vendasAcoesAguardando: VendaAcaoInput[] = [];
+  let lotesPlanoAcoes: { quantidade: number; plano: { tipo: "plano" | "modulo"; indice: number } }[] = [];
   const resultados: MesResultado[] = [];
 
   const mesPontoPartida = input.pontoPartida ? `${input.pontoPartida.mes.slice(0, 7)}-01` : null;
@@ -482,6 +502,8 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         sm_marketing: 0,
         sm_vendas: 0,
         sm_outros: 0,
+        preco_medio_venda: null,
+        novos_acoes: 0,
       });
       continue;
     }
@@ -612,8 +634,25 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     // Entrada direta (crescimento orgânico + conversão de beta) e saída por churn, cada uma
     // arredondada com seu próprio resíduo. O total de novos é a soma das partes já inteiras,
     // então a coluna "Total novos" sempre bate com direto + representantes + associações.
+    // Vendas de feiras e eventos do mês (e, no 1º mês simulado, as de antes dele).
+    for (const v of input.vendasAcoes ?? []) {
+      const mesVenda = v.mes.slice(0, 7);
+      if (mesVenda === mesAtualIso || (i === 0 && mesVenda < mesAtualIso)) vendasAcoesAguardando.push(v);
+    }
+    for (const l of lotesPlanoAcoes) l.quantidade *= 1 - taxaChurn;
+    lotesPlanoAcoes = lotesPlanoAcoes.filter((l) => l.quantidade > 0.001);
+    let clientesAcoes = 0;
+    if (produtoJaLancado && vendasAcoesAguardando.length > 0) {
+      for (const v of vendasAcoesAguardando) {
+        clientesAcoes += v.clientes;
+        if (v.plano && v.clientes > 0) lotesPlanoAcoes.push({ quantidade: v.clientes, plano: v.plano });
+      }
+      vendasAcoesAguardando = [];
+    }
+    const novosAcoes = inteiroComResiduo(clientesAcoes, "acoes");
+
     const novosOrganicos = clientesAtivos * taxaCrescimento * fatorProRata;
-    const novosDireto = inteiroComResiduo(novosOrganicos + conversaoBeta, "direto");
+    const novosDireto = inteiroComResiduo(novosOrganicos + conversaoBeta, "direto") + novosAcoes;
     const novosClientes = novosDireto + novosClientesCanais;
     const perdidos = Math.min(clientesAtivos, inteiroComResiduo(clientesAtivos * taxaChurn, "saida"));
     clientesAtivos = Math.max(0, clientesAtivos + novosClientes - perdidos);
@@ -722,8 +761,30 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     });
     receitaModulos *= fatorProRata;
 
+    // Preço médio de venda: mensalidade de tabela de um cliente novo — planos pelo mix + níveis/
+    // módulos pela fatia de adesão. Diferente do ticket médio, não carrega desconto nem implementação.
+    const precoModulosPorCliente = lancadosNesteMes.reduce(
+      (acc, mi) => acc + (adocaoModulos.get(mi) ?? 0) * fatorNivelExclusivo * input.modulos[mi].preco,
+      0,
+    );
+    const precoMedioVenda = arpu + precoModulosPorCliente;
+
+    // Clientes de feira/evento com plano definido pagam o preço daquele plano/nível, não a média:
+    // soma a diferença (plano − média do mix) sobre o que resta do lote.
+    let ajusteAcoes = 0;
+    for (const l of lotesPlanoAcoes) {
+      const quantidade = Math.min(l.quantidade, clientesAtivos);
+      if (l.plano.tipo === "plano") {
+        const plano = input.planos[l.plano.indice];
+        if (plano) ajusteAcoes += quantidade * (precoEfetivo(plano, fase.fase, mes, input.dataLancamentoEstimada) - arpu);
+      } else if (lancadosNesteMes.includes(l.plano.indice)) {
+        ajusteAcoes += quantidade * (input.modulos[l.plano.indice].preco - precoModulosPorCliente);
+      }
+    }
+    ajusteAcoes *= fatorProRata;
+
     // Receita recorrente do produto (planos + módulos), já líquida dos descontos de beta e canal.
-    const receitaRecorrente = receitaPlanos + receitaModulos;
+    const receitaRecorrente = receitaPlanos + receitaModulos + ajusteAcoes;
 
     // Desconto de combo lançado NO PRÓPRIO PRODUTO (não na consolidação do cenário), pra que a
     // margem bruta de cada produto fique medível. Só vale a partir do lançamento do último produto
@@ -884,6 +945,8 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       sm_marketing: totais.marketing,
       sm_vendas: totais.vendas,
       sm_outros: totais.outros_sm,
+      preco_medio_venda: precoMedioVenda > 0 ? precoMedioVenda : null,
+      novos_acoes: novosAcoes,
     });
   }
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { agregarPorCenario, recortarPeriodo, type Agregado } from "@/lib/relatorios-cenario";
+import { agregarPorCenario, computeMetricas, fluxoTir, recortarPeriodo, type Agregado } from "@/lib/relatorios-cenario";
 import { indicadorPorKey } from "@/lib/indicadores";
 
 function formatBRL(v: number) {
@@ -56,7 +56,7 @@ export default async function PlanoIndicadorDetalhePage({
         </div>
       ) : (
         <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-          <TabelaIndicador indicador={def.key} linhas={linhas} totalInvestido={resumo.totalInvestido} />
+          <TabelaIndicador indicador={def.key} linhas={linhas} totalInvestido={resumo.totalInvestido} capitalNovoPorMes={resumo.aportes.capitalNovoPorMes} />
         </div>
       )}
 
@@ -85,11 +85,71 @@ function TabelaIndicador({
   indicador,
   linhas,
   totalInvestido,
+  capitalNovoPorMes,
 }: {
   indicador: string;
   linhas: Agregado[];
   totalInvestido: number;
+  capitalNovoPorMes: Map<string, number>;
 }) {
+  if (indicador === "pmv") {
+    const m = computeMetricas(linhas, totalInvestido, capitalNovoPorMes);
+    const totalNovos = linhas.reduce((s, l) => s + l.novosComPmv, 0);
+    return (
+      <>
+        <CalculoBox
+          linhas={[
+            `Preço médio de venda de cada produto no mês = mensalidade de tabela (planos pelo mix + níveis/módulos pela adesão)`,
+            `Ponderado pelos clientes novos de cada produto: ${totalNovos.toLocaleString("pt-BR")} vendas no período`,
+            `Ticket médio, pra comparar (receita ÷ clientes ativos, com descontos e implementação): ${m.ticketMedio != null ? formatBRL(m.ticketMedio) : "—"}`,
+            `Preço médio de venda do período: ${m.precoMedioVenda != null ? formatBRL(m.precoMedioVenda) : "— (recalcule a projeção em Vendas)"}`,
+          ]}
+        />
+        <Table
+          head={["Mês", "Vendas no mês", "Preço médio de venda", "Ticket médio"]}
+          rows={linhas.map((l) => [
+            formatMes(l.mes_referencia),
+            Math.round(l.novosClientes).toLocaleString("pt-BR"),
+            l.novosComPmv > 0 ? formatBRL(l.pmvPonderado / l.novosComPmv) : l.clientesComPmv > 0 ? formatBRL(l.pmvPonderadoBase / l.clientesComPmv) : "—",
+            l.clientes > 0 ? formatBRL(l.receita / l.clientes) : "—",
+          ])}
+          total={["Período", totalNovos.toLocaleString("pt-BR"), m.precoMedioVenda != null ? formatBRL(m.precoMedioVenda) : "—", m.ticketMedio != null ? formatBRL(m.ticketMedio) : "—"]}
+        />
+      </>
+    );
+  }
+
+  if (indicador === "tir") {
+    const m = computeMetricas(linhas, totalInvestido, capitalNovoPorMes);
+    const capital =
+      capitalNovoPorMes.size > 0 ? capitalNovoPorMes : totalInvestido > 0 && linhas[0] ? new Map([[linhas[0].mes_referencia, totalInvestido]]) : undefined;
+    const fluxo = fluxoTir(linhas, capital);
+    let acumulado = 0;
+    return (
+      <>
+        <CalculoBox
+          linhas={[
+            m.tirBase === "capital_novo"
+              ? `Fluxo = EBITDA do mês − capital novo que entra no mês (${formatBRL(totalInvestido)} no total)`
+              : "Fluxo = EBITDA do mês (sem capital novo vinculado: TIR do projeto)",
+            "TIR mensal = taxa que zera o valor presente desse fluxo; anualizada = (1 + TIR mensal)^12 − 1",
+            "Sem valor de saída/perpetuidade no fim do período — leitura conservadora",
+            m.tirAnualPct != null
+              ? `TIR do período: ${formatPct(m.tirAnualPct)} ao ano`
+              : "TIR não se aplica: o fluxo não tem saída e retorno de caixa dentro do período",
+          ]}
+        />
+        <Table
+          head={["Mês", "EBITDA", "Capital novo", "Fluxo do mês", "Fluxo acumulado"]}
+          rows={linhas.map((l, i) => {
+            acumulado += fluxo[i];
+            return [formatMes(l.mes_referencia), formatBRL(l.ebitda), formatBRL(l.ebitda - fluxo[i]), formatBRL(fluxo[i]), formatBRL(acumulado)];
+          })}
+        />
+      </>
+    );
+  }
+
   if (indicador === "meta") {
     const totalNovos = linhas.reduce((s, l) => s + l.novosClientes, 0);
     const clientesFinal = linhas[linhas.length - 1].clientes;

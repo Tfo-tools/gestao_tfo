@@ -25,7 +25,7 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
 
   const resumo = await agregarPorCenario(supabase, cenarioId);
   // Indicadores do período do cenário (data_inicio → data_fim), o mesmo recorte das outras telas.
-  const metricas = computeMetricas(resumo.linhasPeriodo, resumo.totalInvestido);
+  const metricas = computeMetricas(resumo.linhasPeriodo, resumo.totalInvestido, resumo.aportes.capitalNovoPorMes);
   const ultimaLinha = resumo.linhasPeriodo[resumo.linhasPeriodo.length - 1];
 
   const [{ count: produtosCount }, { count: fasesCount }, { count: custosFixosCount }, { count: custosVariaveisCount }, { count: custosEmpresaCount }, { count: contratacoesCount }, { count: programasCount }] =
@@ -80,7 +80,7 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
           cac: metricas.cacMedio,
           ltv: metricas.ltvMedio,
           roiPct: metricas.roiPct,
-          tirPct: null,
+          tirPct: metricas.tirAnualPct,
         }}
       />
       <MetasForm cenarioId={cenarioId} metas={cenario} />

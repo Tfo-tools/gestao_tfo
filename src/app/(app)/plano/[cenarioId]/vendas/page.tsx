@@ -27,9 +27,8 @@ export default async function PlanoVendasPage({ params }: { params: Promise<{ ce
   if (!cenario) notFound();
 
   const resumo = await agregarPorCenario(supabase, cenarioId);
-  const metricas = computeMetricas(resumo.linhasPeriodo, resumo.totalInvestido);
+  const metricas = computeMetricas(resumo.linhasPeriodo, resumo.totalInvestido, resumo.aportes.capitalNovoPorMes);
   const ultimaLinha = resumo.linhasPeriodo[resumo.linhasPeriodo.length - 1];
-  const pmv = ultimaLinha && ultimaLinha.clientes > 0 ? ultimaLinha.receita / ultimaLinha.clientes : null;
 
   const { data: modelosContratacao } = await supabase.from("modelos_contratacao").select("id, cargo, nome, parametros");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -197,7 +196,7 @@ export default async function PlanoVendasPage({ params }: { params: Promise<{ ce
 
       <AvisoTelaGrande />
 
-      <VendasKpiBar receitaMensal={ultimaLinha?.receita ?? null} cac={metricas.cacMedio} ltv={metricas.ltvMedio} pmv={pmv} />
+      <VendasKpiBar receitaMensal={ultimaLinha?.receita ?? null} cac={metricas.cacMedio} ltv={metricas.ltvMedio} pmv={metricas.precoMedioVenda} />
 
       <div className="flex flex-col gap-3">
         {cenario.ponto_partida && (

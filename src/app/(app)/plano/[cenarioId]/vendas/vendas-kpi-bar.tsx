@@ -19,7 +19,7 @@ export function VendasKpiBar({
       <Item label="Receita mensal" valor={formatBRL(receitaMensal)} />
       <Item label="CAC" valor={formatBRL(cac)} />
       <Item label="LTV" valor={formatBRL(ltv)} />
-      <Item label="PMV (ticket médio)" valor={formatBRL(pmv)} />
+      <Item label="PMV (preço médio de venda)" valor={formatBRL(pmv)} />
     </div>
   );
 }

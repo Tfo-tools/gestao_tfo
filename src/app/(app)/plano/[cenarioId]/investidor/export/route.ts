@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
 import { agregarPorCenario, computeMetricas, recortarPeriodo } from "@/lib/relatorios-cenario";
+import { carregarOrcamentoProgramas, LABEL_CATEGORIA_USO, somaPorCategoria } from "@/lib/orcamento-programa";
+import { clientesTotaisAcao, custoTotalAcao, type AcaoMarketing } from "@/lib/acoes-marketing";
 import { calcularRetornoPrograma, agregarRetornoProgramas } from "@/lib/retorno-investidor";
 import {
   FOCOS_INVESTIMENTO,
@@ -59,7 +61,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     searchParams.has("inicio") || focoPedido.length > 0 ? focoPedido : FOCOS_INVESTIMENTO.filter((f) => f.padrao).map((f) => f.key),
   );
 
-  const [{ data: cenario }, resumo, { data: simRows }, { data: produtos }, { data: alocacoes }] = await Promise.all([
+  const [{ data: cenario }, resumo, { data: simRows }, { data: produtos }, { data: alocacoes }, { data: acoesRaw }] = await Promise.all([
     supabase.from("cenarios").select("id, nome, data_inicio, data_fim").eq("id", cenarioId).single(),
     agregarPorCenario(supabase, cenarioId),
     supabase
@@ -68,13 +70,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .eq("cenario_id", cenarioId),
     supabase.from("produtos").select("id, nome").or(`cenario_id.is.null,cenario_id.eq.${cenarioId}`).order("nome"),
     supabase.from("alocacao_investimento").select("categoria, percentual, observacoes").eq("cenario_id", cenarioId).order("created_at"),
+    supabase.from("acoes_marketing").select("*").eq("cenario_id", cenarioId).order("created_at"),
   ]);
+  const orcamento = await carregarOrcamentoProgramas(supabase, resumo.aportes.programas.map((p) => p.id));
+  const acoes = (acoesRaw ?? []) as AcaoMarketing[];
   if (!cenario) return new NextResponse("Cenário não encontrado", { status: 404 });
 
   const inicio = searchParams.get("inicio") || resumo.periodo.inicio;
   const fim = searchParams.get("fim") || resumo.periodo.fim;
   const linhas = recortarPeriodo(resumo.linhas, inicio, fim);
-  const metricas = computeMetricas(linhas, resumo.totalInvestido);
+  const metricas = computeMetricas(linhas, resumo.totalInvestido, resumo.aportes.capitalNovoPorMes);
 
   const mrrPorMes = new Map<string, number>();
   const perdidosPorMes = new Map<string, number>();
@@ -189,9 +194,56 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   for (const c of [2, 3, 5, 6]) rTot.getCell(c).numFmt = BRL;
   rTot.getCell(4).numFmt = PCT;
 
+  if (orcamento.length > 0) {
+    ind.addRow([]);
+    titulo("Uso do recurso — orçamento proposto");
+    cabecalho(["Programa", "Frente", "Valor", "Rubrica / atividade", "Conta e período", "% do programa"]);
+    for (const p of resumo.aportes.programas) {
+      const linhasProg = orcamento.filter((l) => l.programa_id === p.id);
+      if (linhasProg.length === 0) continue;
+      const totalProg = linhasProg.reduce((s, l) => s + l.valor, 0);
+      for (const [cat, v] of [...somaPorCategoria(linhasProg).entries()].sort((a, b) => b[1] - a[1])) {
+        const rs = ind.addRow([p.nome, LABEL_CATEGORIA_USO[cat], v, "", "", totalProg > 0 ? v / totalProg : null]);
+        rs.font = { bold: true };
+        if (focos.has(cat)) rs.eachCell((c) => preencher(c, FOCO_CELULA));
+        rs.getCell(3).numFmt = BRL;
+        rs.getCell(6).numFmt = PCT;
+        for (const l of linhasProg.filter((x) => x.categoria === cat)) {
+          const periodo = l.data_inicio ? `${formatarMesAno(l.data_inicio)}${l.data_fim && l.data_fim !== l.data_inicio ? ` a ${formatarMesAno(l.data_fim)}` : ""}` : "";
+          const r = ind.addRow(["", "", l.valor, [l.rubrica, l.atividade].filter(Boolean).join(" — "), [l.conta_codigo, l.conta_nome].filter(Boolean).join(" ") + (periodo ? ` · ${periodo}` : ""), totalProg > 0 ? l.valor / totalProg : null]);
+          r.getCell(3).numFmt = BRL;
+          r.getCell(6).numFmt = PCT;
+          for (const c of [4, 5]) r.getCell(c).alignment = { wrapText: true, vertical: "top" };
+        }
+      }
+    }
+  }
+
+  if (acoes.length > 0) {
+    ind.addRow([]);
+    titulo("Feiras e eventos (plano de marketing)");
+    cabecalho(["Ação", "Quando", "Custo total", "Retorno previsto", "Custo por cliente", ""]);
+    const nomeProd = new Map((produtos ?? []).map((p) => [p.id, p.nome]));
+    for (const a of acoes) {
+      const total = custoTotalAcao(a);
+      const clientes = clientesTotaisAcao(a);
+      const r = ind.addRow([
+        `${a.tipo === "feira" ? "Feira" : "Eventos"} — ${a.nome}`,
+        a.tipo === "feira" && a.mes ? `${formatarMesAno(a.mes)} (custo em 3 parcelas até o mês)` : `${a.ano}: ${a.quantidade} evento(s) × R$ ${Math.round(Number(a.custo)).toLocaleString("pt-BR")} (provisão mensal)`,
+        total,
+        `${clientes.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} clientes${a.tipo === "evento" ? " no ano" : ""}: ` +
+          (a.retorno ?? []).map((x) => `${x.clientes} ${nomeProd.get(x.produto_id) ?? ""}${x.plano_nome ? ` (${x.plano_nome})` : ""}${a.tipo === "evento" ? "/evento" : ""}`).join(" · "),
+        clientes > 0 ? total / clientes : null,
+      ]);
+      r.getCell(3).numFmt = BRL;
+      r.getCell(5).numFmt = BRL;
+      r.getCell(4).alignment = { wrapText: true, vertical: "top" };
+    }
+  }
+
   if ((alocacoes ?? []).length > 0) {
     ind.addRow([]);
-    titulo("Uso do recurso (destinação do investimento)");
+    titulo("Destinação resumida do investimento (% por categoria)");
     cabecalho(["Categoria", "Observações", "% do capital novo", "Valor estimado", "", ""]);
     for (const a of alocacoes ?? []) {
       const pct = Number(a.percentual) / 100;
@@ -241,6 +293,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   secaoRes("CLIENTES E RECEITA");
   linhaRes("Clientes ativos ao fim do ano", (a) => a.clientesFinal, { fmt: "#,##0", total: "ultimo" });
   linhaRes("Novos clientes", (a) => a.novos, { fmt: "#,##0", total: "soma" });
+  if (anual.some((a) => a.novosAcoes > 0)) linhaRes("dos quais via feiras e eventos", (a) => a.novosAcoes, { fmt: "#,##0", total: "soma", recuo: true });
   linhaRes("Clientes perdidos", (a) => a.perdidos, { fmt: "#,##0", total: "soma" });
   linhaRes("MRR ao fim do ano", (a) => a.mrrFinal, { total: "ultimo" });
   linhaRes("ARR ao fim do ano", (a) => a.arrFinal, { total: "ultimo", negrito: true });
@@ -250,7 +303,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   for (const k of CATEGORIAS_FIXAS) linhaRes(LABEL_FOCO[k], (a) => a[k], { total: "soma", foco: focos.has(k), recuo: true });
   linhaRes("Total custos fixos", (a) => a.fixos, { total: "soma", negrito: true });
   secaoRes("CUSTOS VARIÁVEIS");
-  for (const k of focosVariaveis) linhaRes(LABEL_FOCO[k], (a) => a[k], { total: "soma", foco: true, recuo: true });
+  for (const k of focosVariaveis) {
+    linhaRes(LABEL_FOCO[k], (a) => a[k], { total: "soma", foco: true, recuo: true });
+    if (k === "marketing" && anual.some((a) => a.feirasEventos > 0))
+      linhaRes("   dos quais feiras e eventos", (a) => a.feirasEventos, { total: "soma", foco: true, recuo: true });
+  }
   linhaRes("Impostos sobre a receita (DAS)", (a) => a.impostos, { total: "soma", recuo: true });
   linhaRes("Outros variáveis", (a) => outrosVariaveis(a), { total: "soma", recuo: true });
   linhaRes("Total custos variáveis", (a) => a.variaveis, { total: "soma", negrito: true });
@@ -451,6 +508,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   nota("Foco do investimento", `Colunas destacadas: ${focoTexto}. Nos variáveis, o que não é foco (nem imposto) está somado em "Outros variáveis"; os fixos saem sempre abertos em P&D e G&A.`);
   nota("Aportes", "Todos os programas vinculados ao cenário, nas datas previstas das parcelas. O fomento entra como se já estivesse aplicado (é subvenção, não se devolve).");
   nota("Retorno", "Calculado só sobre o investimento novo, ainda não aplicado. Fomento e parcelas já recebidas ficam fora da conta.");
+  nota("Feiras e eventos", "Feira: custo em 3 parcelas até o mês da feira e vendas no mês da feira. Eventos: custo do ano (quantidade × custo médio) provisionado em 12 parcelas fixas e clientes distribuídos no ano. Custo na linha de Marketing; vendas no canal direto, ao preço do plano/nível informado.");
+  nota("Preço médio de venda", "Mensalidade de tabela de cada venda nova (planos pelo mix + níveis pela adesão), ponderada pelas vendas. Diferente do ticket médio (receita ÷ clientes), não carrega descontos nem implementação.");
+  nota("TIR", "Taxa que zera o valor presente do fluxo mensal do período, anualizada. Com capital novo: sai no mês do aporte e volta como EBITDA. Sem capital novo: fluxo de EBITDA do projeto. Sem valor de saída.");
+  nota("Uso do recurso", "Orçamento proposto de cada programa (tela Fomento & Investimento → Orçamento): a conta do plano de contas define a frente (marketing, vendas, produto, operação, estrutura).");
   nota("CAC", "Fully-loaded: mídia, ferramentas, equipe comercial própria e compartilhada, comissões e custo de parceiros ÷ novos clientes.");
   nota("Churn", "Planejado = taxa informada por fase, ponderada pelos clientes ativos. Efetivo = clientes que saíram ÷ clientes no início de cada mês.");
   nota("Referências de mercado", "Manual de Treinamento da Banca Avaliadora de Venture Capital — B2B SaaS (faixas por estágio: validação, PMF, tração, escala).");
