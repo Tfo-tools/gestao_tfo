@@ -29,7 +29,10 @@ export default async function CustosEmpresaPage({
   return (
     <div>
       <div className="mb-2">
-        <Link href="/plano-de-custos" className="text-[12.5px] text-text-muted">
+        <Link
+          href={cenarioAtual ? `/plano/${cenarioAtual}/custos` : "/cenarios"}
+          className="text-[12.5px] text-text-muted"
+        >
           ← Plano de Custos
         </Link>
       </div>

@@ -2,19 +2,26 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   calcularDemandaPorCargo,
+  type CanalFunilInput,
   type FaseProdutoInput,
   type FunilPremissaInput,
   type SimulacaoMesInput,
+  cargoChave,
 } from "@/lib/necessidade-contratacao";
 import type { FaseValue } from "@/lib/fases";
 import { NecessidadeTabelas } from "./necessidade-tabelas";
+import { RoteiroCanalDireto, type PassoRoteiro } from "./roteiro-canal-direto";
+import { horasAtendimentoPorProduto } from "@/lib/cogs";
+import { PremissasVendas, type PremissaVendasProduto } from "./premissas-vendas";
 
 export default async function NecessidadeContratacaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cenario?: string }>;
+  searchParams: Promise<{ cenario?: string; cargo?: string }>;
 }) {
-  const { cenario } = await searchParams;
+  const { cenario, cargo: cargoParam } = await searchParams;
+  // Atalhos vindos do Plano de Custos abrem direto na aba do cargo (S&M -> SDR, COGS -> Suporte).
+  const cargoInicial = (["sdr", "vendedor", "coordenador", "suporte"] as const).find((c) => c === cargoParam) ?? "sdr";
   const supabase = await createClient();
 
   const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base").order("created_at");
@@ -41,12 +48,12 @@ export default async function NecessidadeContratacaoPage({
     faseIds.length > 0
       ? supabase
           .from("premissas_funil")
-          .select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes")
+          .select("fase_produto_id, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes, reunioes_por_oportunidade")
           .in("fase_produto_id", faseIds)
       : Promise.resolve({ data: [] }),
     supabase
       .from("simulacao_mensal")
-      .select("produto_id, mes_referencia, novos_clientes, clientes_ativos")
+      .select("produto_id, mes_referencia, novos_clientes, clientes_ativos, novos_direto, novos_representante, novos_associacao")
       .eq("cenario_id", cenarioAtual),
     supabase.from("modelos_contratacao").select("*").order("cargo"),
     supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioAtual),
@@ -66,9 +73,9 @@ export default async function NecessidadeContratacaoPage({
       return {
         produtoId: fase.produto_id,
         fase: fase.fase as FaseValue,
-        taxa_conversao: f.taxa_conversao,
         capacidade_vendedor_mes: f.capacidade_vendedor_mes,
         span_of_control: f.span_of_control,
+        reunioes_por_oportunidade: f.reunioes_por_oportunidade,
         horas_suporte_por_cliente_mes: f.horas_suporte_por_cliente_mes,
       };
     })
@@ -79,9 +86,81 @@ export default async function NecessidadeContratacaoPage({
     mes_referencia: s.mes_referencia,
     novos_clientes: Number(s.novos_clientes),
     clientes_ativos: Number(s.clientes_ativos),
+    novos_direto: s.novos_direto != null ? Number(s.novos_direto) : undefined,
+    novos_representante: s.novos_representante != null ? Number(s.novos_representante) : undefined,
+    novos_associacao: s.novos_associacao != null ? Number(s.novos_associacao) : undefined,
   }));
 
-  const demanda = calcularDemandaPorCargo({ fasesPorProduto, funis, simulacao });
+  const { data: canaisRaw } = await supabase
+    .from("canais_aquisicao")
+    .select("id, tipo_canal, modelo_contratacao_id, canal_produto(produto_id, percentual_mix, taxa_fechamento)")
+    .eq("cenario_id", cenarioAtual);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const qualificacaoPorModelo = new Map((modelos ?? []).map((m) => [m.id, (m.parametros as any)?.taxa_qualificacao ?? null]));
+  const canais: CanalFunilInput[] = (canaisRaw ?? []).flatMap((c) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((c.canal_produto ?? []) as any[]).map((cp) => ({
+      produtoId: cp.produto_id,
+      tipo_canal: c.tipo_canal as CanalFunilInput["tipo_canal"],
+      percentual_mix: Number(cp.percentual_mix),
+      taxa_fechamento: cp.taxa_fechamento,
+      taxa_qualificacao: c.modelo_contratacao_id ? (qualificacaoPorModelo.get(c.modelo_contratacao_id) ?? null) : null,
+    })),
+  );
+
+  const { data: cogsRaw } = await supabase.from("cogs_premissas").select("produto_id, parametros").eq("cenario_id", cenarioAtual);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const horasSuportePorProduto = horasAtendimentoPorProduto((cogsRaw ?? []) as any);
+  const demanda = calcularDemandaPorCargo({ fasesPorProduto, funis, canais, simulacao, horasSuportePorProduto });
+
+  // Premissas do time de vendas por produto (lê a primeira fase com valor; grava em todas).
+  const { data: produtosRaw } = await supabase.from("produtos").select("id, nome").order("nome");
+  const premissasVendas: PremissaVendasProduto[] = (produtosRaw ?? []).map((p) => {
+    const f = funis.find((x) => x.produtoId === p.id && x.capacidade_vendedor_mes != null) ?? funis.find((x) => x.produtoId === p.id);
+    return {
+      produto_id: p.id,
+      nome: p.nome,
+      capacidade_vendedor_mes: f?.capacidade_vendedor_mes ?? null,
+      reunioes_por_oportunidade: f?.reunioes_por_oportunidade ?? null,
+      span_of_control: f?.span_of_control ?? null,
+    };
+  });
+
+  // Estado real de cada passo do caminho do canal direto, pra tela poder dizer o que falta.
+  const canalDireto = (canaisRaw ?? []).find((c) => c.tipo_canal === "direto");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const modeloDoCanal = canalDireto?.modelo_contratacao_id ? (modelos ?? []).find((m) => m.id === canalDireto.modelo_contratacao_id) : null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const temQualificacao = modeloDoCanal ? (modeloDoCanal.parametros as any)?.taxa_qualificacao != null : false;
+  const cargosDoModelo = modeloDoCanal?.cargo;
+  const temAlocacao = (alocacoes ?? []).some((a) => !cargosDoModelo || cargoChave(a.cargo) === cargoChave(cargosDoModelo));
+
+  const passosCanalDireto: PassoRoteiro[] = [
+    {
+      titulo: "Cadastrar o modelo que faz a prospecção",
+      explicacao:
+        "Em Modelos de Contratação, crie (ou edite) o modelo de SDR — CLT, PJ, agência ou IA — e preencha a taxa de qualificação lead → reunião. É ela que diz quantos leads são precisos pra gerar uma reunião.",
+      feito: temQualificacao,
+      href: "/contratacoes/modelos",
+      linkLabel: "Modelos de Contratação",
+    },
+    {
+      titulo: "Vincular esse modelo ao canal Direto",
+      explicacao:
+        "Em Vendas → Canais de Aquisição, edite o canal Direto e escolha o modelo em \u201cModelo que executa\u201d. Isso só define quem prospecta e com que eficiência — ainda não gera custo.",
+      feito: Boolean(canalDireto?.modelo_contratacao_id),
+      href: `/plano/${cenarioAtual}/vendas`,
+      linkLabel: "Canais de Aquisição",
+    },
+    {
+      titulo: "Alocar o modelo por um período",
+      explicacao:
+        "Aqui embaixo, na aba SDR, use \u201c+ Alocar\u201d informando quantidade e datas. É esse lançamento que vira custo mensal e entra no CAC — os dois passos acima sozinhos não geram despesa nenhuma.",
+      feito: temAlocacao,
+      href: "/contratacoes/necessidade",
+      linkLabel: "Rolar até a tabela de SDR",
+    },
+  ];
 
   const semDados = demanda.sdr.length === 0 && demanda.coordenador.length === 0 && demanda.suporte.length === 0;
 
@@ -122,21 +201,30 @@ export default async function NecessidadeContratacaoPage({
         </form>
       </div>
 
-      {semDados ? (
-        <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
-          <p className="text-sm text-text-muted">
-            Nenhuma demanda calculada ainda — preencha taxa de conversão e capacidade/vendedor em Funil, e recalcule a
-            projeção em Produtos.
-          </p>
+      {/* O roteiro aparece mesmo sem demanda calculada: é justamente quando está tudo vazio que a
+          pessoa mais precisa saber quais telas preencher, e em que ordem. */}
+      <div className="mb-4 flex flex-col gap-3">
+        <RoteiroCanalDireto passos={passosCanalDireto} />
+        <PremissasVendas cenarioId={cenarioAtual} produtos={premissasVendas} />
+      </div>
+
+      {/* As abas e o formulário de alocação aparecem SEMPRE. Esconder tudo quando não há demanda
+          calculada deixava a pessoa sem caminho pra escolher o modelo — cada aba já mostra seu
+          próprio aviso de "sem demanda" no lugar da tabela. */}
+      {semDados && (
+        <div className="mb-4 rounded-lg border border-dashed border-border bg-surface px-4 py-3 text-[12px] text-text-muted">
+          Nenhuma demanda calculada ainda para este cenário — confira as premissas de Funil em Produtos e recalcule a
+          projeção. Você já pode registrar as alocações abaixo; elas passam a gerar custo assim que a demanda existir.
         </div>
-      ) : (
-        <NecessidadeTabelas
-          cenarioId={cenarioAtual}
-          demanda={demanda}
-          modelos={modelos ?? []}
-          alocacoes={alocacoes ?? []}
-        />
       )}
+      <NecessidadeTabelas
+        cenarioId={cenarioAtual}
+        demanda={demanda}
+        modelos={modelos ?? []}
+        alocacoes={alocacoes ?? []}
+        mesesSemQualificacao={demanda.mesesSemQualificacao}
+        cargoInicial={cargoInicial}
+      />
     </div>
   );
 }

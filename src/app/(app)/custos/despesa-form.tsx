@@ -1,11 +1,15 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { criarLancamento, type DespesaFormState } from "./actions";
-import { categoriaDeConta, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
+import { BuscaConta } from "./busca-conta";
+import { PasteableFileInput } from "./pasteable-file-input";
+import { DetalhePagamento, EfetivacaoPagamento, type ItemPagamento } from "./detalhe-pagamento";
+import type { MeioPagamento } from "./meios-pagamento-actions";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
 type Produto = { id: string; nome: string };
+type Pessoa = { id: string; nome: string };
 
 const initialState: DespesaFormState = { error: null };
 
@@ -14,28 +18,31 @@ export function DespesaForm({
   produtos,
   pagadores,
   usoPorConta,
+  usuarioAtual,
+  meiosPagamento,
+  pessoas,
 }: {
   planoContas: PlanoContas[];
   produtos: Produto[];
   pagadores: string[];
   usoPorConta: Record<string, number>;
+  usuarioAtual?: string | null;
+  meiosPagamento: MeioPagamento[];
+  pessoas: Pessoa[];
 }) {
   const [state, formAction, pending] = useActionState(criarLancamento, initialState);
   const formRef = useRef<HTMLFormElement>(null);
-  const [grupo, setGrupo] = useState("");
   const [recorrente, setRecorrente] = useState(false);
   const [ultimoFoiRecorrente, setUltimoFoiRecorrente] = useState(false);
+  const [valorPago, setValorPago] = useState("");
+  const [valorFatura, setValorFatura] = useState("");
+  const [buscaKey, setBuscaKey] = useState(0);
+  const [pagamentoKey, setPagamentoKey] = useState(0);
+  const [itensPagamento, setItensPagamento] = useState<ItemPagamento[]>([]);
+  const [comprovado, setComprovado] = useState(false);
 
-  const categorias = useMemo(() => {
-    const presentes = new Set(planoContas.map((c) => categoriaDeConta(c)));
-    return CATEGORIAS_NEGOCIO.filter((c) => presentes.has(c.chave));
-  }, [planoContas]);
-
-  const contasDaCategoria = useMemo(() => {
-    return planoContas
-      .filter((c) => categoriaDeConta(c) === grupo)
-      .sort((a, b) => (usoPorConta[b.id] ?? 0) - (usoPorConta[a.id] ?? 0) || a.conta.localeCompare(b.conta));
-  }, [planoContas, grupo, usoPorConta]);
+  const pagadorPadrao = usuarioAtual && pagadores.includes(usuarioAtual) ? usuarioAtual : "";
+  const juros = valorPago && valorFatura ? Number(valorPago) - Number(valorFatura) : 0;
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
@@ -46,8 +53,13 @@ export function DespesaForm({
           setUltimoFoiRecorrente(recorrente);
           await formAction(formData);
           formRef.current?.reset();
-          setGrupo("");
           setRecorrente(false);
+          setValorPago("");
+          setValorFatura("");
+          setComprovado(false);
+          setItensPagamento([]);
+          setBuscaKey((k) => k + 1);
+          setPagamentoKey((k) => k + 1);
         }}
         className="flex flex-col gap-3.5"
       >
@@ -91,31 +103,8 @@ export function DespesaForm({
           </p>
         )}
 
-        <Field label="1. Do que se trata esse gasto?">
-          <select
-            value={grupo}
-            onChange={(e) => setGrupo(e.target.value)}
-            required
-            className="input"
-          >
-            <option value="">Selecione…</option>
-            {categorias.map((c) => (
-              <option key={c.chave} value={c.chave}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="2. Qual item exatamente?">
-          <select name="plano_contas_id" required disabled={!grupo} className="input disabled:opacity-50">
-            <option value="">{grupo ? "Selecione…" : "Escolha do que se trata primeiro"}</option>
-            {contasDaCategoria.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.conta}
-              </option>
-            ))}
-          </select>
+        <Field label="Do que se trata esse gasto?">
+          <BuscaConta key={buscaKey} planoContas={planoContas} usoPorConta={usoPorConta} />
         </Field>
 
         <Field label="Produto(s) vinculado(s) (opcional)">
@@ -133,29 +122,68 @@ export function DespesaForm({
           <p className="mt-1 text-[10.5px] text-text-faint">Marque mais de um quando o custo é compartilhado — ex: evento de lançamento de duas marcas.</p>
         </Field>
 
-        <Field label="Pagador">
-          <select name="pagador" required={!recorrente} className="input">
-            <option value="">{recorrente ? "Quem costuma pagar? (pode mudar por mês depois)" : "Quem pagou?"}</option>
-            {pagadores.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-            <option value="Empresa">Empresa (conta/cartão PJ)</option>
-          </select>
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Pagador">
+            <select name="pagador" defaultValue={pagadorPadrao} required={!recorrente} className="input">
+              <option value="">{recorrente ? "Quem costuma pagar? (pode mudar por mês depois)" : "Quem pagou?"}</option>
+              {pagadores.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+              <option value="Empresa">Empresa (conta/cartão PJ)</option>
+            </select>
+            {pagadorPadrao && <p className="mt-1 text-[10.5px] text-text-faint">Preenchido com seu usuário — troque se foi a Empresa quem pagou.</p>}
+          </Field>
 
-        <Field label={recorrente ? "Valor mensal" : "Valor total"}>
-          <input
-            name="valor_total"
-            type="number"
-            step="0.01"
-            min="0"
-            required
-            placeholder="0,00"
-            className="input"
-          />
-        </Field>
+          <Field label="Forma de pagamento">
+            <DetalhePagamento
+              key={pagamentoKey}
+              name="pagamento_detalhe"
+              valorTotal={Number(valorPago) || 0}
+              onChange={setItensPagamento}
+              meios={meiosPagamento}
+              pessoas={pessoas}
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={recorrente ? "Valor mensal (pago)" : "Valor pago"}>
+            <input
+              name="valor_total"
+              type="number"
+              step="0.01"
+              min="0"
+              required
+              placeholder="0,00"
+              value={valorPago}
+              onChange={(e) => setValorPago(e.target.value)}
+              className="input"
+            />
+          </Field>
+
+          {!recorrente && (
+            <Field label="Valor da fatura, se pagou com atraso (opcional)">
+              <input
+                name="valor_fatura"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0,00"
+                value={valorFatura}
+                onChange={(e) => setValorFatura(e.target.value)}
+                className="input"
+              />
+            </Field>
+          )}
+        </div>
+        {juros > 0.01 && (
+          <p className="-mt-2 rounded-lg bg-danger-soft px-3 py-2 text-[11.5px] text-danger">
+            ⚠ Diferença de R$ {juros.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} entre o valor pago e o da fatura — provavelmente
+            juros/multa por atraso.
+          </p>
+        )}
 
         <Field label={recorrente ? "Descrição" : "Descrição (opcional)"}>
           <input name="descricao" type="text" required={recorrente} className="input" placeholder="Ex: campanha Meta Ads agosto" />
@@ -168,32 +196,26 @@ export function DespesaForm({
           </p>
         ) : (
           <>
-            <Field label="Fatura / Nota Fiscal (opcional)">
-              <input
-                name="fatura"
-                type="file"
-                accept="image/*,application/pdf"
-                className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
-              />
-            </Field>
+            <PasteableFileInput name="fatura" label="Fatura / Nota Fiscal (opcional)" />
 
-            <Field label="Comprovante de pagamento (opcional)">
-              <input
-                name="comprovante_pagamento"
-                type="file"
-                accept="image/*,application/pdf"
-                className="w-full rounded-lg border border-dashed border-border bg-bg px-3 py-3 text-[12.5px]"
-              />
-              <p className="mt-1 text-[10.5px] text-text-faint">
-                Boleto costuma precisar dos dois — o boleto em si (fatura) e o comprovante depois de pago. Se ainda não pagou, deixe
-                esse em branco e volte aqui pra anexar depois, editando o lançamento. No celular, dá pra tirar a foto na hora.
-              </p>
-            </Field>
+            <PasteableFileInput
+              name="comprovante_pagamento"
+              label="Comprovante de pagamento (opcional)"
+              hint="Boleto costuma precisar dos dois — o boleto em si (fatura) e o comprovante depois de pago. Se ainda não pagou, deixe esse em branco e volte aqui pra anexar depois, editando o lançamento. No celular, dá pra tirar a foto na hora; no computador, cola direto o print do comprovante copiado pelo app do banco."
+            />
 
             <label className="flex items-center gap-2 pt-1 text-[12px]">
-              <input name="comprovado" type="checkbox" className="h-4 w-4 rounded border-border" />
+              <input
+                name="comprovado"
+                type="checkbox"
+                checked={comprovado}
+                onChange={(e) => setComprovado(e.target.checked)}
+                className="h-4 w-4 rounded border-border"
+              />
               Marcar como comprovado (auditado internamente)
             </label>
+
+            {comprovado && <EfetivacaoPagamento name="efetivacao_detalhe" itens={itensPagamento} />}
           </>
         )}
 

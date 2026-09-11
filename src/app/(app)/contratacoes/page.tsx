@@ -59,6 +59,12 @@ export default async function ContratacoesPage({
           Modelos de Contratação
         </Link>
         <Link
+          href="/contratacoes/custo-hora"
+          className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
+        >
+          Custo/hora
+        </Link>
+        <Link
           href="/contratacoes/necessidade"
           className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
         >

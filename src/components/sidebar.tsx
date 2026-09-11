@@ -2,23 +2,27 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   IconHome,
   IconBox,
   IconUsers,
-  IconSliders,
   IconLayers,
   IconTrendingUp,
   IconReceipt,
   IconBarChart,
   IconFile,
   IconShoppingCart,
+  IconArchive,
+  IconCheckSquare,
   IconSettings,
+  IconCalendar,
 } from "./nav-icons";
 import { signOut } from "@/app/(app)/actions";
 
-type NavItem = {
+type NavLink = {
+  kind: "link";
   href: string;
   label: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,37 +31,41 @@ type NavItem = {
    * vs. /relatorios?aba=planos) — sem isso os dois ficariam "ativos" ao mesmo tempo. */
   matchQuery?: { key: string; value: string; default?: string };
 };
+type NavEmBreve = { kind: "em-breve"; label: string; icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement };
+type NavEntry = NavLink | NavEmBreve;
 
-type ItemEmBreve = { label: string; icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement };
-
-const GRUPOS: { titulo: string; items: NavItem[]; emBreve?: ItemEmBreve[] }[] = [
-  { titulo: "", items: [{ href: "/", label: "Visão Geral", icon: IconHome }] },
+const GRUPOS: { titulo: string; items: NavEntry[] }[] = [
+  {
+    titulo: "",
+    items: [
+      { kind: "link", href: "/", label: "Visão Geral", icon: IconHome },
+      { kind: "link", href: "/tarefas", label: "Tarefas", icon: IconCheckSquare },
+      { kind: "link", href: "/agenda", label: "Agenda", icon: IconCalendar },
+    ],
+  },
   {
     titulo: "Realizado",
     items: [
-      { href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
-      { href: "/relatorios?aba=real", label: "Relatórios", icon: IconBarChart, matchQuery: { key: "aba", value: "real", default: "real" } },
-      { href: "/fomento", label: "Fomentos e Investimentos", icon: IconTrendingUp },
-    ],
-    // Vendas e Prestação de Contas são submenus de Realizado — telas ainda não construídas.
-    emBreve: [
-      { label: "Vendas", icon: IconShoppingCart },
-      { label: "Prestação de Contas", icon: IconFile },
-    ],
-  },
-  {
-    titulo: "Plano",
-    items: [
-      { href: "/produtos", label: "Produtos", icon: IconBox },
-      { href: "/contratacoes", label: "Custos COGS", icon: IconUsers },
-      { href: "/plano-de-custos", label: "Plano de Custos", icon: IconSliders },
+      { kind: "link", href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
+      { kind: "link", href: "/contratacoes/realizado", label: "Contratações", icon: IconUsers },
+      { kind: "em-breve", label: "Vendas", icon: IconShoppingCart },
+      { kind: "link", href: "/ativos", label: "Ativos", icon: IconArchive },
+      {
+        kind: "link",
+        href: "/relatorios?aba=real",
+        label: "Relatórios",
+        icon: IconBarChart,
+        matchQuery: { key: "aba", value: "real", default: "real" },
+      },
+      { kind: "em-breve", label: "Prestação de Contas", icon: IconFile },
     ],
   },
   {
-    titulo: "Construção de Cenários",
+    titulo: "Planos",
     items: [
-      { href: "/cenarios", label: "Cenários", icon: IconLayers },
-      { href: "/relatorios?aba=planos", label: "Relatórios (Planos)", icon: IconBarChart, matchQuery: { key: "aba", value: "planos", default: "real" } },
+      { kind: "link", href: "/fomento", label: "Captação de Investimentos e Fomentos", icon: IconTrendingUp },
+      { kind: "link", href: "/cenarios", label: "Cenários", icon: IconLayers },
+      { kind: "link", href: "/produtos", label: "Produtos", icon: IconBox },
     ],
   },
 ];
@@ -65,8 +73,15 @@ const GRUPOS: { titulo: string; items: NavItem[]; emBreve?: ItemEmBreve[] }[] = 
 export function Sidebar({ nome, email }: { nome: string; email: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [aberto, setAberto] = useState(false);
 
-  function isActive(item: NavItem): boolean {
+  // Fecha o menu sempre que a navegação muda — sem isso o drawer ficaria aberto por cima da
+  // tela nova depois de tocar num link no celular.
+  useEffect(() => {
+    setAberto(false);
+  }, [pathname, searchParams]);
+
+  function isActive(item: NavLink): boolean {
     const [base] = item.href.split("?");
     if (base === "/") return pathname === "/";
     if (!pathname.startsWith(base)) return false;
@@ -78,7 +93,31 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
   }
 
   return (
-    <div className="flex h-full w-[236px] flex-shrink-0 flex-col bg-wine-deep py-7">
+    <>
+      {/* Barra fixa só no celular — no desktop a coluna abaixo já mostra tudo. */}
+      <div className="fixed inset-x-0 top-0 z-30 flex items-center gap-3 bg-wine-deep px-4 py-3 md:hidden">
+        <button
+          type="button"
+          onClick={() => setAberto(true)}
+          aria-label="Abrir menu"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/80"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" width={20} height={20}>
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+        <span className="font-heading text-[13px] font-semibold text-white">TFO-Gestão</span>
+      </div>
+
+      {aberto && <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setAberto(false)} />}
+
+      <div
+        className={`fixed inset-y-0 left-0 z-50 flex h-full w-[236px] flex-shrink-0 -translate-x-full flex-col bg-wine-deep py-7 transition-transform duration-200 md:static md:translate-x-0 ${
+          aberto ? "translate-x-0" : ""
+        }`}
+      >
       <div className="mb-5 flex items-center gap-2.5 border-b border-white/8 px-6 pb-7">
         <Image src="/brand/logo-tfo-branco.png" alt="TFO" width={26} height={19} className="opacity-95" />
         <div>
@@ -94,8 +133,19 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
               <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/35">{grupo.titulo}</div>
             )}
             {grupo.items.map((item) => {
-              const active = isActive(item);
               const Icon = item.icon;
+              if (item.kind === "em-breve") {
+                return (
+                  <div key={item.label} className="flex items-center justify-between rounded-lg px-3 py-2.5 text-[13.5px] text-white/70">
+                    <div className="flex items-center gap-3">
+                      <Icon width={18} height={18} className="text-white/55" />
+                      {item.label}
+                    </div>
+                    <span className="rounded border border-white/20 px-1.5 py-0.5 text-[9px] text-white/40">EM BREVE</span>
+                  </div>
+                );
+              }
+              const active = isActive(item);
               return (
                 <Link
                   key={item.href}
@@ -109,15 +159,6 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
                 </Link>
               );
             })}
-            {grupo.emBreve?.map(({ label, icon: Icon }) => (
-              <div key={label} className="flex items-center justify-between rounded-lg px-3 py-2.5 text-[13.5px] text-white/70">
-                <div className="flex items-center gap-3">
-                  <Icon width={18} height={18} className="text-white/55" />
-                  {label}
-                </div>
-                <span className="rounded border border-white/20 px-1.5 py-0.5 text-[9px] text-white/40">EM BREVE</span>
-              </div>
-            ))}
           </div>
         ))}
       </nav>
@@ -153,6 +194,7 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
           </button>
         </form>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

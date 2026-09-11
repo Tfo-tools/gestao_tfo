@@ -32,6 +32,14 @@ function resumoParametros(tipo: TipoModelo, p: ParametrosModelo): string {
       return `${formatBRL(p.valor_fixo_mensal ?? 0)} fixo + ${formatBRL(p.valor_por_unidade_convertida ?? 0)} por resultado`;
     case "empresa_creditos":
       return `${formatBRL(p.valor_por_credito ?? 0)}/crédito · ${p.creditos_por_unidade ?? 1} crédito(s) por contato`;
+    case "empresa_ia_atendimento": {
+      const pacote = p.capacidade_unidade_mes ? `até ${p.capacidade_unidade_mes} leads/mês` : "sem limite de leads";
+      const extras: string[] = [];
+      if (p.valor_por_lead_trabalhado) extras.push(`+${formatBRL(p.valor_por_lead_trabalhado)}/lead trabalhado`);
+      if (p.valor_por_lead_qualificado) extras.push(`+${formatBRL(p.valor_por_lead_qualificado)}/lead qualificado`);
+      if (p.valor_sessao_meta) extras.push(`+${formatBRL(p.valor_sessao_meta)}/sessão Meta`);
+      return `${formatBRL(p.valor_mensal ?? 0)}/mês · ${pacote}${extras.length ? " · " + extras.join(" · ") : ""}`;
+    }
   }
 }
 

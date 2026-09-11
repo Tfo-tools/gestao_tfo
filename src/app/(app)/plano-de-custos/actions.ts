@@ -64,6 +64,7 @@ export async function criarCustoFixo(
   if (error) return { error: "Não foi possível salvar o custo." };
 
   revalidatePath(`/plano-de-custos/${produto_id}`);
+  revalidatePath("/plano", "layout");
   return { error: null, success: true };
 }
 
@@ -71,6 +72,7 @@ export async function excluirCustoFixo(id: string, produtoId: string) {
   const supabase = await createClient();
   await supabase.from("plano_custos_fixos").delete().eq("id", id);
   revalidatePath(`/plano-de-custos/${produtoId}`);
+  revalidatePath("/plano", "layout");
 }
 
 export async function criarCustoVariavel(
@@ -108,6 +110,7 @@ export async function criarCustoVariavel(
   if (error) return { error: "Não foi possível salvar o custo." };
 
   revalidatePath(`/plano-de-custos/${produto_id}`);
+  revalidatePath("/plano", "layout");
   return { error: null, success: true };
 }
 
@@ -115,6 +118,7 @@ export async function excluirCustoVariavel(id: string, produtoId: string) {
   const supabase = await createClient();
   await supabase.from("plano_custos_variaveis").delete().eq("id", id);
   revalidatePath(`/plano-de-custos/${produtoId}`);
+  revalidatePath("/plano", "layout");
 }
 
 export async function copiarCustosFaseAnterior(

@@ -35,10 +35,29 @@ function montarParametrosEscalonado(formData: FormData): ResultadoParametros {
   return { ok: true, parametros };
 }
 
-function montarParametros(formData: FormData, tipo_custo: TipoCustoEmpresa): ResultadoParametros {
-  if (tipo_custo === "escalonado") return montarParametrosEscalonado(formData);
+function montarRateio(formData: FormData): Record<string, unknown> {
+  const rateio_modo = String(formData.get("rateio_modo") || "");
+  if (rateio_modo !== "auto_clientes" && rateio_modo !== "auto_receita" && rateio_modo !== "manual") return {};
+  if (rateio_modo === "auto_clientes" || rateio_modo === "auto_receita") return { rateio_modo };
 
-  const parametros: Record<string, unknown> = {};
+  const rateio_manual: Record<string, number> = {};
+  for (const [nome, valor] of formData.entries()) {
+    if (!nome.startsWith("rateio_manual_")) continue;
+    const produtoId = nome.slice("rateio_manual_".length);
+    const pct = Number(valor);
+    if (!isNaN(pct) && pct > 0) rateio_manual[produtoId] = pct / 100;
+  }
+  return { rateio_modo, rateio_manual };
+}
+
+function montarParametros(formData: FormData, tipo_custo: TipoCustoEmpresa): ResultadoParametros {
+  if (tipo_custo === "escalonado") {
+    const base = montarParametrosEscalonado(formData);
+    if (!base.ok) return base;
+    return { ok: true, parametros: { ...base.parametros, ...montarRateio(formData) } };
+  }
+
+  const parametros: Record<string, unknown> = { ...montarRateio(formData) };
   if (tipo_custo === "cronograma") {
     const mes_inicio = String(formData.get("mes_inicio") || "");
     const valoresRaw = String(formData.get("valores_mensais") || "");
@@ -106,6 +125,7 @@ export async function criarCustoEmpresa(
   }
 
   revalidatePath("/plano-de-custos/empresa");
+  revalidatePath("/plano", "layout");
   revalidatePath("/relatorios");
   revalidatePath("/relatorios/mensal");
   return { error: null, success: true };
@@ -148,6 +168,7 @@ export async function atualizarCustoEmpresa(
   }
 
   revalidatePath("/plano-de-custos/empresa");
+  revalidatePath("/plano", "layout");
   revalidatePath("/relatorios");
   revalidatePath("/relatorios/mensal");
   return { error: null, success: true };
@@ -157,6 +178,7 @@ export async function excluirCustoEmpresa(id: string) {
   const supabase = await createClient();
   await supabase.from("custos_empresa").delete().eq("id", id);
   revalidatePath("/plano-de-custos/empresa");
+  revalidatePath("/plano", "layout");
   revalidatePath("/relatorios");
   revalidatePath("/relatorios/mensal");
 }

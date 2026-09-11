@@ -5,12 +5,19 @@ import { excluirComboProduto } from "./actions";
 
 type Plano = { id: string; produto_id: string; nome_plano: string; tipo_cobranca: string; preco: number };
 type ComboItem = { produto_id: string; produto_nome: string };
-type Combo = { id: string; nome: string; desconto_pct: number; observacoes: string | null; itens: ComboItem[] };
+type Combo = {
+  id: string;
+  nome: string;
+  desconto_pct: number;
+  percentual_clientes_combo: number | null;
+  observacoes: string | null;
+  itens: ComboItem[];
+};
 
-const CICLOS: { chave: "mensal" | "semestral" | "anual"; label: string; divisor: number }[] = [
-  { chave: "mensal", label: "Mensal", divisor: 1 },
-  { chave: "semestral", label: "Semestral", divisor: 6 },
-  { chave: "anual", label: "Anual", divisor: 12 },
+const CICLOS: { chave: "mensal" | "semestral" | "anual"; label: string }[] = [
+  { chave: "mensal", label: "Mensal" },
+  { chave: "semestral", label: "Semestral" },
+  { chave: "anual", label: "Anual" },
 ];
 
 function formatBRL(v: number) {
@@ -21,17 +28,16 @@ export function ComboProdutoCard({ combo, planos }: { combo: Combo; planos: Plan
   const [ciclo, setCiclo] = useState<"mensal" | "semestral" | "anual">("mensal");
   const [isPending, startTransition] = useTransition();
 
-  const cicloAtual = CICLOS.find((c) => c.chave === ciclo)!;
-
   const planosDoCiclo = combo.itens.map((item) => ({
     ...item,
     plano: planos.find((p) => p.produto_id === item.produto_id && p.tipo_cobranca === ciclo) ?? null,
   }));
 
   const faltaPlano = planosDoCiclo.some((p) => !p.plano);
-  const somaCiclo = planosDoCiclo.reduce((acc, p) => acc + Number(p.plano?.preco ?? 0), 0);
-  const somaMensal = somaCiclo / cicloAtual.divisor;
-  const descontadoMensal = (somaCiclo * (1 - combo.desconto_pct)) / cicloAtual.divisor;
+  // `preco` é sempre o valor mensal, mesmo em plano semestral/anual — a cobrança só muda o
+  // compromisso de permanência, não o número aqui. Por isso não tem divisor nenhum na soma.
+  const somaMensal = planosDoCiclo.reduce((acc, p) => acc + Number(p.plano?.preco ?? 0), 0);
+  const descontadoMensal = somaMensal * (1 - combo.desconto_pct);
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
@@ -82,11 +88,16 @@ export function ComboProdutoCard({ combo, planos }: { combo: Combo; planos: Plan
             {planosDoCiclo.map((p, i) => (
               <span key={p.produto_id}>
                 {i > 0 && " + "}
-                {formatBRL(Number(p.plano!.preco) / cicloAtual.divisor)} no {p.produto_nome}
+                {formatBRL(Number(p.plano!.preco))} no {p.produto_nome}
               </span>
             ))}
             , {(combo.desconto_pct * 100).toFixed(0)}% off {planosDoCiclo.length > 1 ? "em todos" : ""}
           </p>
+          {combo.percentual_clientes_combo != null && (
+            <p className="mt-1 text-center text-[10.5px] text-text-faint">
+              Estimativa: {(combo.percentual_clientes_combo * 100).toFixed(0)}% dos clientes desses produtos compram em combo
+            </p>
+          )}
         </>
       )}
     </div>

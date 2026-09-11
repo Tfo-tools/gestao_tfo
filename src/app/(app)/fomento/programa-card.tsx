@@ -6,6 +6,8 @@ import {
   alternarVinculoCenario,
   atualizarStatusPrograma,
   atualizarValuationPrograma,
+  confirmarValorAprovado,
+  criarCenarioParaPrograma,
   criarParcela,
   criarReavaliacao,
   excluirParcela,
@@ -29,7 +31,8 @@ type Programa = {
   id: string;
   nome: string;
   tipo: string;
-  valor_total: number;
+  valor_total: number | null;
+  valor_proposto: number | null;
   valor_subvencao: number | null;
   valor_contrapartida: number | null;
   status: string;
@@ -37,6 +40,7 @@ type Programa = {
   valuation_pre_money: number | null;
   valuation_post_money: number | null;
   data_aporte: string | null;
+  data_assinatura_prevista: string | null;
 };
 
 type Reavaliacao = {
@@ -93,6 +97,8 @@ export function ProgramaCard({
   const [state, formAction, pending] = useActionState(criarParcela, initialState);
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
+  const [gerandoPlano, startGerarPlano] = useTransition();
+  const [erroPlano, setErroPlano] = useState<string | null>(null);
   const vinculadosSet = new Set(cenariosVinculados);
 
   return (
@@ -106,6 +112,9 @@ export function ProgramaCard({
             <span className="font-heading text-[14.5px] font-semibold">{programa.nome}</span>
           </div>
           {programa.observacoes && <p className="text-[11.5px] text-text-muted">{programa.observacoes}</p>}
+          <Link href={`/fomento/${programa.id}/orcamento`} className="mt-1 inline-block text-[11px] font-medium text-primary-deep underline">
+            Orçamento proposto (por atividade/rubrica) →
+          </Link>
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -130,11 +139,23 @@ export function ProgramaCard({
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-3 gap-3">
-        <MiniStat label="Valor total" valor={formatBRL(Number(programa.valor_total))} />
-        <MiniStat label="Subvenção" valor={formatBRL(Number(programa.valor_subvencao ?? 0))} />
-        <MiniStat label="Contrapartida" valor={formatBRL(Number(programa.valor_contrapartida ?? 0))} />
-      </div>
+      {programa.valor_total == null && programa.valor_proposto != null ? (
+        <div className="mb-4 rounded-lg border border-dashed border-cream-deep bg-cream/30 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11.5px] text-cream-deep">
+              Proposto: <span className="font-mono font-semibold">{formatBRL(Number(programa.valor_proposto))}</span> — aguardando
+              aprovação do investidor (pode vir menor)
+            </span>
+          </div>
+          <ConfirmarValorForm programaId={programa.id} />
+        </div>
+      ) : (
+        <div className="mb-4 grid grid-cols-3 gap-3">
+          <MiniStat label="Valor total" valor={formatBRL(Number(programa.valor_total))} />
+          <MiniStat label="Subvenção" valor={formatBRL(Number(programa.valor_subvencao ?? 0))} />
+          <MiniStat label="Contrapartida" valor={formatBRL(Number(programa.valor_contrapartida ?? 0))} />
+        </div>
+      )}
 
       <div className="mb-4">
         <div className="mb-2 text-[11.5px] font-semibold text-text-muted">Cronograma de parcelas</div>
@@ -188,7 +209,27 @@ export function ProgramaCard({
       )}
 
       <div>
-        <div className="mb-2 text-[11.5px] font-semibold text-text-muted">Vinculado aos cenários</div>
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center text-[11.5px] font-semibold text-text-muted">
+            Vinculado aos cenários
+            <InfoTooltip texto="Um cenário vinculado aqui entra na conta de captação total desse programa em Relatórios. 'Gerar plano de captação' cria um cenário novo automaticamente, clonando o Plano Base com as datas deslocadas pra começar quando o programa deve ser assinado." />
+          </div>
+          <button
+            type="button"
+            disabled={gerandoPlano}
+            onClick={() =>
+              startGerarPlano(async () => {
+                setErroPlano(null);
+                const result = await criarCenarioParaPrograma(programa.id);
+                if (result.error) setErroPlano(result.error);
+              })
+            }
+            className="rounded-lg border border-primary-fill bg-primary-soft px-3 py-1.5 text-[11.5px] font-medium text-primary-deep disabled:opacity-60"
+          >
+            {gerandoPlano ? "Gerando…" : "+ Gerar plano de captação"}
+          </button>
+        </div>
+        {erroPlano && <p className="mb-2 text-[11px] text-danger">{erroPlano}</p>}
         <div className="flex flex-wrap gap-2">
           {cenarios.map((c) => {
             const ativo = vinculadosSet.has(c.id);
@@ -373,6 +414,26 @@ function ValuationSection({
         </>
       )}
     </div>
+  );
+}
+
+const confirmarValorInitial: ActionState = { error: null };
+
+function ConfirmarValorForm({ programaId }: { programaId: string }) {
+  const [state, formAction, pending] = useActionState(confirmarValorAprovado, confirmarValorInitial);
+
+  return (
+    <form action={formAction} className="flex items-end gap-2">
+      <input type="hidden" name="id" value={programaId} />
+      <div>
+        <label className="mb-1 block text-[10px] text-text-faint">Valor aprovado (R$)</label>
+        <input name="valor_total" type="number" step="0.01" min="0" required className="input w-[160px]" />
+      </div>
+      <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3 py-2 text-[11.5px] font-medium text-white disabled:opacity-60">
+        {pending ? "…" : "Confirmar aprovação"}
+      </button>
+      {state.error && <p className="text-[11px] text-danger">{state.error}</p>}
+    </form>
   );
 }
 

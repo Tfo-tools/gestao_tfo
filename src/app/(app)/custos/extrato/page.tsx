@@ -29,21 +29,23 @@ export default async function ExtratoPage({
   const { desde, ate, produto, comprovado, pagador, conta, descricao, tipo } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: parcelasPendentesRaw }] =
+  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: parcelasPendentesRaw }, { data: meiosPagamento }] =
     await Promise.all([
       supabase.from("produtos").select("id, nome").order("nome"),
       conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
       supabase.from("plano_contas").select("id, codigo, conta, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
-      supabase.from("profiles").select("nome").order("nome"),
+      supabase.from("profiles").select("id, nome").order("nome"),
       supabase.from("meses_fechados").select("mes"),
       supabase
         .from("despesa_parcelas")
         .select("id, numero_parcela, valor, data_prevista, pagador, despesas(descricao, plano_contas:plano_contas_id(conta))")
         .eq("status", "prevista")
         .order("data_prevista", { ascending: true }),
+      supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira").eq("ativo", true).order("banco"),
     ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
+  const pessoas = (profiles ?? []).map((p) => ({ id: p.id, nome: p.nome }));
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
   const hojeIso = new Date().toISOString().slice(0, 10);
   // "Fechar mês" só faz sentido quando De/Até apontam pro mesmo mês — não existe mais um campo
@@ -56,8 +58,8 @@ export default async function ExtratoPage({
     .from("despesas")
     .select(
       produto
-        ? "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*)"
-        : "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*)",
+        ? "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)"
+        : "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
     )
     .order("data_gasto", { ascending: false });
 
@@ -337,6 +339,9 @@ export default async function ExtratoPage({
                   produtos={produtos ?? []}
                   pagadores={pagadores}
                   fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
+                  variante="ratear"
+                  meiosPagamento={meiosPagamento ?? []}
+                  pessoas={pessoas}
                 />
               ))}
             </tbody>

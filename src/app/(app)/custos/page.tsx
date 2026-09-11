@@ -9,7 +9,12 @@ function formatBRL(value: number) {
 export default async function LancamentosPage() {
   const supabase = await createClient();
 
-  const [{ data: planoContas }, { data: produtos }, { data: despesas }, { data: profiles }, { data: todasDespesasContas }, { data: mesesFechadosRaw }] =
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: perfilAtual } = user ? await supabase.from("profiles").select("nome").eq("id", user.id).single() : { data: null };
+
+  const [{ data: planoContas }, { data: produtos }, { data: despesas }, { data: profiles }, { data: todasDespesasContas }, { data: mesesFechadosRaw }, { data: meiosPagamento }] =
     await Promise.all([
       supabase
         .from("plano_contas")
@@ -20,7 +25,7 @@ export default async function LancamentosPage() {
       supabase
         .from("despesas")
         .select(
-          "id, data_gasto, valor_total, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*)",
+          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
         )
         // Só o que ainda precisa de atenção: lançamento avulso (não recorrente — essas têm sua
         // própria lista em Recorrentes) e ainda sem comprovante. Despesa já comprovada some daqui
@@ -29,12 +34,14 @@ export default async function LancamentosPage() {
         .eq("comprovado", false)
         .order("data_gasto", { ascending: false })
         .limit(50),
-      supabase.from("profiles").select("nome").order("nome"),
+      supabase.from("profiles").select("id, nome").order("nome"),
       supabase.from("despesas").select("plano_contas_id"),
       supabase.from("meses_fechados").select("mes"),
+      supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira").eq("ativo", true).order("banco"),
     ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
+  const pessoas = (profiles ?? []).map((p) => ({ id: p.id, nome: p.nome }));
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
 
   const usoPorConta: Record<string, number> = {};
@@ -45,7 +52,15 @@ export default async function LancamentosPage() {
 
   return (
     <div className="grid grid-cols-[420px_1fr] items-start gap-5">
-      <DespesaForm planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} usoPorConta={usoPorConta} />
+      <DespesaForm
+        planoContas={planoContas ?? []}
+        produtos={produtos ?? []}
+        pagadores={pagadores}
+        usoPorConta={usoPorConta}
+        usuarioAtual={perfilAtual?.nome ?? null}
+        meiosPagamento={meiosPagamento ?? []}
+        pessoas={pessoas}
+      />
 
       <div className="rounded-xl border border-border bg-surface p-6">
         <h2 className="mb-1 font-heading text-sm font-semibold">Lançamentos pendentes</h2>
@@ -77,6 +92,8 @@ export default async function LancamentosPage() {
                   produtos={produtos ?? []}
                   pagadores={pagadores}
                   fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
+                  meiosPagamento={meiosPagamento ?? []}
+                  pessoas={pessoas}
                 />
               ))}
             </tbody>

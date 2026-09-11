@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Sora, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { ServiceWorkerRegister } from "@/components/service-worker-register";
 
 const sora = Sora({
   variable: "--font-sora",
@@ -23,6 +24,16 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "TFO-Gestão",
   description: "Gestão interna de produtos SaaS da The Fashion Office",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "TFO-Gestão",
+  },
+};
+
+export const viewport = {
+  themeColor: "#210a13",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -31,7 +42,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="pt-BR"
       className={`${sora.variable} ${plexSans.variable} ${plexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <ServiceWorkerRegister />
+      </body>
     </html>
   );
 }

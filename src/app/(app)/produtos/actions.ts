@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { FASES } from "@/lib/fases";
 
 export type ActionState = { error: string | null; success?: boolean };
 
@@ -161,6 +162,7 @@ export async function criarPlano(
   formData: FormData,
 ): Promise<ActionState> {
   const produto_id = String(formData.get("produto_id") || "");
+  const cenario_id = String(formData.get("cenario_id") || "");
   const nome_plano = String(formData.get("nome_plano") || "").trim();
   const tipo_cobranca = String(formData.get("tipo_cobranca") || "");
   const tipo_venda = String(formData.get("tipo_venda") || "individual");
@@ -172,13 +174,14 @@ export async function criarPlano(
     ? Number(formData.get("reajuste_anual_pct")) / 100
     : null;
 
-  if (!produto_id || !nome_plano || !tipo_cobranca || !preco) {
+  if (!produto_id || !cenario_id || !nome_plano || !tipo_cobranca || !preco) {
     return { error: "Preencha nome do plano, cobrança e preço." };
   }
 
   const supabase = await createClient();
   const { error } = await supabase.from("planos_precificacao").insert({
     produto_id,
+    cenario_id,
     nome_plano,
     tipo_cobranca,
     tipo_venda,
@@ -234,6 +237,7 @@ export async function criarModulo(
   formData: FormData,
 ): Promise<ActionState> {
   const produto_id = String(formData.get("produto_id") || "");
+  const cenario_id = String(formData.get("cenario_id") || "");
   const nome = String(formData.get("nome") || "").trim();
   const preco = Number(formData.get("preco") || 0);
   const gatilho = String(formData.get("gatilho") || "fase");
@@ -242,30 +246,148 @@ export async function criarModulo(
     gatilho === "tempo" && formData.get("meses_apos_lancamento")
       ? Number(formData.get("meses_apos_lancamento"))
       : null;
+  const data_disponibilidade = gatilho === "data" ? String(formData.get("data_disponibilidade") || "") || null : null;
   const adesao_inicial_pct = formData.get("adesao_inicial_pct")
     ? Number(formData.get("adesao_inicial_pct")) / 100
     : 0;
   const crescimento_adesao_mensal_pct = formData.get("crescimento_adesao_mensal_pct")
     ? Number(formData.get("crescimento_adesao_mensal_pct")) / 100
     : 0;
+  const desconto_cliente_existente_pct = formData.get("desconto_cliente_existente_pct")
+    ? Number(formData.get("desconto_cliente_existente_pct")) / 100
+    : null;
+  const desconto_cliente_existente_meses = formData.get("desconto_cliente_existente_meses")
+    ? Number(formData.get("desconto_cliente_existente_meses"))
+    : null;
 
-  if (!produto_id || !nome || !preco || (!fase_lancamento && meses_apos_lancamento == null)) {
-    return { error: "Preencha nome, preço e a fase (ou o tempo) de lançamento do módulo." };
+  if (!produto_id || !cenario_id || !nome || !preco || (!fase_lancamento && meses_apos_lancamento == null && !data_disponibilidade)) {
+    return { error: "Preencha nome, preço e quando o módulo fica disponível (fase, tempo ou data)." };
   }
 
   const supabase = await createClient();
   const { error } = await supabase.from("modulos_produto").insert({
     produto_id,
+    cenario_id,
     nome,
     preco,
     fase_lancamento,
     meses_apos_lancamento,
+    data_disponibilidade,
     adesao_inicial_pct,
     crescimento_adesao_mensal_pct,
+    desconto_cliente_existente_pct,
+    desconto_cliente_existente_meses,
   });
 
   if (error) {
     return { error: "Não foi possível salvar o módulo." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
+
+export async function atualizarTipoPrecificacao(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const produto_id = String(formData.get("produto_id") || "");
+  const tipo_precificacao = String(formData.get("tipo_precificacao") || "");
+
+  if (!produto_id || (tipo_precificacao !== "tempo" && tipo_precificacao !== "modulos")) {
+    return { error: "Tipo de precificação inválido." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("produtos").update({ tipo_precificacao }).eq("id", produto_id);
+
+  if (error) {
+    return { error: "Não foi possível trocar o tipo de precificação." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
+
+export async function criarNivelModulo(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const produto_id = String(formData.get("produto_id") || "");
+  const cenario_id = String(formData.get("cenario_id") || "");
+  const nome = String(formData.get("nome") || "").trim();
+  const preco = Number(formData.get("preco") || 0);
+  const data_disponibilidade = String(formData.get("data_disponibilidade") || "") || null;
+  const quantidade_usuarios_inclusos = formData.get("quantidade_usuarios_inclusos")
+    ? Number(formData.get("quantidade_usuarios_inclusos"))
+    : null;
+  const preco_usuario_adicional = formData.get("preco_usuario_adicional")
+    ? Number(formData.get("preco_usuario_adicional"))
+    : null;
+  const media_usuarios_por_cliente = formData.get("media_usuarios_por_cliente")
+    ? Number(formData.get("media_usuarios_por_cliente"))
+    : null;
+  const percentual_permanencia_estimado = formData.get("percentual_permanencia_estimado")
+    ? Number(formData.get("percentual_permanencia_estimado")) / 100
+    : null;
+  const adesao_inicial_pct = formData.get("adesao_inicial_pct") ? Number(formData.get("adesao_inicial_pct")) / 100 : 0;
+  const crescimento_adesao_mensal_pct = formData.get("crescimento_adesao_mensal_pct")
+    ? Number(formData.get("crescimento_adesao_mensal_pct")) / 100
+    : 0;
+  const desconto_cliente_existente_pct = formData.get("desconto_cliente_existente_pct")
+    ? Number(formData.get("desconto_cliente_existente_pct")) / 100
+    : null;
+  const desconto_cliente_existente_meses = formData.get("desconto_cliente_existente_meses")
+    ? Number(formData.get("desconto_cliente_existente_meses"))
+    : null;
+
+  if (!produto_id || !cenario_id || !nome || !preco || !data_disponibilidade) {
+    return { error: "Preencha nome, preço base e data de lançamento do nível." };
+  }
+
+  const supabase = await createClient();
+
+  const { data: niveisExistentes, error: erroExistentes } = await supabase
+    .from("modulos_produto")
+    .select("id, ordem, tipo_cobranca")
+    .eq("produto_id", produto_id)
+    .eq("cenario_id", cenario_id)
+    .order("ordem", { ascending: false })
+    .limit(1);
+
+  if (erroExistentes) {
+    return { error: "Não foi possível verificar os níveis existentes." };
+  }
+
+  const nivelAnterior = niveisExistentes?.[0] ?? null;
+  const ordem = (nivelAnterior?.ordem ?? 0) + 1;
+  const tipo_cobranca =
+    ordem === 1 ? String(formData.get("tipo_cobranca") || "") || null : nivelAnterior?.tipo_cobranca ?? null;
+
+  if (ordem === 1 && !tipo_cobranca) {
+    return { error: "Selecione a cobrança (anual ou mensal) do primeiro nível." };
+  }
+
+  const { error } = await supabase.from("modulos_produto").insert({
+    produto_id,
+    cenario_id,
+    nome,
+    preco,
+    ordem,
+    tipo_cobranca,
+    data_disponibilidade,
+    quantidade_usuarios_inclusos,
+    preco_usuario_adicional,
+    media_usuarios_por_cliente,
+    percentual_permanencia_estimado,
+    adesao_inicial_pct,
+    crescimento_adesao_mensal_pct,
+    desconto_cliente_existente_pct,
+    desconto_cliente_existente_meses,
+  });
+
+  if (error) {
+    return { error: "Não foi possível salvar o nível." };
   }
 
   revalidatePath(`/produtos/${produto_id}`);
@@ -327,6 +449,8 @@ export async function criarProduto(
   const descricao = String(formData.get("descricao") || "").trim() || null;
   const data_inicio_desenvolvimento = String(formData.get("data_inicio_desenvolvimento") || "") || null;
   const data_lancamento_estimada = String(formData.get("data_lancamento_estimada") || "") || null;
+  const somenteEsteCenario = formData.get("somente_este_cenario") === "on";
+  const cenario_id = somenteEsteCenario ? String(formData.get("cenario_id") || "") || null : null;
 
   if (!nome) {
     return { error: "Dê um nome para o produto." };
@@ -338,6 +462,7 @@ export async function criarProduto(
     descricao,
     data_inicio_desenvolvimento,
     data_lancamento_estimada,
+    cenario_id,
   });
 
   if (error) {
@@ -392,6 +517,275 @@ export async function atualizarPlano(
 
   revalidatePath(`/produtos/${produto_id}`);
   return { error: null, success: true };
+}
+
+function montarParametrosCanal(formData: FormData, tipo_canal: string): Record<string, unknown> {
+  const num = (name: string) => {
+    const v = formData.get(name);
+    return v !== null && v !== "" ? Number(v) : undefined;
+  };
+  const pct = (name: string) => {
+    const v = formData.get(name);
+    return v !== null && v !== "" ? Number(v) / 100 : undefined;
+  };
+
+  // Representante e associação são os dois canais de parceiro — a diferença é só quem é o
+  // parceiro, então a remuneração disponível é a mesma. O desconto ao cliente e a isenção NÃO
+  // ficam aqui: eles variam por produto (canal_produto), porque você se associa uma vez e decide
+  // depois em qual produto vai dar o benefício.
+  if (tipo_canal === "representante" || tipo_canal === "associacao") {
+    return {
+      comissao_pct: pct("comissao_pct"),
+      valor_fixo_fechamento: num("valor_fixo_fechamento"),
+      credito_uso_valor: num("credito_uso_valor"),
+      credito_uso_destino: String(formData.get("credito_uso_destino") || "") || undefined,
+      /** Custo recorrente de MANTER cada parceiro (ex: mensalidade de associação) — vai pra ADM. */
+      custo_mensal_parceiro: num("custo_mensal_parceiro"),
+      media_clientes_parceiro_inicial: num("media_clientes_parceiro_inicial"),
+      queda_intensidade_mensal_pct: pct("queda_intensidade_mensal_pct"),
+      media_clientes_parceiro_minima: num("media_clientes_parceiro_minima"),
+    };
+  }
+
+  // Self-service: nenhum custo de pessoa, só verba de mídia pra encher o teste grátis.
+  if (tipo_canal === "self_service") {
+    return {
+      custo_por_trial: num("custo_por_trial"),
+      taxa_conversao_trial: pct("taxa_conversao_trial"),
+    };
+  }
+  return {};
+}
+
+/** Salva a matriz canal × produto: mix, fechamento e o benefício que aquele canal dá naquele produto. */
+export async function salvarCanalProdutos(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const canal_id = String(formData.get("canal_id") || "");
+  const cenario_id = String(formData.get("cenario_id") || "");
+  const linhasRaw = String(formData.get("linhas") || "");
+
+  if (!canal_id || !linhasRaw) return { error: "Dados incompletos." };
+
+  let linhas: {
+    produto_id: string;
+    percentual_mix: number;
+    taxa_fechamento: number | null;
+    desconto_cliente_pct: number | null;
+    desconto_cliente_meses: number | null;
+    isencao_implementacao: boolean;
+    desconto_implementacao_pct: number | null;
+  }[];
+  try {
+    linhas = JSON.parse(linhasRaw);
+  } catch {
+    return { error: "Não foi possível ler os dados por produto." };
+  }
+
+  const supabase = await createClient();
+  for (const l of linhas) {
+    const { error } = await supabase.from("canal_produto").upsert(
+      {
+        canal_id,
+        produto_id: l.produto_id,
+        percentual_mix: l.percentual_mix,
+        taxa_fechamento: l.taxa_fechamento,
+        desconto_cliente_pct: l.desconto_cliente_pct,
+        desconto_cliente_meses: l.desconto_cliente_meses,
+        isencao_implementacao: l.isencao_implementacao,
+        desconto_implementacao_pct: l.desconto_implementacao_pct,
+      },
+      { onConflict: "canal_id,produto_id" },
+    );
+    if (error) return { error: "Não foi possível salvar os produtos deste canal." };
+  }
+
+  revalidatePath(`/plano/${cenario_id}/vendas`);
+  revalidatePath("/produtos");
+  return { error: null, success: true };
+}
+
+export async function salvarParceirosCanal(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const canal_id = String(formData.get("canal_id") || "");
+  const cenario_id = String(formData.get("cenario_id") || "");
+
+  if (!canal_id) {
+    return { error: "Canal inválido." };
+  }
+
+  const supabase = await createClient();
+
+  for (const fase of FASES) {
+    const raw = formData.get(`fase__${fase.value}`);
+    const quantidade = raw !== null && raw !== "" ? Number(raw) : 0;
+    const { error } = await supabase
+      .from("canal_parceiros_fase")
+      .upsert({ canal_id, fase: fase.value, quantidade_parceiros: quantidade }, { onConflict: "canal_id,fase" });
+    if (error) return { error: "Não foi possível salvar os parceiros por fase." };
+  }
+
+  revalidatePath(`/plano/${cenario_id}/vendas`);
+  revalidatePath("/produtos");
+  return { error: null, success: true };
+}
+
+export async function criarCanalAquisicao(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const cenario_id = String(formData.get("cenario_id") || "");
+  const nome = String(formData.get("nome") || "").trim();
+  const descricao = String(formData.get("descricao") || "").trim() || null;
+  const tipo_canal = String(formData.get("tipo_canal") || "direto");
+  const modelo_contratacao_id = String(formData.get("modelo_contratacao_id") || "") || null;
+
+  if (!cenario_id || !nome) {
+    return { error: "Dê um nome pro canal." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("canais_aquisicao").insert({
+    cenario_id,
+    nome,
+    descricao,
+    tipo_canal,
+    modelo_contratacao_id,
+    parametros: montarParametrosCanal(formData, tipo_canal),
+  });
+
+  if (error) {
+    return { error: "Não foi possível salvar o canal." };
+  }
+
+  revalidatePath(`/plano/${cenario_id}/vendas`);
+  revalidatePath("/produtos");
+  return { error: null, success: true };
+}
+
+export async function atualizarCanalAquisicao(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const id = String(formData.get("id") || "");
+  const cenario_id = String(formData.get("cenario_id") || "");
+  const nome = String(formData.get("nome") || "").trim();
+  const descricao = String(formData.get("descricao") || "").trim() || null;
+  const tipo_canal = String(formData.get("tipo_canal") || "direto");
+  const modelo_contratacao_id = String(formData.get("modelo_contratacao_id") || "") || null;
+
+  if (!id || !nome) {
+    return { error: "Dê um nome pro canal." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("canais_aquisicao")
+    .update({
+      nome,
+      descricao,
+      tipo_canal,
+      modelo_contratacao_id,
+      parametros: montarParametrosCanal(formData, tipo_canal),
+    })
+    .eq("id", id);
+
+  if (error) {
+    return { error: "Não foi possível salvar o canal." };
+  }
+
+  revalidatePath(`/plano/${cenario_id}/vendas`);
+  revalidatePath("/produtos");
+  return { error: null, success: true };
+}
+
+export async function excluirCanalAquisicao(id: string, cenarioId: string) {
+  const supabase = await createClient();
+  await supabase.from("canais_aquisicao").delete().eq("id", id);
+  revalidatePath(`/plano/${cenarioId}/vendas`);
+  revalidatePath("/produtos");
+}
+
+export async function salvarConfigImplementacao(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const produto_id = String(formData.get("produto_id") || "");
+  const tem_implementacao = formData.get("tem_implementacao") === "on";
+  const preco_implementacao = formData.get("preco_implementacao") ? Number(formData.get("preco_implementacao")) : null;
+  const implementacao_parcelas = formData.get("implementacao_parcelas")
+    ? Math.max(1, Number(formData.get("implementacao_parcelas")))
+    : 1;
+
+  if (!produto_id) {
+    return { error: "Produto inválido." };
+  }
+  if (tem_implementacao && !preco_implementacao) {
+    return { error: "Informe o preço de venda da implementação." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("produtos")
+    .update({ tem_implementacao, preco_implementacao, implementacao_parcelas })
+    .eq("id", produto_id);
+
+  if (error) {
+    return { error: "Não foi possível salvar a implementação." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
+
+export async function criarEtapaImplementacao(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const produto_id = String(formData.get("produto_id") || "");
+  const cenario_id = String(formData.get("cenario_id") || "");
+  const nome_etapa = String(formData.get("nome_etapa") || "").trim();
+  const cargo_dono = String(formData.get("cargo_dono") || "").trim() || null;
+  const cargo_executor = String(formData.get("cargo_executor") || "").trim();
+  const senioridade = String(formData.get("senioridade") || "");
+  const tipo_contratacao = String(formData.get("tipo_contratacao") || "");
+  const horas = formData.get("horas") ? Number(formData.get("horas")) : 0;
+  const valor_hora = formData.get("valor_hora") ? Number(formData.get("valor_hora")) : 0;
+  const ordem = formData.get("ordem") ? Number(formData.get("ordem")) : null;
+
+  if (!produto_id || !cenario_id || !nome_etapa || !cargo_executor || !horas || !valor_hora) {
+    return { error: "Preencha a etapa, o cargo que executa, as horas e o valor/hora." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("implementacao_etapas").insert({
+    produto_id,
+    cenario_id,
+    nome_etapa,
+    cargo_dono,
+    cargo_executor,
+    senioridade,
+    tipo_contratacao,
+    horas,
+    valor_hora,
+    ordem,
+  });
+
+  if (error) {
+    return { error: "Não foi possível salvar a etapa." };
+  }
+
+  revalidatePath(`/produtos/${produto_id}`);
+  return { error: null, success: true };
+}
+
+export async function excluirEtapaImplementacao(id: string, produtoId: string) {
+  const supabase = await createClient();
+  await supabase.from("implementacao_etapas").delete().eq("id", id);
+  revalidatePath(`/produtos/${produtoId}`);
 }
 
 export async function atualizarDatasProduto(

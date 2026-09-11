@@ -53,11 +53,23 @@ export function NovoProgramaForm() {
             <input name="data_assinatura_prevista" type="date" className="input" />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">Valor total</label>
-            <input name="valor_total" type="number" step="0.01" required className="input" />
+        <div className="rounded-lg bg-bg p-3">
+          <p className="mb-2 text-[11px] text-text-muted">
+            Já sabe o valor exato (edital com teto definido)? Preenche "Valor total". Ainda em proposta, aguardando o
+            investidor aprovar (pode vir menor)? Preenche só "Valor proposto" — atualiza depois quando aprovar.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">Valor total (já aprovado)</label>
+              <input name="valor_total" type="number" step="0.01" className="input" placeholder="Deixe em branco se ainda não sabe" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">Valor proposto (pedido, aguardando aprovação)</label>
+              <input name="valor_proposto" type="number" step="0.01" className="input" placeholder="Ex: 500000" />
+            </div>
           </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">Subvenção</label>
             <input name="valor_subvencao" type="number" step="0.01" className="input" />

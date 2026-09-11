@@ -26,7 +26,19 @@ export function ComboProdutoForm({ produtos }: { produtos: Produto[] }) {
         className="flex flex-col gap-2.5"
       >
         <input name="nome" placeholder="Nome do combo (ex: Fashion Price + Fashion Skills)" className="input" required />
-        <input name="desconto_pct" type="number" step="0.01" placeholder="Desconto (%) ex: 20" className="input" required />
+        <div className="grid grid-cols-2 gap-2.5">
+          <input name="desconto_pct" type="number" step="0.01" placeholder="Desconto (%) ex: 20" className="input" required />
+          <input
+            name="percentual_clientes_combo"
+            type="number"
+            step="0.01"
+            placeholder="% clientes em combo, ex: 25"
+            className="input"
+          />
+        </div>
+        <p className="-mt-1 text-[10px] text-text-faint">
+          "% clientes em combo" é uma estimativa de quantos clientes (dos produtos deste combo) compram no formato combo em vez de avulso
+        </p>
 
         <div>
           <p className="mb-1.5 text-[11px] font-medium text-text-muted">Produtos no combo</p>

@@ -19,7 +19,51 @@ export type ParametrosCustoEmpresa = {
   percentual?: number;
   // variavel_cliente
   valor_por_cliente?: number;
+  // Rateio entre produtos — só faz sentido pra custo compartilhado (uma conta só, ex: infra de
+  // nuvem que atende todos os produtos). "auto_clientes" divide proporcional aos clientes ativos
+  // de cada produto no mês; "manual" usa os percentuais fixados em rateio_manual (0 a 1, somando
+  // até 1 — o que sobra fica sem atribuição a nenhum produto, só no total da empresa).
+  rateio_modo?: "auto_clientes" | "auto_receita" | "manual";
+  rateio_manual?: Record<string, number>;
 };
+
+export type RateioProduto = { produtoId: string; percentual: number; valor: number };
+
+/** Divide o custo mensal desse item entre os produtos, pro modo de rateio configurado.
+ * `clientesPorProduto` é o nº de clientes ativos de cada produto no mês de referência do rateio
+ * (normalmente o mês mais recente com simulação calculada). */
+export function calcularRateioPorProduto(
+  parametros: ParametrosCustoEmpresa,
+  valorTotal: number,
+  produtos: { id: string }[],
+  clientesPorProduto: Record<string, number>,
+  receitaPorProduto: Record<string, number> = {},
+): RateioProduto[] {
+  if (parametros.rateio_modo === "manual" && parametros.rateio_manual) {
+    return produtos.map((p) => {
+      const percentual = parametros.rateio_manual?.[p.id] ?? 0;
+      return { produtoId: p.id, percentual, valor: valorTotal * percentual };
+    });
+  }
+  // Marketing e tudo que é "% da receita" rateia pela RECEITA de cada produto: quem fatura mais
+  // carrega mais — um cliente de Mind a R$722 pesa mais que um de Skills a R$61. Por clientes
+  // continua sendo o padrão pro que escala por cabeça (infra compartilhada, suporte).
+  const base = rateioPorReceita(parametros) ? receitaPorProduto : clientesPorProduto;
+  const total = produtos.reduce((s, p) => s + (base[p.id] ?? 0), 0);
+  if (total <= 0) return produtos.map((p) => ({ produtoId: p.id, percentual: 0, valor: 0 }));
+  return produtos.map((p) => {
+    const percentual = (base[p.id] ?? 0) / total;
+    return { produtoId: p.id, percentual, valor: valorTotal * percentual };
+  });
+}
+
+/** Rateia por receita quando pedido explicitamente, ou por padrão quando o próprio custo é
+ *  calculado como % da receita — não faz sentido cobrar % do faturamento e dividir por cabeça. */
+export function rateioPorReceita(parametros: ParametrosCustoEmpresa, tipoCusto?: TipoCustoEmpresa): boolean {
+  if (parametros.rateio_modo === "auto_receita") return true;
+  if (parametros.rateio_modo === "auto_clientes" || parametros.rateio_modo === "manual") return false;
+  return tipoCusto === "variavel_receita" || parametros.percentual != null;
+}
 
 export type CustoEmpresaInput = {
   tipo_custo: TipoCustoEmpresa;

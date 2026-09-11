@@ -41,6 +41,75 @@ async function anexarArquivo(
   });
 }
 
+const LABEL_FORMA: Record<string, string> = {
+  cartao_credito_socias: "Cartão de crédito (sócias)",
+  cartao_corporativo: "Cartão corporativo",
+  debito_conta: "Débito em conta",
+  boleto: "Boleto",
+  pix: "Pix",
+};
+
+/** Lê o JSON do modal de forma de pagamento (itens) e, se a despesa foi marcada comprovada, o de
+ * efetivação (onde cada item não-cartão efetivamente saiu) — substitui as linhas antigas de
+ * despesa_pagamentos pelas novas e devolve um resumo curto pra salvar em despesas.forma_pagamento
+ * (só pra exibição rápida em telas que não detalham). */
+async function salvarPagamentoDetalhe(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  despesaId: string,
+  formData: FormData,
+): Promise<string | null> {
+  const itensRaw = String(formData.get("pagamento_detalhe") || "");
+  const efetivacaoRaw = String(formData.get("efetivacao_detalhe") || "");
+  if (!itensRaw) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let itens: any[] = [];
+  try {
+    itens = JSON.parse(itensRaw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(itens) || itens.length === 0) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let efetivacao: Record<string, any> = {};
+  if (efetivacaoRaw) {
+    try {
+      efetivacao = JSON.parse(efetivacaoRaw);
+    } catch {
+      efetivacao = {};
+    }
+  }
+
+  await supabase.from("despesa_pagamentos").delete().eq("despesa_id", despesaId);
+
+  const linhas = itens.map((item, idx) => {
+    const efet = efetivacao[String(idx)] ?? efetivacao[idx];
+    return {
+      despesa_id: despesaId,
+      forma_pagamento: item.forma,
+      valor: Number(item.valor) || 0,
+      banco: item.banco || null,
+      bandeira: item.bandeira || null,
+      titular: item.titular || null,
+      parcelado: !!item.parcelado,
+      num_parcelas: item.parcelado ? Number(item.num_parcelas) || null : null,
+      codigo: item.codigo || null,
+      meio_pagamento_id: item.meio_pagamento_id || null,
+      efetivado_banco: efet?.banco || null,
+      efetivado_conta: efet?.conta || null,
+      efetivado_data: efet?.data || null,
+      efetivado_obs: efet?.observacao || null,
+    };
+  });
+
+  await supabase.from("despesa_pagamentos").insert(linhas);
+
+  if (itens.length === 1) return LABEL_FORMA[itens[0].forma] ?? itens[0].forma;
+  return `Combinada (${itens.length} formas)`;
+}
+
 /** Único ponto de entrada do formulário de lançamento — decide entre um lançamento avulso e uma
  * despesa recorrente pelo campo "recorrente" (checkbox), pra não precisar de duas telas/decisões
  * separadas. */
@@ -62,6 +131,9 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
   const descricao = String(formData.get("descricao") || "") || null;
   const comprovado = formData.get("comprovado") === "on";
   const pagador = String(formData.get("pagador") || "").trim() || null;
+  const forma_pagamento = String(formData.get("forma_pagamento") || "").trim() || null;
+  const valorFaturaRaw = String(formData.get("valor_fatura") || "").trim();
+  const valor_fatura = valorFaturaRaw ? Number(valorFaturaRaw) : null;
   const fatura = formData.get("fatura") as File | null;
   const comprovantePagamento = formData.get("comprovante_pagamento") as File | null;
 
@@ -87,6 +159,8 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
       descricao,
       comprovado,
       pagador,
+      forma_pagamento,
+      valor_fatura,
       criado_por: user?.id ?? null,
     })
     .select("id")
@@ -99,6 +173,9 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
   if (produtoIds.length > 0) {
     await supabase.from("despesa_produtos").insert(produtoIds.map((produto_id) => ({ despesa_id: despesa.id, produto_id })));
   }
+
+  const resumoPagamento = await salvarPagamentoDetalhe(supabase, despesa.id, formData);
+  if (resumoPagamento) await supabase.from("despesas").update({ forma_pagamento: resumoPagamento }).eq("id", despesa.id);
 
   await anexarArquivo(supabase, despesa.id, fatura, "fatura");
   await anexarArquivo(supabase, despesa.id, comprovantePagamento, "comprovante_pagamento");
@@ -117,6 +194,7 @@ async function criarRecorrente(formData: FormData): Promise<DespesaFormState> {
   const descricao = String(formData.get("descricao") || "").trim();
   const valor = Number(formData.get("valor_total") || 0);
   const pagador = String(formData.get("pagador") || "").trim() || null;
+  const forma_pagamento = String(formData.get("forma_pagamento") || "").trim() || null;
   const dia_do_mes = Number(formData.get("dia_do_mes") || 5);
   const data_inicio = String(formData.get("data_inicio") || "") || new Date().toISOString().slice(0, 10);
   const data_fim = String(formData.get("data_fim") || "") || null;
@@ -137,6 +215,7 @@ async function criarRecorrente(formData: FormData): Promise<DespesaFormState> {
       descricao,
       valor,
       pagador,
+      forma_pagamento,
       dia_do_mes,
       data_inicio,
       data_fim,
@@ -170,6 +249,7 @@ export async function atualizarRecorrente(
   const descricao = String(formData.get("descricao") || "").trim();
   const valor = Number(formData.get("valor") || 0);
   const pagador = String(formData.get("pagador") || "").trim() || null;
+  const forma_pagamento = String(formData.get("forma_pagamento") || "").trim() || null;
   const dia_do_mes = Number(formData.get("dia_do_mes") || 5);
   const data_inicio = String(formData.get("data_inicio") || "");
   const data_fim = String(formData.get("data_fim") || "") || null;
@@ -186,6 +266,7 @@ export async function atualizarRecorrente(
       descricao,
       valor,
       pagador,
+      forma_pagamento,
       dia_do_mes,
       data_inicio,
       data_fim,
@@ -218,6 +299,9 @@ export async function atualizarDespesa(
   const descricao = String(formData.get("descricao") || "") || null;
   const comprovado = formData.get("comprovado") === "on";
   const pagador = String(formData.get("pagador") || "").trim() || null;
+  const forma_pagamento = String(formData.get("forma_pagamento") || "").trim() || null;
+  const valorFaturaRaw = String(formData.get("valor_fatura") || "").trim();
+  const valor_fatura = valorFaturaRaw ? Number(valorFaturaRaw) : null;
   const fatura = formData.get("fatura") as File | null;
   const comprovantePagamento = formData.get("comprovante_pagamento") as File | null;
 
@@ -232,9 +316,21 @@ export async function atualizarDespesa(
     return { error: "Esse mês está fechado — reabra em Extrato antes de editar." };
   }
 
+  const resumoPagamento = await salvarPagamentoDetalhe(supabase, id, formData);
+
   const { error } = await supabase
     .from("despesas")
-    .update({ data_gasto, plano_contas_id, produto_id: produtoIds[0] ?? null, valor_total, descricao, comprovado, pagador })
+    .update({
+      data_gasto,
+      plano_contas_id,
+      produto_id: produtoIds[0] ?? null,
+      valor_total,
+      descricao,
+      comprovado,
+      pagador,
+      forma_pagamento: resumoPagamento ?? forma_pagamento,
+      valor_fatura,
+    })
     .eq("id", id);
 
   if (error) return { error: "Não foi possível salvar a alteração." };
@@ -347,6 +443,45 @@ export async function excluirParcelaDespesa(id: string) {
   await supabase.from("despesa_parcelas").delete().eq("id", id);
   revalidatePath("/custos/extrato");
   revalidatePath("/custos");
+}
+
+/** Divide o valor da despesa igualmente entre as duas primeiras sócias da lista de pagadores —
+ * usa o mesmo mecanismo de despesa_parcelas (já marcadas como pagas) pra alimentar o rateio entre
+ * sócias que já existe no Extrato. Chamar de novo substitui a divisão anterior. */
+export async function ratearIgualmente(despesaId: string, valorTotal: number, dataGasto: string, pagadores: string[]): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const dupla = pagadores.slice(0, 2);
+  if (dupla.length < 2) return { error: "É preciso ter pelo menos duas sócias cadastradas pra ratear." };
+
+  await supabase.from("despesa_parcelas").delete().eq("despesa_id", despesaId);
+  const metade = Math.round((valorTotal / 2) * 100) / 100;
+  const { error } = await supabase.from("despesa_parcelas").insert([
+    { despesa_id: despesaId, numero_parcela: 1, valor: metade, data_prevista: dataGasto, pagador: dupla[0], status: "paga", paga_em: dataGasto },
+    {
+      despesa_id: despesaId,
+      numero_parcela: 2,
+      valor: Math.round((valorTotal - metade) * 100) / 100,
+      data_prevista: dataGasto,
+      pagador: dupla[1],
+      status: "paga",
+      paga_em: dataGasto,
+    },
+  ]);
+  if (error) return { error: "Não foi possível ratear essa despesa." };
+
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos");
+  return { error: null };
+}
+
+export async function desfazerRateio(despesaId: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("despesa_parcelas").delete().eq("despesa_id", despesaId);
+  if (error) return { error: "Não foi possível desfazer o rateio." };
+
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos");
+  return { error: null };
 }
 
 export async function getSignedUrl(path: string) {

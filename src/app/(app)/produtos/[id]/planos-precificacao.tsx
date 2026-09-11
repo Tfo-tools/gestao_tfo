@@ -48,6 +48,22 @@ function formatBRL(v: number) {
 
 const FASE_LABEL: Record<string, string> = Object.fromEntries(FASES.map((f) => [f.value, f.label]));
 
+const LABEL_COBRANCA_PRECO: Record<string, string> = {
+  "": "Preço (R$/mês)",
+  mensal: "Preço (R$/mês) — sem fidelidade",
+  semestral: "Preço (R$/mês) — compromisso de 6 meses",
+  anual: "Preço (R$/mês) — compromisso de 12 meses",
+};
+const MESES_POR_COBRANCA: Record<string, number> = { mensal: 1, semestral: 6, anual: 12 };
+
+/** Total pago no ciclo de compromisso — sempre calculado a partir do valor MENSAL digitado. */
+function totalDoCompromisso(precoStr: string, tipoCobranca: string): string | null {
+  const preco = Number(precoStr);
+  const meses = MESES_POR_COBRANCA[tipoCobranca];
+  if (!preco || !meses || meses === 1) return null;
+  return `= ${formatBRL(preco * meses)} em ${meses} parcelas`;
+}
+
 export function PlanosPrecificacao({
   produtoId,
   cenarioId,
@@ -65,6 +81,8 @@ export function PlanosPrecificacao({
 }) {
   const [state, formAction, pending] = useActionState(criarPlano, initialState);
   const formRef = useRef<HTMLFormElement>(null);
+  const [tipoCobranca, setTipoCobranca] = useState("");
+  const [precoDigitado, setPrecoDigitado] = useState("");
 
   const somaMix = planos.reduce((acc, p) => acc + Number(p.mix_percentual ?? 0), 0);
   const precosFasePorPlano = new Map<string, PrecoFase[]>();
@@ -77,9 +95,9 @@ export function PlanosPrecificacao({
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
       <h2 className="mb-1 font-heading text-[13px] font-semibold">Planos de precificação</h2>
-      <p className="mb-4 text-[11px] text-text-muted">Não muda por cenário — é uma decisão do produto</p>
+      <p className="mb-4 text-[11px] text-text-muted">Vale só pra este cenário — editar aqui não muda outros cenários</p>
 
-      <div className="mb-4 flex flex-col gap-2">
+      <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-2">
         {planos.length === 0 && (
           <p className="text-[12px] text-text-faint">Nenhum plano cadastrado ainda.</p>
         )}
@@ -88,7 +106,7 @@ export function PlanosPrecificacao({
         ))}
         {planos.length > 0 && (
           <div
-            className={`text-right text-[11px] font-medium ${
+            className={`col-span-full text-right text-[11px] font-medium ${
               somaMix === 100 ? "text-success" : "text-danger"
             }`}
           >
@@ -102,60 +120,84 @@ export function PlanosPrecificacao({
         action={async (formData) => {
           await formAction(formData);
           formRef.current?.reset();
+          setTipoCobranca("");
+          setPrecoDigitado("");
         }}
         className="flex flex-col gap-2.5 border-t border-border-soft pt-4"
       >
         <input type="hidden" name="produto_id" value={produtoId} />
-        <input name="nome_plano" placeholder="Nome do plano (ex: Mensal)" className="input" required />
-        <div className="grid grid-cols-2 gap-2">
-          <select name="tipo_cobranca" className="input" required defaultValue="">
-            <option value="" disabled>
-              Cobrança
-            </option>
-            <option value="mensal">Mensal</option>
-            <option value="semestral">Semestral</option>
-            <option value="anual">Anual</option>
-          </select>
-          <select name="tipo_venda" className="input" defaultValue="individual">
-            <option value="individual">Individual</option>
-            <option value="pacote">Pacote</option>
-          </select>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <input name="preco" type="number" step="0.01" placeholder="Preço (R$)" className="input" required />
-          <input name="desconto_pct" type="number" step="0.01" placeholder="Desconto (%)" className="input" />
-        </div>
-        <div>
-          <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
-            Reajuste anual (%)
-            <InfoTooltip texto="Percentual de aumento de preço aplicado uma vez por ano, começando 1 ano após a data de lançamento do produto. Use para produtos mais simples, cujo preço não muda por fase — apenas acompanha a inflação/reajuste anual." />
+        <input type="hidden" name="cenario_id" value={cenarioId} />
+        <div className="form-linha">
+          <div className="form-campo">
+            <label>Nome do plano</label>
+            <input name="nome_plano" placeholder="Ex: Basic" className="input campo-nome" required />
+          </div>
+          <div className="form-campo">
+            <label>Cobrança</label>
+            <select
+              name="tipo_cobranca"
+              className="input campo-num"
+              required
+              value={tipoCobranca}
+              onChange={(e) => setTipoCobranca(e.target.value)}
+            >
+              <option value="" disabled>
+                Selecione…
+              </option>
+              <option value="mensal">Mensal</option>
+              <option value="semestral">Semestral</option>
+              <option value="anual">Anual</option>
+            </select>
+          </div>
+          <div className="form-campo">
+            <label>Venda</label>
+            <select name="tipo_venda" className="input campo-num" defaultValue="individual">
+              <option value="individual">Individual</option>
+              <option value="pacote">Pacote</option>
+            </select>
+          </div>
+          <div className="form-campo">
+            <label>
+              {LABEL_COBRANCA_PRECO[tipoCobranca]}
+              <InfoTooltip texto="Digite sempre o valor MENSAL — mesmo em plano anual ou semestral. 'Anual'/'Semestral' definem só o tempo mínimo de permanência (compromisso do cliente), cobrado em parcelas mensais desse valor — não mudam o número que você digita aqui." />
+            </label>
+            <input
+              name="preco"
+              type="number"
+              step="0.01"
+              placeholder="0,00"
+              className="input campo-dinheiro"
+              required
+              value={precoDigitado}
+              onChange={(e) => setPrecoDigitado(e.target.value)}
+            />
+          </div>
+          <div className="form-campo">
+            <label>Desconto (%)</label>
+            <input name="desconto_pct" type="number" step="0.01" placeholder="0" className="input campo-pct" />
+          </div>
+          <div className="form-campo">
+            <label>
+              Reajuste/ano (%)
+              <InfoTooltip texto="Percentual de aumento de preço aplicado uma vez por ano, começando 1 ano após a data de lançamento do produto. Use para produtos mais simples, cujo preço não muda por fase — apenas acompanha a inflação/reajuste anual." />
+            </label>
+            <input name="reajuste_anual_pct" type="number" step="0.01" placeholder="6" className="input campo-pct" />
+          </div>
+          <div className="form-campo">
+            <label>% dos clientes</label>
+            <input name="mix_percentual" type="number" step="0.01" min="0" max="100" placeholder="60" className="input campo-pct" />
+          </div>
+          <label className="flex items-center gap-2 pb-2.5 text-[11.5px] whitespace-nowrap">
+            <input type="checkbox" name="is_annual_only" className="h-4 w-4 rounded border-border" />
+            Só contrato anual
           </label>
-          <input
-            name="reajuste_anual_pct"
-            type="number"
-            step="0.01"
-            placeholder="Ex: 6 (= 6% ao ano, a partir de 1 ano do lançamento)"
-            className="input"
-          />
         </div>
-        <div>
-          <input
-            name="mix_percentual"
-            type="number"
-            step="0.01"
-            min="0"
-            max="100"
-            placeholder="% dos clientes nesse plano (ex: 60)"
-            className="input"
-          />
-          <p className="mt-1 text-[10px] text-text-faint">
-            Usado pra calcular a receita média por cliente — a soma de todos os planos deve dar 100%
-          </p>
-        </div>
-        <label className="flex items-center gap-2 text-[11.5px]">
-          <input type="checkbox" name="is_annual_only" className="h-4 w-4 rounded border-border" />
-          Somente contrato anual (annual-only)
-        </label>
+        {totalDoCompromisso(precoDigitado, tipoCobranca) && (
+          <p className="-mt-1 text-[10px] text-text-faint">{totalDoCompromisso(precoDigitado, tipoCobranca)}</p>
+        )}
+        <p className="-mt-1 text-[10px] text-text-faint">
+          "% dos clientes" é usado pra calcular a receita média por cliente — a soma de todos os planos deve dar 100%
+        </p>
 
         {state.error && (
           <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>
@@ -164,9 +206,9 @@ export function PlanosPrecificacao({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-lg border border-border px-3 py-2 text-[12px] font-medium text-primary-deep disabled:opacity-60"
+          className="self-start rounded-lg bg-wine-deep px-4 py-2.5 text-[12.5px] font-semibold text-white disabled:opacity-60"
         >
-          {pending ? "Adicionando…" : "+ Adicionar plano"}
+          {pending ? "Salvando…" : "Salvar plano"}
         </button>
       </form>
 
@@ -180,6 +222,8 @@ function PlanoRow({ produtoId, plano, precosFase }: { produtoId: string; plano: 
   const [state, formAction, pending] = useActionState(atualizarPlano, initialState);
   const [isPending, startTransition] = useTransition();
   const foiPending = useRef(false);
+  const [tipoCobranca, setTipoCobranca] = useState(plano.tipo_cobranca);
+  const [precoDigitado, setPrecoDigitado] = useState(String(plano.preco));
 
   useEffect(() => {
     if (foiPending.current && !pending && state.success) setEditando(false);
@@ -192,44 +236,80 @@ function PlanoRow({ produtoId, plano, precosFase }: { produtoId: string; plano: 
         <form action={formAction} className="flex flex-col gap-2">
           <input type="hidden" name="id" value={plano.id} />
           <input type="hidden" name="produto_id" value={produtoId} />
-          <input name="nome_plano" defaultValue={plano.nome_plano} className="input" required />
-          <div className="grid grid-cols-2 gap-2">
-            <select name="tipo_cobranca" defaultValue={plano.tipo_cobranca} className="input" required>
-              <option value="mensal">Mensal</option>
-              <option value="semestral">Semestral</option>
-              <option value="anual">Anual</option>
-            </select>
-            <select name="tipo_venda" defaultValue={plano.tipo_venda} className="input">
-              <option value="individual">Individual</option>
-              <option value="pacote">Pacote</option>
-            </select>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="col-span-2">
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Nome do plano</label>
+              <input name="nome_plano" defaultValue={plano.nome_plano} className="input w-full" required />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Cobrança</label>
+              <select
+                name="tipo_cobranca"
+                value={tipoCobranca}
+                onChange={(e) => setTipoCobranca(e.target.value)}
+                className="input w-full"
+                required
+              >
+                <option value="mensal">Mensal</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Venda</label>
+              <select name="tipo_venda" defaultValue={plano.tipo_venda} className="input w-full">
+                <option value="individual">Individual</option>
+                <option value="pacote">Pacote</option>
+              </select>
+            </div>
+
+            <div className="col-span-2">
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">{LABEL_COBRANCA_PRECO[tipoCobranca]}</label>
+              <input
+                name="preco"
+                type="number"
+                step="0.01"
+                value={precoDigitado}
+                onChange={(e) => setPrecoDigitado(e.target.value)}
+                className="input w-full"
+                required
+              />
+              {totalDoCompromisso(precoDigitado, tipoCobranca) && (
+                <p className="mt-1 text-[10px] text-text-faint">{totalDoCompromisso(precoDigitado, tipoCobranca)}</p>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Desconto (%)</label>
+              <input name="desconto_pct" type="number" step="0.01" defaultValue={plano.desconto_pct ?? ""} className="input w-full" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Reajuste/ano (%)</label>
+              <input
+                name="reajuste_anual_pct"
+                type="number"
+                step="0.01"
+                defaultValue={plano.reajuste_anual_pct != null ? (plano.reajuste_anual_pct * 100).toFixed(2) : ""}
+                className="input w-full"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">% dos clientes</label>
+              <input
+                name="mix_percentual"
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                defaultValue={plano.mix_percentual ?? ""}
+                className="input w-full"
+              />
+            </div>
+            <label className="col-span-2 flex items-center gap-2 pb-2.5 text-[11.5px]">
+              <input type="checkbox" name="is_annual_only" defaultChecked={plano.is_annual_only} className="h-4 w-4 rounded border-border" />
+              Somente contrato anual
+            </label>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input name="preco" type="number" step="0.01" defaultValue={plano.preco} placeholder="Preço (R$)" className="input" required />
-            <input name="desconto_pct" type="number" step="0.01" defaultValue={plano.desconto_pct ?? ""} placeholder="Desconto (%)" className="input" />
-          </div>
-          <input
-            name="reajuste_anual_pct"
-            type="number"
-            step="0.01"
-            defaultValue={plano.reajuste_anual_pct != null ? (plano.reajuste_anual_pct * 100).toFixed(2) : ""}
-            placeholder="Reajuste anual (%)"
-            className="input"
-          />
-          <input
-            name="mix_percentual"
-            type="number"
-            step="0.01"
-            min="0"
-            max="100"
-            defaultValue={plano.mix_percentual ?? ""}
-            placeholder="% dos clientes nesse plano"
-            className="input"
-          />
-          <label className="flex items-center gap-2 text-[11.5px]">
-            <input type="checkbox" name="is_annual_only" defaultChecked={plano.is_annual_only} className="h-4 w-4 rounded border-border" />
-            Somente contrato anual (annual-only)
-          </label>
           {state.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>}
           <div className="flex gap-2">
             <button
@@ -264,7 +344,12 @@ function PlanoRow({ produtoId, plano, precosFase }: { produtoId: string; plano: 
           {plano.mix_percentual != null && (
             <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-primary-deep">{plano.mix_percentual}%</span>
           )}
-          <span className="font-mono text-[13px] font-semibold">{formatBRL(Number(plano.preco))}</span>
+          <span className="text-right">
+            <span className="block font-mono text-[13px] font-semibold">{formatBRL(Number(plano.preco))}/mês</span>
+            {totalDoCompromisso(String(plano.preco), plano.tipo_cobranca) && (
+              <span className="block text-[9.5px] text-text-faint">{totalDoCompromisso(String(plano.preco), plano.tipo_cobranca)}</span>
+            )}
+          </span>
           <button type="button" onClick={() => setEditando(true)} className="text-[11px] text-primary-deep">
             Editar
           </button>

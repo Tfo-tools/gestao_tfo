@@ -10,7 +10,13 @@ type Cenario = {
   descricao: string | null;
   is_base: boolean;
   status: string;
+  data_inicio: string;
+  data_fim: string;
 };
+
+function formatMesAno(iso: string) {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+}
 
 const initialState: CenarioFormState = { error: null };
 
@@ -47,6 +53,16 @@ export function CenarioCard({ cenario }: { cenario: Cenario }) {
             <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Descrição</label>
             <input name="descricao" type="text" defaultValue={cenario.descricao ?? ""} className="input" />
           </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Início do plano</label>
+              <input name="data_inicio" type="month" defaultValue={cenario.data_inicio.slice(0, 7)} required className="input" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Fim do plano</label>
+              <input name="data_fim" type="month" defaultValue={cenario.data_fim.slice(0, 7)} required className="input" />
+            </div>
+          </div>
           {state.error && <p className="rounded-lg bg-danger-soft px-2.5 py-1.5 text-[11px] text-danger">{state.error}</p>}
           <div className="mt-1 flex gap-2">
             <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60">
@@ -80,9 +96,12 @@ export function CenarioCard({ cenario }: { cenario: Cenario }) {
           </button>
         </div>
       </div>
-      <Link href={`/produtos?cenario=${cenario.id}`} className="flex flex-col gap-1">
+      <Link href={`/plano/${cenario.id}`} className="flex flex-col gap-1">
         <div className="font-heading text-[15px] font-semibold">{cenario.nome}</div>
         <p className="text-[12px] text-text-muted">{cenario.descricao ?? "Sem descrição."}</p>
+        <p className="font-mono text-[10.5px] text-text-faint">
+          {formatMesAno(cenario.data_inicio)} – {formatMesAno(cenario.data_fim)}
+        </p>
       </Link>
       {erroExcluir && <p className="rounded-lg bg-danger-soft px-2.5 py-1.5 text-[11px] text-danger">{erroExcluir}</p>}
     </div>

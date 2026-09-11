@@ -42,6 +42,9 @@ export async function criarComboProduto(
 ): Promise<ActionState> {
   const nome = String(formData.get("nome") || "").trim();
   const desconto_pct = formData.get("desconto_pct") ? Number(formData.get("desconto_pct")) / 100 : 0;
+  const percentual_clientes_combo = formData.get("percentual_clientes_combo")
+    ? Number(formData.get("percentual_clientes_combo")) / 100
+    : null;
   const observacoes = String(formData.get("observacoes") || "").trim() || null;
   const produtoIds = formData.getAll("produto_ids").map(String).filter(Boolean);
 
@@ -55,7 +58,7 @@ export async function criarComboProduto(
   const supabase = await createClient();
   const { data: combo, error } = await supabase
     .from("combos_produtos")
-    .insert({ nome, desconto_pct, observacoes })
+    .insert({ nome, desconto_pct, percentual_clientes_combo, observacoes })
     .select("id")
     .single();
 

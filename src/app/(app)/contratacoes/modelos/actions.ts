@@ -17,6 +17,29 @@ function pct(formData: FormData, name: string): number | undefined {
 
 function montarParametros(formData: FormData, tipo_modelo: TipoModelo): Record<string, unknown> {
   const parametros: Record<string, unknown> = {};
+  // Vale pra qualquer tipo de modelo: é característica do funil (quantos leads viram reunião),
+  // não do jeito de cobrar. É o que a Necessidade de Contratação usa pra dimensionar o SDR.
+  // A capacidade agora é informada em REUNIÕES ENTREGUES POR MÊS (para SDR/vendedor) num campo
+  // único, no topo do formulário — é como a pessoa pensa o contrato, não em percentual.
+  const capacidade = num(formData, "capacidade_unidade_mes") ?? num(formData, "capacidade_pacote");
+  if (capacidade != null) parametros.capacidade_unidade_mes = capacidade;
+
+  // Remuneração variável: existe em CLT e PJ, por isso fica fora dos ifs por tipo.
+  if (tipo_modelo === "clt" || tipo_modelo === "pj") {
+    parametros.valor_por_reuniao = num(formData, "valor_por_reuniao") ?? 0;
+    parametros.valor_por_ligacao = num(formData, "valor_por_ligacao") ?? 0;
+    parametros.ligacoes_maximas_mes = num(formData, "ligacoes_maximas_mes") ?? 0;
+    parametros.valor_por_venda = num(formData, "valor_por_venda") ?? 0;
+    parametros.comissao_por_venda_pct = pct(formData, "comissao_por_venda_pct") ?? 0;
+  }
+
+  // Eficiência derivada: se a pessoa entrega X reuniões fazendo no máximo Y ligações, a taxa de
+  // qualificação é X/Y. Assim ela informa dois números concretos do contrato em vez de um
+  // percentual abstrato — e quem cobra por lead continua tendo a taxa de que precisa.
+  const teto = num(formData, "ligacoes_maximas_mes");
+  if (capacidade != null && capacidade > 0 && teto != null && teto > 0) {
+    parametros.taxa_qualificacao = capacidade / teto;
+  }
   if (tipo_modelo === "clt") {
     parametros.capacidade_unidade_mes = num(formData, "capacidade_unidade_mes");
     parametros.horas_semanais = num(formData, "horas_semanais");
@@ -34,6 +57,14 @@ function montarParametros(formData: FormData, tipo_modelo: TipoModelo): Record<s
   } else if (tipo_modelo === "empresa_creditos") {
     parametros.valor_por_credito = num(formData, "valor_por_credito");
     parametros.creditos_por_unidade = num(formData, "creditos_por_unidade") ?? 1;
+  } else if (tipo_modelo === "empresa_ia_atendimento") {
+    parametros.leads_maximos_pacote = num(formData, "leads_maximos_pacote") ?? 0;
+    parametros.valor_mensal = num(formData, "valor_mensal");
+    parametros.valor_por_lead_trabalhado = num(formData, "valor_por_lead_trabalhado") ?? 0;
+    parametros.valor_por_lead_qualificado = num(formData, "valor_por_lead_qualificado") ?? 0;
+    parametros.taxa_qualificacao_estimada = pct(formData, "taxa_qualificacao_estimada") ?? 0;
+    parametros.valor_sessao_meta = num(formData, "valor_sessao_meta") ?? 0;
+    parametros.sessoes_meta_por_lead = num(formData, "sessoes_meta_por_lead") ?? 0;
   }
   return parametros;
 }

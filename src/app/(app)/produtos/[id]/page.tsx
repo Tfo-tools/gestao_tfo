@@ -1,14 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { FASES } from "@/lib/fases";
 import { CenarioSelector } from "./cenario-selector";
-import { FaseCard } from "./fase-card";
 import { PlanosPrecificacao } from "./planos-precificacao";
 import { ModulosProduto } from "./modulos-produto";
-import { RecalcularButton } from "./recalcular-button";
-import { SimulacaoResultado } from "./simulacao-resultado";
+import { NiveisModulo } from "./niveis-modulo";
+import { TipoPrecificacaoToggle } from "./tipo-precificacao-toggle";
 import { DatasProduto } from "./datas-produto";
+import { ImplementacaoProduto } from "./implementacao-produto";
 
 export default async function ProdutoDetailPage({
   params,
@@ -21,18 +20,25 @@ export default async function ProdutoDetailPage({
   const { cenario } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: produto }, { data: cenarios }, { data: planos }, { data: modulos }] = await Promise.all([
+  const [{ data: produto }, { data: cenarios }] = await Promise.all([
     supabase
       .from("produtos")
-      .select("id, nome, descricao, data_inicio_desenvolvimento, data_lancamento_estimada")
+      .select(
+        "id, nome, descricao, data_inicio_desenvolvimento, data_lancamento_estimada, tipo_precificacao, tem_implementacao, preco_implementacao, implementacao_parcelas",
+      )
       .eq("id", id)
       .single(),
     supabase.from("cenarios").select("id, nome, is_base").order("created_at"),
-    supabase.from("planos_precificacao").select("*").eq("produto_id", id).order("preco"),
-    supabase.from("modulos_produto").select("*").eq("produto_id", id).order("created_at"),
   ]);
 
   if (!produto) notFound();
+
+  const cenarioAtual = cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
+
+  const [{ data: planos }, { data: modulos }] = await Promise.all([
+    supabase.from("planos_precificacao").select("*").eq("produto_id", id).eq("cenario_id", cenarioAtual).order("preco"),
+    supabase.from("modulos_produto").select("*").eq("produto_id", id).eq("cenario_id", cenarioAtual).order("created_at"),
+  ]);
 
   const planoIds = (planos ?? []).map((p) => p.id);
   const moduloIds = (modulos ?? []).map((m) => m.id);
@@ -54,33 +60,19 @@ export default async function ProdutoDetailPage({
   }
   const modulosComBeta = (modulos ?? []).map((m) => ({ ...m, betaTesters: betasModuloByModuloId.get(m.id) ?? [] }));
 
-  const cenarioAtual =
-    cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
-
-  const [{ data: fases }, { data: betas }] = await Promise.all([
-    supabase
-      .from("fases_produto")
-      .select("id, fase, data_inicio, data_fim, taxa_crescimento_mensal, taxa_churn_mensal, observacoes")
-      .eq("produto_id", id)
-      .eq("cenario_id", cenarioAtual),
+  // Só as datas das fases (pro "Preço por fase" dos planos) — crescimento, churn, canais e funil são
+  // decisão de Vendas, não daqui.
+  const [{ data: fases }, { data: betas }, { data: etapasImplementacao }, { data: tabelaCustoHora }] = await Promise.all([
+    supabase.from("fases_produto").select("fase, data_inicio, data_fim").eq("produto_id", id).eq("cenario_id", cenarioAtual),
     supabase.from("beta_testers_config").select("*").eq("produto_id", id).eq("cenario_id", cenarioAtual),
+    supabase
+      .from("implementacao_etapas")
+      .select("*")
+      .eq("produto_id", id)
+      .eq("cenario_id", cenarioAtual)
+      .order("ordem", { nullsFirst: false }),
+    supabase.from("tabela_custo_hora").select("area, cargo, tipo_contratacao, senioridade, valor_hora").order("cargo"),
   ]);
-
-  const faseByValue = new Map((fases ?? []).map((f) => [f.fase, f]));
-
-  const faseIds = (fases ?? []).map((f) => f.id);
-  const { data: funis } =
-    faseIds.length > 0 ? await supabase.from("premissas_funil").select("*").in("fase_produto_id", faseIds) : { data: [] };
-  const funilByFaseId = new Map((funis ?? []).map((f) => [f.fase_produto_id, f]));
-
-  const primeiraVazia = FASES.findIndex((f) => !faseByValue.get(f.value)?.data_inicio);
-
-  const { data: simulacao } = await supabase
-    .from("simulacao_mensal")
-    .select("mes_referencia, clientes_ativos, receita_bruta, ebitda, cac_all_in, ltv")
-    .eq("produto_id", id)
-    .eq("cenario_id", cenarioAtual)
-    .order("mes_referencia");
 
   return (
     <div>
@@ -95,12 +87,21 @@ export default async function ProdutoDetailPage({
           <h1 className="font-heading text-[22px] font-semibold">{produto.nome}</h1>
           <p className="mt-1 text-[13px] text-text-muted">{produto.descricao ?? "Sem descrição."}</p>
           <p className="mt-0.5 text-[11px] text-text-faint">
-            Metas de crescimento e preço ficam aqui — custos (equipe, fixos e variáveis) ficam em Plano de Custos
+            Planos, preços e módulos ficam aqui — início/fim de fase ficam na lista de Produtos; canais de aquisição,
+            crescimento, churn, conversão e capacidade ficam em Vendas
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <TipoPrecificacaoToggle produtoId={id} tipoAtual={produto.tipo_precificacao} />
           {cenarioAtual && <CenarioSelector cenarios={cenarios ?? []} cenarioAtual={cenarioAtual} />}
-          {cenarioAtual && <RecalcularButton produtoId={id} cenarioId={cenarioAtual} />}
+          {cenarioAtual && (
+            <Link
+              href={`/plano/${cenarioAtual}/vendas`}
+              className="whitespace-nowrap rounded-lg bg-wine-deep px-3.5 py-2 text-[12.5px] font-medium text-white"
+            >
+              Ir para Vendas →
+            </Link>
+          )}
         </div>
       </div>
 
@@ -110,43 +111,33 @@ export default async function ProdutoDetailPage({
         dataLancamentoEstimada={produto.data_lancamento_estimada}
       />
 
-      <div className="mb-5">
-        <SimulacaoResultado linhas={simulacao ?? []} />
-      </div>
-
-      <div className="grid grid-cols-[480px_1fr] items-start gap-5">
-        <div className="flex flex-col gap-2.5">
-          {FASES.map((f, i) => {
-            const dados = faseByValue.get(f.value) ?? null;
-            const faseId = dados?.id;
-            const funil = faseId ? (funilByFaseId.get(faseId) ?? null) : null;
-            return (
-              <FaseCard
-                key={f.value}
-                produtoId={id}
-                cenarioId={cenarioAtual}
-                fase={f.value}
-                label={f.label}
-                ordem={i + 1}
-                dados={dados}
-                funil={funil}
-                defaultOpen={i === (primeiraVazia === -1 ? 0 : primeiraVazia)}
-              />
-            );
-          })}
-        </div>
-
-        <div className="flex flex-col gap-5">
-          <PlanosPrecificacao
-            produtoId={id}
-            cenarioId={cenarioAtual}
-            planos={planos ?? []}
-            precosFase={precosFase ?? []}
-            fases={(fases ?? []).map((f) => ({ fase: f.fase, data_inicio: f.data_inicio, data_fim: f.data_fim }))}
-            betaTesters={betas ?? []}
-          />
-          <ModulosProduto produtoId={id} modulos={modulosComBeta} />
-        </div>
+      <div className="mt-5 flex flex-col gap-5">
+        <ImplementacaoProduto
+          produtoId={id}
+          cenarioId={cenarioAtual}
+          temImplementacao={produto.tem_implementacao}
+          precoImplementacao={produto.preco_implementacao}
+          parcelas={produto.implementacao_parcelas ?? 1}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          etapas={(etapasImplementacao ?? []) as any}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          tabelaCustoHora={(tabelaCustoHora ?? []) as any}
+        />
+        {produto.tipo_precificacao === "modulos" ? (
+          <NiveisModulo produtoId={id} cenarioId={cenarioAtual} niveis={modulosComBeta} />
+        ) : (
+          <>
+            <PlanosPrecificacao
+              produtoId={id}
+              cenarioId={cenarioAtual}
+              planos={planos ?? []}
+              precosFase={precosFase ?? []}
+              fases={(fases ?? []).map((f) => ({ fase: f.fase, data_inicio: f.data_inicio, data_fim: f.data_fim }))}
+              betaTesters={betas ?? []}
+            />
+            <ModulosProduto produtoId={id} cenarioId={cenarioAtual} modulos={modulosComBeta} />
+          </>
+        )}
       </div>
     </div>
   );

@@ -1,10 +1,18 @@
 import Link from "next/link";
+import { horasAtendimentoPorProduto } from "@/lib/cogs";
 import { Fragment } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
-import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
+import { custoMensalModelo, volumeCobertoPelaAlocacao, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
 import { subgrupoDeConta, subgrupoDeCargo, type SubgrupoConta } from "@/lib/subgrupo-conta";
-import { calcularDemandaPorCargo, type FaseProdutoInput, type FunilPremissaInput, type SimulacaoMesInput } from "@/lib/necessidade-contratacao";
+import {
+  calcularDemandaPorCargo,
+  type CanalFunilInput,
+  type FaseProdutoInput,
+  type FunilPremissaInput,
+  type SimulacaoMesInput,
+  cargoChave,
+} from "@/lib/necessidade-contratacao";
 import type { FaseValue } from "@/lib/fases";
 
 function formatBRL(v: number) {
@@ -68,7 +76,7 @@ export default async function RelatoriosMensalPage({
   let query = supabase
     .from("simulacao_mensal")
     .select(
-      "produto_id, mes_referencia, novos_clientes, clientes_ativos, churn_pct, receita_bruta, cogs_suporte, cogs_infraestrutura, cogs_outros, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga",
+      "produto_id, mes_referencia, novos_clientes, clientes_ativos, churn_pct, receita_bruta, cogs_suporte, cogs_infraestrutura, cogs_outros, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga, novos_direto, novos_representante, novos_associacao",
     )
     .eq("cenario_id", cenarioAtual)
     .order("mes_referencia");
@@ -129,9 +137,13 @@ export default async function RelatoriosMensalPage({
       faseIds.length > 0
         ? await supabase
             .from("premissas_funil")
-            .select("fase_produto_id, taxa_conversao, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes")
+            .select("fase_produto_id, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes, reunioes_por_oportunidade")
             .in("fase_produto_id", faseIds)
         : { data: [] };
+    const { data: canaisRaw } = await supabase
+      .from("canais_aquisicao")
+      .select("id, tipo_canal, modelo_contratacao_id, canal_produto(produto_id, percentual_mix, taxa_fechamento)")
+      .eq("cenario_id", cenarioAtual);
     const faseById = new Map<string, { id: string; produto_id: string; fase: FaseValue }>(
       (fasesRaw ?? []).map((f: { id: string; produto_id: string; fase: FaseValue }) => [f.id, f]),
     );
@@ -146,9 +158,9 @@ export default async function RelatoriosMensalPage({
     const funisInput: FunilPremissaInput[] = (
       (funisRaw ?? []) as {
         fase_produto_id: string;
-        taxa_conversao: number | null;
         capacidade_vendedor_mes: number | null;
         span_of_control: number | null;
+        reunioes_por_oportunidade: number | null;
         horas_suporte_por_cliente_mes: number | null;
       }[]
     )
@@ -158,33 +170,62 @@ export default async function RelatoriosMensalPage({
         return {
           produtoId: fase.produto_id,
           fase: fase.fase,
-          taxa_conversao: f.taxa_conversao,
           capacidade_vendedor_mes: f.capacidade_vendedor_mes,
           span_of_control: f.span_of_control,
+        reunioes_por_oportunidade: f.reunioes_por_oportunidade,
           horas_suporte_por_cliente_mes: f.horas_suporte_por_cliente_mes,
         };
       })
       .filter((f): f is FunilPremissaInput => f !== null);
     const simulacaoInput: SimulacaoMesInput[] = (
-      (simRaw ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number }[]
+      (simRaw ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number; novos_direto?: number | null; novos_representante?: number | null; novos_associacao?: number | null }[]
     ).map((s) => ({
       produtoId: s.produto_id,
       mes_referencia: s.mes_referencia,
       novos_clientes: Number(s.novos_clientes),
       clientes_ativos: Number(s.clientes_ativos),
+      novos_direto: s.novos_direto != null ? Number(s.novos_direto) : undefined,
+      novos_representante: s.novos_representante != null ? Number(s.novos_representante) : undefined,
+      novos_associacao: s.novos_associacao != null ? Number(s.novos_associacao) : undefined,
     }));
-    const demandaPorCargo = calcularDemandaPorCargo({ fasesPorProduto: fasesPorProdutoInput, funis: funisInput, simulacao: simulacaoInput });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const qualificacaoPorModelo = new Map((modelosRaw ?? []).map((m: any) => [m.id, m.parametros?.taxa_qualificacao ?? null]));
+    const canaisInput: CanalFunilInput[] = (
+      (canaisRaw ?? []) as {
+        id: string;
+        tipo_canal: CanalFunilInput["tipo_canal"];
+        modelo_contratacao_id: string | null;
+        canal_produto: { produto_id: string; percentual_mix: number; taxa_fechamento: number | null }[] | null;
+      }[]
+    ).flatMap((c) =>
+      (c.canal_produto ?? []).map((cp) => ({
+        produtoId: cp.produto_id,
+        tipo_canal: c.tipo_canal,
+        percentual_mix: Number(cp.percentual_mix),
+        taxa_fechamento: cp.taxa_fechamento,
+        taxa_qualificacao: c.modelo_contratacao_id ? (qualificacaoPorModelo.get(c.modelo_contratacao_id) ?? null) : null,
+      })),
+    );
+    const { data: cogsRaw } = await supabase.from("cogs_premissas").select("produto_id, parametros").eq("cenario_id", cenarioAtual);
+    const demandaPorCargo = calcularDemandaPorCargo({
+      fasesPorProduto: fasesPorProdutoInput,
+      funis: funisInput,
+      canais: canaisInput,
+      simulacao: simulacaoInput,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      horasSuportePorProduto: horasAtendimentoPorProduto((cogsRaw ?? []) as any),
+    });
     const demandaPorCargoMes: Record<"sdr" | "coordenador" | "suporte", Map<string, number>> = {
       sdr: new Map(demandaPorCargo.sdr.map((d) => [d.mes_referencia, d.demanda])),
       coordenador: new Map(demandaPorCargo.coordenador.map((d) => [d.mes_referencia, d.demanda])),
       suporte: new Map(demandaPorCargo.suporte.map((d) => [d.mes_referencia, d.demanda])),
     };
+    const oportunidadesDiretoPorMes = new Map(demandaPorCargo.oportunidadesDireto.map((d) => [d.mes_referencia, d.demanda]));
     function demandaCargoNoMes(cargo: string, mes: string): number {
-      const chave = cargo.trim().toLowerCase();
-      if (chave === "sdr") return demandaPorCargoMes.sdr.get(mes) ?? 0;
-      if (chave === "coordenador") return demandaPorCargoMes.coordenador.get(mes) ?? 0;
-      if (chave === "suporte") return demandaPorCargoMes.suporte.get(mes) ?? 0;
-      return 0;
+      const chave = cargoChave(cargo);
+      if (!chave) return 0;
+      if (chave === "vendedor") return new Map(demandaPorCargo.vendedor.map((d) => [d.mes_referencia, d.demanda])).get(mes) ?? 0;
+      return demandaPorCargoMes[chave].get(mes) ?? 0;
     }
 
     const modeloById = new Map(
@@ -218,13 +259,15 @@ export default async function RelatoriosMensalPage({
         if (!iniciouAntes || !aindaAtiva) continue;
         const modelo = modeloById.get(a.modelo_id);
         if (!modelo) continue;
+        // Suporte é custeado pelas regras de COGS do produto; a alocação só dimensiona.
+        if ((cargoChave(a.cargo) ?? cargoChave(modelo.cargo)) === "suporte") continue;
         const tipo = modelo.tipo_modelo as TipoModelo;
         const quantidade = Number(a.quantidade);
-        const demanda =
-          tipo === "clt" || tipo === "empresa_fixo_escopo"
-            ? quantidade * (modelo.parametros.capacidade_unidade_mes ?? 1)
-            : demandaCargoNoMes(a.cargo, mes);
-        const custo = custoMensalModelo(tipo, modelo.parametros, demanda).custoMensal;
+        const { cobrado: demanda } = volumeCobertoPelaAlocacao(tipo, modelo.parametros, quantidade, demandaCargoNoMes(a.cargo, mes));
+        const custo = custoMensalModelo(tipo, modelo.parametros, demanda, {
+          reunioes: Math.min(oportunidadesDiretoPorMes.get(mes) ?? 0, demanda),
+          vendas: linha.novos_clientes,
+        }).custoMensal;
         somarNaLinha(linha, subgrupoDeCargo(modelo.cargo, modelo.categoria), custo);
       }
     }

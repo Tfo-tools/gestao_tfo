@@ -1,13 +1,28 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { atualizarDespesa, excluirDespesa, type DespesaFormState } from "../actions";
+import { useActionState, useState, useTransition } from "react";
+import { atualizarDespesa, excluirDespesa, ratearIgualmente, desfazerRateio, type DespesaFormState } from "../actions";
 import { AnexoButton } from "./anexo-button";
 import { ParcelasDespesa, type Parcela } from "./parcelas-despesa";
+import { PasteableFileInput } from "../pasteable-file-input";
+import { DetalhePagamento, EfetivacaoPagamento, LABEL_FORMA, type ItemPagamento, type FormaPagamentoTipo } from "../detalhe-pagamento";
+import type { MeioPagamento } from "../meios-pagamento-actions";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
 type Produto = { id: string; nome: string };
+type Pessoa = { id: string; nome: string };
 type Anexo = { caminho_arquivo: string; nome_arquivo: string; tipo?: string };
+export type PagamentoDetalheRow = {
+  forma_pagamento: FormaPagamentoTipo;
+  valor: number;
+  banco: string | null;
+  bandeira: string | null;
+  titular: string | null;
+  parcelado: boolean;
+  num_parcelas: number | null;
+  codigo: string | null;
+  meio_pagamento_id: string | null;
+};
 
 export type DespesaRowData = {
   id: string;
@@ -16,11 +31,14 @@ export type DespesaRowData = {
   comprovado: boolean;
   descricao: string | null;
   pagador: string | null;
+  forma_pagamento?: string | null;
+  valor_fatura?: number | null;
   plano_contas_id: string | null;
   plano_contas: { codigo: string; conta: string } | null;
   despesa_produtos: { produtos: { id: string; nome: string } | null }[];
   anexos_despesa: Anexo[];
   despesa_parcelas: Parcela[];
+  despesa_pagamentos?: PagamentoDetalheRow[];
 };
 
 function formatBRL(value: number) {
@@ -38,18 +56,44 @@ export function DespesaRow({
   produtos,
   pagadores,
   fechado,
+  variante = "parcelar",
+  meiosPagamento,
+  pessoas,
 }: {
   despesa: DespesaRowData;
   planoContas: PlanoContas[];
   produtos: Produto[];
   pagadores: string[];
   fechado: boolean;
+  /** No Extrato o rateio entre sócias substitui o parcelamento — a forma de pagamento vai
+   * detalhar isso melhor numa tela própria mais pra frente. */
+  variante?: "parcelar" | "ratear";
+  meiosPagamento: MeioPagamento[];
+  pessoas: Pessoa[];
 }) {
   const [editando, setEditando] = useState(false);
   const [mostrandoParcelas, setMostrandoParcelas] = useState(false);
   const [state, formAction, pending] = useActionState(atualizarDespesa, initialState);
   const [excluindo, setExcluindo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
+  const [rateando, startRateio] = useTransition();
+  const [erroRateio, setErroRateio] = useState<string | null>(null);
+  const [comprovado, setComprovado] = useState(despesa.comprovado);
+  const [itensPagamento, setItensPagamento] = useState<ItemPagamento[]>(
+    (despesa.despesa_pagamentos ?? []).map((p) => ({
+      forma: p.forma_pagamento,
+      valor: Number(p.valor),
+      banco: p.banco ?? undefined,
+      bandeira: p.bandeira ?? undefined,
+      titular: p.titular ?? undefined,
+      parcelado: p.parcelado,
+      num_parcelas: p.num_parcelas ?? undefined,
+      codigo: p.codigo ?? undefined,
+      meio_pagamento_id: p.meio_pagamento_id ?? undefined,
+    })),
+  );
+
+  const jaRateado = despesa.despesa_parcelas.length > 0;
 
   if (state.success && editando) setEditando(false);
 
@@ -108,18 +152,44 @@ export function DespesaRow({
                 <option value="Empresa">Empresa</option>
               </select>
             </div>
+            <div className="w-[220px]">
+              <label className="mb-1 block text-[10.5px] text-text-faint">Forma de pagamento</label>
+              <DetalhePagamento
+                name="pagamento_detalhe"
+                valorTotal={Number(despesa.valor_total)}
+                defaultValue={itensPagamento}
+                onChange={setItensPagamento}
+                meios={meiosPagamento}
+                pessoas={pessoas}
+              />
+            </div>
             <div>
-              <label className="mb-1 block text-[10.5px] text-text-faint">Valor</label>
+              <label className="mb-1 block text-[10.5px] text-text-faint">Valor pago</label>
               <input name="valor_total" type="number" step="0.01" min="0" defaultValue={despesa.valor_total} required className="input w-[110px]" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10.5px] text-text-faint">Valor da fatura (se atrasou)</label>
+              <input name="valor_fatura" type="number" step="0.01" min="0" defaultValue={despesa.valor_fatura ?? ""} className="input w-[110px]" />
             </div>
             <div className="min-w-[140px] flex-1">
               <label className="mb-1 block text-[10.5px] text-text-faint">Descrição</label>
               <input name="descricao" type="text" defaultValue={despesa.descricao ?? ""} className="input w-full" />
             </div>
             <label className="flex items-center gap-1.5 pb-2 text-[11px]">
-              <input name="comprovado" type="checkbox" defaultChecked={despesa.comprovado} className="h-3.5 w-3.5 rounded border-border" />
+              <input
+                name="comprovado"
+                type="checkbox"
+                checked={comprovado}
+                onChange={(e) => setComprovado(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border"
+              />
               Comprovado
             </label>
+            {comprovado && (
+              <div className="w-full">
+                <EfetivacaoPagamento name="efetivacao_detalhe" itens={itensPagamento} />
+              </div>
+            )}
             <div className="w-full">
               <div className="mb-1 flex flex-wrap gap-3 text-[11px] text-text-faint">
                 {despesa.anexos_despesa.map((a, i) => (
@@ -129,18 +199,18 @@ export function DespesaRow({
                 ))}
               </div>
               <div className="flex flex-wrap gap-3">
-                {!temAnexoTipo(despesa.anexos_despesa, "fatura") && (
-                  <div>
-                    <label className="mb-1 block text-[10.5px] text-text-faint">+ Anexar fatura/NF</label>
-                    <input name="fatura" type="file" accept="image/*,application/pdf" className="w-[190px] text-[11px]" />
-                  </div>
-                )}
-                {!temAnexoTipo(despesa.anexos_despesa, "comprovante_pagamento") && (
-                  <div>
-                    <label className="mb-1 block text-[10.5px] text-text-faint">+ Anexar comprovante de pagamento</label>
-                    <input name="comprovante_pagamento" type="file" accept="image/*,application/pdf" className="w-[190px] text-[11px]" />
-                  </div>
-                )}
+                <div className="w-[220px]">
+                  <PasteableFileInput
+                    name="fatura"
+                    label={temAnexoTipo(despesa.anexos_despesa, "fatura") ? "+ Anexar outra fatura/NF" : "+ Anexar fatura/NF"}
+                  />
+                </div>
+                <div className="w-[220px]">
+                  <PasteableFileInput
+                    name="comprovante_pagamento"
+                    label={temAnexoTipo(despesa.anexos_despesa, "comprovante_pagamento") ? "+ Anexar outro comprovante" : "+ Anexar comprovante de pagamento"}
+                  />
+                </div>
               </div>
             </div>
             <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60">
@@ -164,7 +234,14 @@ export function DespesaRow({
       <td className="px-2 py-2.5 text-text-muted">{produtosVinculados.length > 0 ? produtosVinculados.map((p) => p.nome).join(", ") : "—"}</td>
       <td className="px-2 py-2.5 text-text-muted">{despesa.pagador ?? "—"}</td>
       <td className="px-2 py-2.5 text-text-muted">{despesa.descricao ?? "—"}</td>
-      <td className="px-2 py-2.5 text-right font-mono">{formatBRL(Number(despesa.valor_total))}</td>
+      <td className="px-2 py-2.5 text-right font-mono">
+        {formatBRL(Number(despesa.valor_total))}
+        {despesa.valor_fatura != null && Number(despesa.valor_total) - Number(despesa.valor_fatura) > 0.01 && (
+          <div className="mt-0.5 text-[10px] font-normal text-danger" title={`Fatura original: ${formatBRL(Number(despesa.valor_fatura))}`}>
+            +{formatBRL(Number(despesa.valor_total) - Number(despesa.valor_fatura))} juros
+          </div>
+        )}
+      </td>
       <td className="px-2 py-2.5 text-center">
         <span
           className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${
@@ -194,13 +271,32 @@ export function DespesaRow({
               <button type="button" onClick={() => setEditando(true)} className="text-[11.5px] font-medium text-primary-deep hover:text-wine">
                 Editar
               </button>
-              <button
-                type="button"
-                onClick={() => setMostrandoParcelas((v) => !v)}
-                className="text-[11.5px] font-medium text-primary-deep hover:text-wine"
-              >
-                {despesa.despesa_parcelas.length > 0 ? `Parcelas (${despesa.despesa_parcelas.length})` : "Parcelar"}
-              </button>
+              {variante === "ratear" ? (
+                <button
+                  type="button"
+                  disabled={rateando}
+                  onClick={() =>
+                    startRateio(async () => {
+                      setErroRateio(null);
+                      const result = jaRateado
+                        ? await desfazerRateio(despesa.id)
+                        : await ratearIgualmente(despesa.id, Number(despesa.valor_total), despesa.data_gasto, pagadores);
+                      if (result.error) setErroRateio(result.error);
+                    })
+                  }
+                  className="text-[11.5px] font-medium text-primary-deep hover:text-wine disabled:opacity-50"
+                >
+                  {rateando ? "…" : jaRateado ? "Rateado ✓ (desfazer)" : "Ratear"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setMostrandoParcelas((v) => !v)}
+                  className="text-[11.5px] font-medium text-primary-deep hover:text-wine"
+                >
+                  {jaRateado ? `Parcelas (${despesa.despesa_parcelas.length})` : "Parcelar"}
+                </button>
+              )}
               <button
                 type="button"
                 disabled={excluindo}
@@ -222,9 +318,10 @@ export function DespesaRow({
           )}
         </div>
         {erroExclusao && <p className="mt-1 text-[10.5px] text-danger">{erroExclusao}</p>}
+        {erroRateio && <p className="mt-1 text-[10.5px] text-danger">{erroRateio}</p>}
       </td>
     </tr>
-    {mostrandoParcelas && (
+    {variante === "parcelar" && mostrandoParcelas && (
       <tr className="border-t border-border-soft">
         <td colSpan={8} className="px-2 py-3">
           <ParcelasDespesa

@@ -12,7 +12,7 @@ function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-const CICLO_LABEL: Record<string, string> = { mensal: "mês", semestral: "semestre", anual: "ano" };
+const CICLO_LABEL: Record<string, string> = { mensal: "sem fidelidade", semestral: "compromisso 6m", anual: "compromisso 12m" };
 
 export function ComboSimulador({ produtos, planos, tiers }: { produtos: Produto[]; planos: Plano[]; tiers: Tier[] }) {
   const [selecionados, setSelecionados] = useState<Record<string, string>>({});
@@ -95,7 +95,7 @@ export function ComboSimulador({ produtos, planos, tiers }: { produtos: Produto[
                 >
                   {planosDoProduto.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.nome_plano} · {p.tipo_cobranca} · {formatBRL(Number(p.preco))}/{CICLO_LABEL[p.tipo_cobranca] ?? p.tipo_cobranca}
+                      {p.nome_plano} · {formatBRL(Number(p.preco))}/mês · {CICLO_LABEL[p.tipo_cobranca] ?? p.tipo_cobranca}
                     </option>
                   ))}
                 </select>

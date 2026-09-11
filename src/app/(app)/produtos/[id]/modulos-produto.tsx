@@ -5,7 +5,7 @@ import { criarModulo, excluirModulo, criarBetaModulo, excluirBetaModulo, type Ac
 import { FASES } from "@/lib/fases";
 import { InfoTooltip } from "@/components/info-tooltip";
 
-type BetaModulo = {
+export type BetaModulo = {
   id: string;
   quantidade: number;
   data_inicio: string | null;
@@ -20,8 +20,11 @@ type Modulo = {
   preco: number;
   fase_lancamento: string | null;
   meses_apos_lancamento: number | null;
+  data_disponibilidade: string | null;
   adesao_inicial_pct: number;
   crescimento_adesao_mensal_pct: number;
+  desconto_cliente_existente_pct: number | null;
+  desconto_cliente_existente_meses: number | null;
   betaTesters: BetaModulo[];
 };
 
@@ -30,10 +33,16 @@ const initialState: ActionState = { error: null };
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+function formatDataCurta(iso: string) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
+}
 
 const FASE_LABEL: Record<string, string> = Object.fromEntries(FASES.map((f) => [f.value, f.label]));
 
 function descreverGatilho(m: Modulo): string {
+  if (m.data_disponibilidade != null) {
+    return `em ${formatDataCurta(m.data_disponibilidade)}`;
+  }
   if (m.meses_apos_lancamento != null) {
     const anos = m.meses_apos_lancamento / 12;
     const texto = Number.isInteger(anos) ? `${anos} ano${anos !== 1 ? "s" : ""}` : `${m.meses_apos_lancamento} meses`;
@@ -42,11 +51,11 @@ function descreverGatilho(m: Modulo): string {
   return `na fase ${FASE_LABEL[m.fase_lancamento ?? ""] ?? m.fase_lancamento}`;
 }
 
-export function ModulosProduto({ produtoId, modulos }: { produtoId: string; modulos: Modulo[] }) {
+export function ModulosProduto({ produtoId, cenarioId, modulos }: { produtoId: string; cenarioId: string; modulos: Modulo[] }) {
   const [state, formAction, pending] = useActionState(criarModulo, initialState);
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
-  const [gatilho, setGatilho] = useState<"fase" | "tempo">("tempo");
+  const [gatilho, setGatilho] = useState<"fase" | "tempo" | "data">("data");
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
@@ -70,6 +79,10 @@ export function ModulosProduto({ produtoId, modulos }: { produtoId: string; modu
                 <div className="text-[10.5px] text-text-faint">
                   entra {descreverGatilho(m)} · adesão inicial {(m.adesao_inicial_pct * 100).toFixed(1)}% · +
                   {(m.crescimento_adesao_mensal_pct * 100).toFixed(1)}%/mês
+                  {m.desconto_cliente_existente_pct != null &&
+                    ` · cliente já existente: ${(m.desconto_cliente_existente_pct * 100).toFixed(1)}% off${
+                      m.desconto_cliente_existente_meses != null ? ` por ${m.desconto_cliente_existente_meses}m` : " (permanente)"
+                    }`}
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -98,6 +111,7 @@ export function ModulosProduto({ produtoId, modulos }: { produtoId: string; modu
         className="flex flex-col gap-2.5 border-t border-border-soft pt-4"
       >
         <input type="hidden" name="produto_id" value={produtoId} />
+        <input type="hidden" name="cenario_id" value={cenarioId} />
         <input name="nome" placeholder="Nome do módulo (ex: Melhoria 1 — planejamento de campanhas)" className="input" required />
         <div>
           <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
@@ -108,6 +122,15 @@ export function ModulosProduto({ produtoId, modulos }: { produtoId: string; modu
         </div>
 
         <div className="flex gap-2 rounded-lg bg-bg p-1">
+          <button
+            type="button"
+            onClick={() => setGatilho("data")}
+            className={`flex-1 rounded-md py-1.5 text-[11.5px] font-medium ${
+              gatilho === "data" ? "bg-surface shadow-sm" : "text-text-muted"
+            }`}
+          >
+            Data específica
+          </button>
           <button
             type="button"
             onClick={() => setGatilho("tempo")}
@@ -129,7 +152,15 @@ export function ModulosProduto({ produtoId, modulos }: { produtoId: string; modu
         </div>
         <input type="hidden" name="gatilho" value={gatilho} />
 
-        {gatilho === "tempo" ? (
+        {gatilho === "data" ? (
+          <div>
+            <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
+              Disponível a partir de
+              <InfoTooltip texto="Data exata em que o módulo passa a estar disponível pra venda." />
+            </label>
+            <input name="data_disponibilidade" type="date" className="input" />
+          </div>
+        ) : gatilho === "tempo" ? (
           <div>
             <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
               Meses após o lançamento comercial
@@ -174,6 +205,23 @@ export function ModulosProduto({ produtoId, modulos }: { produtoId: string; modu
           </div>
         </div>
 
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
+              Desconto pra cliente já existente (%)
+              <InfoTooltip texto="Opcional. Quando esse módulo lança, quem já era cliente do produto (mas não era beta tester dele) paga com esse desconto sobre o preço cheio — diferente do desconto de beta, que é outro grupo. Deixe em branco pra cobrar preço cheio de todo mundo que não foi beta." />
+            </label>
+            <input name="desconto_cliente_existente_pct" type="number" step="0.01" placeholder="Ex: 12,92" className="input" />
+          </div>
+          <div>
+            <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
+              Duração (meses)
+              <InfoTooltip texto="Por quantos meses esse desconto vale. Deixe em branco pra ser permanente (sem prazo pra voltar ao preço cheio)." />
+            </label>
+            <input name="desconto_cliente_existente_meses" type="number" placeholder="Em branco = permanente" className="input" />
+          </div>
+        </div>
+
         {state.error && (
           <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>
         )}
@@ -194,7 +242,7 @@ function formatDate(iso: string | null) {
   return iso ? new Date(iso + "T00:00:00").toLocaleDateString("pt-BR") : "—";
 }
 
-function BetaModuloSection({ produtoId, moduloId, itens }: { produtoId: string; moduloId: string; itens: BetaModulo[] }) {
+export function BetaModuloSection({ produtoId, moduloId, itens }: { produtoId: string; moduloId: string; itens: BetaModulo[] }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(criarBetaModulo, initialState);
   const formRef = useRef<HTMLFormElement>(null);

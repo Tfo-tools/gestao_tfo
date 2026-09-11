@@ -18,7 +18,8 @@ export default async function RelatorioLinhaPage({
   searchParams: Promise<{ grupo?: string; cenario?: string; inicio?: string; fim?: string }>;
 }) {
   const { grupo, cenario, inicio, fim } = await searchParams;
-  const grupoValido: GrupoDre | null = grupo === "cogs" || grupo === "sm" || grupo === "pd" || grupo === "ga" ? grupo : null;
+  const grupoValido: GrupoDre | null =
+    grupo === "cogs" || grupo === "sm" || grupo === "pd" || grupo === "ga" || grupo === "marca" ? grupo : null;
 
   const supabase = await createClient();
   const { data: despesas } = await supabase

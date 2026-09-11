@@ -5,7 +5,7 @@ import { criarProduto, type ActionState } from "./actions";
 
 const initialState: ActionState = { error: null };
 
-export function NovoProdutoForm() {
+export function NovoProdutoForm({ cenarioId, cenarioNome }: { cenarioId?: string; cenarioNome?: string }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(criarProduto, initialState);
 
@@ -53,6 +53,17 @@ export function NovoProdutoForm() {
             <input name="data_lancamento_estimada" type="date" className="input" />
           </div>
         </div>
+
+        {cenarioId && (
+          <label className="flex items-start gap-2 rounded-lg bg-bg p-3 text-[12px] text-text-muted">
+            <input type="checkbox" name="somente_este_cenario" className="mt-0.5" />
+            <span>
+              Aplicar só ao cenário <b>{cenarioNome ?? "atual"}</b> — pra testar uma ideia sem comprometer o Plano Base.
+              Deixe desmarcado pra valer em todos os cenários.
+            </span>
+          </label>
+        )}
+        <input type="hidden" name="cenario_id" value={cenarioId ?? ""} />
 
         {state.error && (
           <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>

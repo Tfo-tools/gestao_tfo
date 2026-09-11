@@ -31,7 +31,7 @@ export default async function VisaoGeralPage() {
         </p>
       </div>
 
-      <div className="mb-6 grid grid-cols-4 gap-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Card label="Produtos cadastrados" value={String(produtos?.length ?? 0)} />
         <Card label="Cenários ativos" value={String(cenarios?.length ?? 0)} />
         <Card label="Gasto no mês" value={formatBRL(totalMes)} />
@@ -48,7 +48,7 @@ export default async function VisaoGeralPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {(produtos ?? []).map((p) => (
           <div key={p.id} className="rounded-xl border border-border bg-surface px-5 py-4">
             <div className="font-heading text-sm font-semibold">{p.nome}</div>
@@ -66,9 +66,9 @@ export default async function VisaoGeralPage() {
 
 function Card({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-border bg-surface px-5 py-5">
+    <div className="rounded-xl border border-border bg-surface px-4 py-4 sm:px-5 sm:py-5">
       <div className="text-xs text-text-muted">{label}</div>
-      <div className="mt-1.5 font-heading font-mono text-[22px] font-semibold">{value}</div>
+      <div className="mt-1.5 font-heading font-mono text-[17px] leading-tight font-semibold sm:text-[22px]">{value}</div>
     </div>
   );
 }

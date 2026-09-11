@@ -1,6 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { contaGoogleConectada } from "@/lib/google-calendar";
+import { ConexaoGoogleCard } from "@/components/conexao-google-card";
 import { UsuariosForm } from "./usuarios-form";
+import { NotificacoesPush } from "./notificacoes-push";
+import { PlanoContasManager } from "./plano-contas-manager";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR");
@@ -10,9 +14,11 @@ export default async function ConfiguracoesPage() {
   const supabase = await createClient();
   const admin = createAdminClient();
 
-  const [{ data: profiles }, { data: usersData }] = await Promise.all([
+  const [{ data: profiles }, { data: usersData }, { data: planoContas }, contaConectada] = await Promise.all([
     supabase.from("profiles").select("id, nome, papel"),
     admin.auth.admin.listUsers(),
+    supabase.from("plano_contas").select("id, codigo, conta, tipo, classificacao, descricao, parent_codigo"),
+    contaGoogleConectada(),
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
@@ -29,6 +35,14 @@ export default async function ConfiguracoesPage() {
 
       <div className="mb-6">
         <UsuariosForm />
+      </div>
+
+      <div className="mb-6">
+        <NotificacoesPush />
+      </div>
+
+      <div className="mb-6">
+        <PlanoContasManager contas={planoContas ?? []} />
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-6">
@@ -65,6 +79,15 @@ export default async function ConfiguracoesPage() {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="mt-6">
+        <ConexaoGoogleCard
+          titulo="Google Calendar — agenda compartilhada (contato@)"
+          explicacao="É essa conta que recebe os eventos criados pelo link público de agendamento. Pra conectar sua agenda pessoal, isso fica na tela de Agenda."
+          contaConectada={contaConectada}
+          linkConectar="/api/google/connect"
+        />
       </div>
     </div>
   );

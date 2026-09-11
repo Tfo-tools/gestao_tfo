@@ -93,4 +93,56 @@
     outline: none;
     border-color: var(--color-primary-fill);
   }
+
+  /* Larguras por TIPO DE DADO. O problema que isso resolve: `.input` tem width:100%, então dentro
+     de uma grade de 2 colunas todo campo ocupava meia tela — inclusive um "%" de dois dígitos.
+     Aqui cada campo passa a ocupar só a largura do que ele guarda, e a linha comporta 4 a 6 campos
+     em vez de 2. Use junto com `.form-linha`. */
+  .campo-pct {
+    max-width: 92px;
+  }
+  .campo-num {
+    max-width: 110px;
+  }
+  .campo-dinheiro {
+    max-width: 140px;
+  }
+  .campo-data {
+    max-width: 150px;
+  }
+  .campo-select {
+    max-width: 200px;
+  }
+  .campo-nome {
+    max-width: 240px;
+  }
+  /* Texto longo (descrição, observação): ocupa o que sobrar da linha, com um piso pra não espremer. */
+  .campo-texto {
+    flex: 1 1 260px;
+    min-width: 220px;
+    max-width: 100%;
+  }
+
+  /* Linha de formulário: empacota os campos lado a lado e quebra sozinha quando não couber. */
+  .form-linha {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.625rem;
+  }
+  /* Cada campo é um bloco rótulo + input que não estica além da largura do seu tipo. */
+  .form-campo {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+  }
+  .form-campo > label {
+    margin-bottom: 0.25rem;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+  }
 }

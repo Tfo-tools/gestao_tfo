@@ -14,10 +14,10 @@ function formatBRL(value: number) {
 
 function grupoDe(codigo: string, tipo: string): string {
   if (tipo === "cogs") return "COGS";
-  if (codigo.startsWith("4.2.1")) return "S&M";
-  if (codigo.startsWith("4.2.2")) return "P&D";
-  if (codigo.startsWith("4.2.3")) return "G&A";
-  if (codigo.startsWith("4.2.4")) return "Lançamento & Marca";
+  if (codigo.startsWith("2.1")) return "S&M";
+  if (codigo.startsWith("2.2")) return "P&D";
+  if (codigo.startsWith("2.3")) return "G&A";
+  if (codigo.startsWith("2.4")) return "Lançamento & Marca";
   if (tipo === "financeiro") return "Financeiro";
   if (tipo === "ativo") return "Ativos";
   return "Outros";
