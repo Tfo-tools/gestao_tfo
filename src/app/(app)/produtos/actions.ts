@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { FASES } from "@/lib/fases";
+import { recalcularSimulacao } from "./[id]/simulacao-actions";
 
 export type ActionState = { error: string | null; success?: boolean };
 
@@ -709,6 +710,15 @@ export async function excluirCanalAquisicao(id: string, cenarioId: string) {
   revalidatePath("/produtos");
 }
 
+/** Preço e custo de implementação mudam receita e COGS da projeção — recalcula na hora. Preço e
+ * parcelas são do produto (valem em todos os cenários); as etapas são de um cenário só. Cenário em
+ * que o produto ainda não tem fase é ignorado (a simulação só devolve aviso, não grava nada). */
+async function recalcularProdutoNosCenarios(produtoId: string, cenarioId?: string) {
+  const supabase = await createClient();
+  const ids = cenarioId ? [cenarioId] : ((await supabase.from("cenarios").select("id")).data ?? []).map((c) => c.id as string);
+  for (const id of ids) await recalcularSimulacao(produtoId, id);
+}
+
 export async function salvarConfigImplementacao(
   _prevState: ActionState,
   formData: FormData,
@@ -737,6 +747,7 @@ export async function salvarConfigImplementacao(
     return { error: "Não foi possível salvar a implementação." };
   }
 
+  await recalcularProdutoNosCenarios(produto_id);
   revalidatePath(`/produtos/${produto_id}`);
   return { error: null, success: true };
 }
@@ -778,13 +789,56 @@ export async function criarEtapaImplementacao(
     return { error: "Não foi possível salvar a etapa." };
   }
 
+  await recalcularProdutoNosCenarios(produto_id, cenario_id);
   revalidatePath(`/produtos/${produto_id}`);
   return { error: null, success: true };
 }
 
-export async function excluirEtapaImplementacao(id: string, produtoId: string) {
+export type EtapaImplementacaoEdicao = {
+  nome_etapa: string;
+  cargo_dono: string | null;
+  cargo_executor: string;
+  senioridade: string;
+  tipo_contratacao: string;
+  horas: number;
+  valor_hora: number;
+};
+
+/** Edita uma etapa já lançada (nome, dono, quem executa, horas e R$/hora). */
+export async function atualizarEtapaImplementacao(
+  id: string,
+  produtoId: string,
+  cenarioId: string,
+  dados: EtapaImplementacaoEdicao,
+): Promise<ActionState> {
+  const nome_etapa = dados.nome_etapa.trim();
+  if (!id || !nome_etapa || !dados.cargo_executor || !(dados.horas > 0) || !(dados.valor_hora > 0)) {
+    return { error: "Preencha a etapa, o cargo que executa, as horas e o valor/hora." };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("implementacao_etapas")
+    .update({
+      nome_etapa,
+      cargo_dono: dados.cargo_dono?.trim() || null,
+      cargo_executor: dados.cargo_executor,
+      senioridade: dados.senioridade,
+      tipo_contratacao: dados.tipo_contratacao,
+      horas: dados.horas,
+      valor_hora: dados.valor_hora,
+    })
+    .eq("id", id);
+  if (error) return { error: "Não foi possível salvar a etapa." };
+
+  await recalcularProdutoNosCenarios(produtoId, cenarioId || undefined);
+  revalidatePath(`/produtos/${produtoId}`);
+  return { error: null, success: true };
+}
+
+export async function excluirEtapaImplementacao(id: string, produtoId: string, cenarioId?: string) {
   const supabase = await createClient();
   await supabase.from("implementacao_etapas").delete().eq("id", id);
+  if (cenarioId) await recalcularProdutoNosCenarios(produtoId, cenarioId);
   revalidatePath(`/produtos/${produtoId}`);
 }
 

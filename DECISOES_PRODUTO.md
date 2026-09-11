@@ -86,6 +86,15 @@ O hub `/plano/[cenarioId]` conecta tudo isso. `/cenarios` → clicar no nome do 
   o lote encolhe com o churn. Nível ainda não lançado paga a média até lançar. Venda antes do
   lançamento do produto entra no mês do lançamento. Custo entra em Marketing (e no CAC).
 
+## Implementação do produto — simulação de margem (confirmado em 2026-09-11)
+
+- A simulação fica logo abaixo de preço/parcelas e recalcula a cada tecla: margem, markup, parcela,
+  em que parcela o caixa volta (o custo sai todo no onboarding), preço pra margem-alvo (40–70%) e
+  margem por canal de venda (desconto/isenção de implementação do canal), com média pelo mix.
+- Etapas já lançadas são editáveis na linha; a simulação acompanha horas e R$/h antes de salvar.
+- Salvar preço/parcelas recalcula o produto em todos os cenários (são do produto); salvar/editar/
+  excluir etapa recalcula só o cenário da etapa. Valores antes de impostos (DAS).
+
 ## Produtos (tela) x Vendas (tela) — divisão de responsabilidade
 
 - **Produtos** = só planos de precificação + módulos add-on. **Não tem** fase, crescimento, churn,

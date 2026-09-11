@@ -4,6 +4,7 @@ import { useActionState, useMemo, useRef, useState, useTransition } from "react"
 import {
   salvarConfigImplementacao,
   criarEtapaImplementacao,
+  atualizarEtapaImplementacao,
   excluirEtapaImplementacao,
   type ActionState,
 } from "../actions";
@@ -29,13 +30,23 @@ export type EtapaImplementacao = {
   ordem: number | null;
 };
 
+/** Canal que vende o produto no cenário, com o desconto que dá na implementação (1 = isento). */
+export type CanalImplementacao = { nome: string; percentualMix: number; desconto: number };
+
+/** Horas e R$/hora de uma etapa em edição — a simulação de margem acompanha antes de salvar. */
+type RascunhoCusto = { id: string; horas: number; valor_hora: number } | null;
+
 const initialState: ActionState = { error: null };
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+function formatPct(v: number) {
+  return `${v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+}
 
 const SENIORIDADE_LABEL: Record<string, string> = { junior: "Júnior", pleno: "Pleno", senior: "Sênior" };
+const MARGENS_ALVO = [40, 50, 60, 70];
 
 export function ImplementacaoProduto({
   produtoId,
@@ -45,6 +56,7 @@ export function ImplementacaoProduto({
   parcelas,
   etapas,
   tabelaCustoHora,
+  canais = [],
 }: {
   produtoId: string;
   cenarioId: string;
@@ -53,17 +65,23 @@ export function ImplementacaoProduto({
   parcelas: number;
   etapas: EtapaImplementacao[];
   tabelaCustoHora: CustoHora[];
+  canais?: CanalImplementacao[];
 }) {
   const [configState, configAction, configPending] = useActionState(salvarConfigImplementacao, initialState);
   const [ativo, setAtivo] = useState(temImplementacao);
   const [precoDigitado, setPrecoDigitado] = useState(precoImplementacao != null ? String(precoImplementacao) : "");
+  const [parcelasDigitadas, setParcelasDigitadas] = useState(String(parcelas));
+  const [rascunho, setRascunho] = useState<RascunhoCusto>(null);
 
-  const custoTotal = etapas.reduce((acc, e) => acc + Number(e.horas) * Number(e.valor_hora), 0);
-  const horasTotal = etapas.reduce((acc, e) => acc + Number(e.horas), 0);
+  // Custo das etapas — com a etapa em edição já refletida, pra simulação responder antes de salvar.
+  const custoEtapa = (e: EtapaImplementacao) =>
+    rascunho && rascunho.id === e.id ? rascunho.horas * rascunho.valor_hora : Number(e.horas) * Number(e.valor_hora);
+  const custoTotal = etapas.reduce((acc, e) => acc + custoEtapa(e), 0);
+  const horasTotal = etapas.reduce((acc, e) => acc + (rascunho && rascunho.id === e.id ? rascunho.horas : Number(e.horas)), 0);
   const precoVenda = Number(precoDigitado) || 0;
-  const margemValor = precoVenda - custoTotal;
-  const margemPct = precoVenda > 0 ? (margemValor / precoVenda) * 100 : null;
-  const markupPct = custoTotal > 0 ? (margemValor / custoTotal) * 100 : null;
+  const nParcelas = Math.max(1, Math.round(Number(parcelasDigitadas) || 1));
+  const naoSalvo =
+    precoVenda !== Number(precoImplementacao ?? 0) || nParcelas !== parcelas || (rascunho != null && custoTotal !== etapas.reduce((a, e) => a + Number(e.horas) * Number(e.valor_hora), 0));
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
@@ -72,7 +90,8 @@ export function ImplementacaoProduto({
         <InfoTooltip texto="Cobrança única na primeira contratação do produto: se o cliente adicionar um módulo depois, não cobra de novo; se comprar tudo junto, é a mesma cobrança única. O custo das etapas entra em COGS no mês do onboarding (o trabalho acontece ali, mesmo que o cliente pague parcelado), e é o que permite medir margem bruta do produto." />
       </h2>
       <p className="mb-4 text-[11px] text-text-muted">
-        Vale só pra este produto — cliente que assina outro produto junto não paga implementação dele.
+        Vale só pra este produto — cliente que assina outro produto junto não paga implementação dele. Preço e parcelas valem
+        em todos os cenários; as etapas (o custo) são deste cenário.
       </p>
 
       <form action={configAction} className="flex flex-col gap-2.5 border-b border-border-soft pb-4">
@@ -112,11 +131,23 @@ export function ImplementacaoProduto({
                 type="number"
                 min="1"
                 step="1"
-                defaultValue={parcelas}
+                value={parcelasDigitadas}
+                onChange={(e) => setParcelasDigitadas(e.target.value)}
                 className="input campo-pct"
               />
             </div>
           </div>
+        )}
+
+        {ativo && (
+          <SimulacaoMargem
+            preco={precoVenda}
+            parcelas={nParcelas}
+            custo={custoTotal}
+            canais={canais}
+            naoSalvo={naoSalvo}
+            onUsarPreco={(v) => setPrecoDigitado(String(v))}
+          />
         )}
 
         {configState.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-[11px] text-danger">{configState.error}</p>}
@@ -126,44 +157,160 @@ export function ImplementacaoProduto({
           disabled={configPending}
           className="self-start rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-semibold text-white disabled:opacity-60"
         >
-          {configPending ? "Salvando…" : "Salvar implementação"}
+          {configPending ? "Salvando e recalculando…" : "Salvar implementação"}
         </button>
       </form>
 
       {ativo && (
-        <>
-          <EtapasImplementacao
-            produtoId={produtoId}
-            cenarioId={cenarioId}
-            etapas={etapas}
-            tabelaCustoHora={tabelaCustoHora}
-            custoTotal={custoTotal}
-            horasTotal={horasTotal}
-          />
+        <EtapasImplementacao
+          produtoId={produtoId}
+          cenarioId={cenarioId}
+          etapas={etapas}
+          tabelaCustoHora={tabelaCustoHora}
+          custoTotal={custoTotal}
+          horasTotal={horasTotal}
+          custoEtapa={custoEtapa}
+          onRascunho={setRascunho}
+        />
+      )}
+    </div>
+  );
+}
 
-          <div className="mt-4 rounded-lg bg-bg px-4 py-3.5">
-            <p className="mb-2 flex items-center text-[11.5px] font-semibold text-text-muted">
-              Margem e markup da implementação
-              <InfoTooltip texto="Margem = quanto sobra sobre o preço de venda. Markup = quanto o preço está acima do custo. Os dois respondem perguntas diferentes: margem olha pro que entra, markup olha pro que você gastou." />
-            </p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-4">
-              <Indicador rotulo="Preço de venda" valor={formatBRL(precoVenda)} />
-              <Indicador rotulo="Custo direto (COGS)" valor={formatBRL(custoTotal)} />
-              <Indicador
-                rotulo="Margem"
-                valor={`${formatBRL(margemValor)}${margemPct != null ? ` · ${margemPct.toFixed(1)}%` : ""}`}
-                destaque={margemValor >= 0 ? "ok" : "ruim"}
-              />
-              <Indicador rotulo="Markup" valor={markupPct != null ? `${markupPct.toFixed(1)}%` : "—"} />
-            </div>
-            {parcelas > 1 && precoVenda > 0 && (
-              <p className="mt-2 text-[10.5px] text-text-faint">
-                Parcelado em {parcelas}x de {formatBRL(precoVenda / parcelas)} — o custo de {formatBRL(custoTotal)} entra
-                inteiro no mês do onboarding.
-              </p>
-            )}
-          </div>
-        </>
+/**
+ * Simulação de margem da implementação, recalculada a cada tecla: margem e markup sobre o preço
+ * digitado, quando o caixa volta (o custo sai todo no onboarding, a receita vem parcelada), preço
+ * pra atingir uma margem-alvo e a margem real por canal — associação/representante podem dar
+ * desconto ou isenção na implementação, e aí o mesmo preço rende margens bem diferentes.
+ */
+function SimulacaoMargem({
+  preco,
+  parcelas,
+  custo,
+  canais,
+  naoSalvo,
+  onUsarPreco,
+}: {
+  preco: number;
+  parcelas: number;
+  custo: number;
+  canais: CanalImplementacao[];
+  naoSalvo: boolean;
+  onUsarPreco: (valor: number) => void;
+}) {
+  const margem = preco - custo;
+  const margemPct = preco > 0 ? (margem / preco) * 100 : null;
+  const markupPct = custo > 0 ? (margem / custo) * 100 : null;
+  const parcela = preco / parcelas;
+  const mesRetorno = parcela > 0 && custo > 0 ? Math.ceil(custo / parcela) : null;
+
+  const pesoTotal = canais.reduce((s, c) => s + c.percentualMix, 0);
+  const porCanal = canais.map((c) => {
+    const efetivo = preco * (1 - Math.min(1, c.desconto));
+    return { ...c, efetivo, margem: efetivo - custo, margemPct: efetivo > 0 ? ((efetivo - custo) / efetivo) * 100 : null };
+  });
+  const precoMedio = pesoTotal > 0 ? porCanal.reduce((s, c) => s + c.efetivo * c.percentualMix, 0) / pesoTotal : null;
+  const temDescontoCanal = canais.some((c) => c.desconto > 0);
+
+  return (
+    <div className="rounded-lg border border-primary-fill/50 bg-primary-soft/25 px-4 py-3.5">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center text-[11.5px] font-semibold text-text-muted">
+          Simulação de margem
+          <InfoTooltip texto="Recalcula enquanto você digita. Margem = quanto sobra sobre o preço de venda. Markup = quanto o preço está acima do custo. Valores antes de impostos (DAS)." />
+        </p>
+        {naoSalvo && <span className="rounded bg-cream px-2 py-0.5 text-[10.5px] font-medium text-cream-deep">simulação — ainda não salvo</span>}
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-4">
+        <Indicador rotulo="Preço de venda" valor={formatBRL(preco)} />
+        <Indicador rotulo="Custo direto (COGS)" valor={formatBRL(custo)} />
+        <Indicador
+          rotulo="Margem"
+          valor={`${formatBRL(margem)}${margemPct != null ? ` · ${formatPct(margemPct)}` : ""}`}
+          destaque={margem >= 0 ? "ok" : "ruim"}
+        />
+        <Indicador rotulo="Markup" valor={markupPct != null ? formatPct(markupPct) : "—"} />
+      </div>
+
+      {preco > 0 && (
+        <p className="mt-2 text-[10.5px] text-text-muted">
+          {parcelas > 1 ? `${parcelas}× de ${formatBRL(parcela)}` : "À vista"} — o custo de {formatBRL(custo)} sai inteiro no mês do
+          onboarding.{" "}
+          {mesRetorno != null &&
+            (mesRetorno <= parcelas
+              ? mesRetorno <= 1
+                ? "A primeira parcela já cobre o custo."
+                : `O caixa da implementação volta na ${mesRetorno}ª parcela.`
+              : "As parcelas não chegam a cobrir o custo.")}
+        </p>
+      )}
+
+      {custo > 0 && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10.5px]">
+          <span className="text-text-faint">Preço pra margem de:</span>
+          {MARGENS_ALVO.map((m) => {
+            const alvo = Math.ceil(custo / (1 - m / 100) / 10) * 10;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onUsarPreco(alvo)}
+                className="rounded-md border border-border bg-surface px-2 py-0.5 font-mono text-text-muted hover:border-primary-fill hover:text-primary-deep"
+                aria-label={`Simular preço de ${formatBRL(alvo)} (margem de ${m}%)`}
+              >
+                {m}% → {formatBRL(alvo)}
+              </button>
+            );
+          })}
+          <span className="text-text-faint">· empate: {formatBRL(custo)}</span>
+        </div>
+      )}
+
+      {porCanal.length > 0 && preco > 0 && (
+        <div className="mt-3 border-t border-border-soft pt-2.5">
+          <p className="mb-1 flex items-center text-[10.5px] font-semibold text-text-muted">
+            Por canal de venda
+            <InfoTooltip texto="Desconto e isenção de implementação configurados em Vendas → Canais de aquisição, pra este produto. Isento: a implementação é feita (custo cheio) e não é cobrada. A média pondera pelo % das vendas de cada canal." />
+          </p>
+          <table className="w-full border-collapse text-[11px]">
+            <thead>
+              <tr className="text-left text-[9.5px] uppercase tracking-wide text-text-faint">
+                <th className="py-1 font-medium">Canal</th>
+                <th className="py-1 text-right font-medium">% das vendas</th>
+                <th className="py-1 text-right font-medium">Desconto</th>
+                <th className="py-1 text-right font-medium">Recebe</th>
+                <th className="py-1 text-right font-medium">Margem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {porCanal.map((c) => (
+                <tr key={c.nome} className="border-t border-border-soft">
+                  <td className="py-1">{c.nome}</td>
+                  <td className="py-1 text-right font-mono">{pesoTotal > 0 ? formatPct((c.percentualMix / pesoTotal) * 100) : "—"}</td>
+                  <td className="py-1 text-right font-mono">{c.desconto >= 1 ? "isento" : c.desconto > 0 ? formatPct(c.desconto * 100) : "—"}</td>
+                  <td className="py-1 text-right font-mono">{formatBRL(c.efetivo)}</td>
+                  <td className={`py-1 text-right font-mono font-semibold ${c.margem >= 0 ? "text-success" : "text-danger"}`}>
+                    {formatBRL(c.margem)}
+                    {c.margemPct != null ? ` · ${formatPct(c.margemPct)}` : ""}
+                  </td>
+                </tr>
+              ))}
+              {precoMedio != null && temDescontoCanal && (
+                <tr className="border-t border-border font-semibold">
+                  <td className="py-1">Média pelo mix de canais</td>
+                  <td></td>
+                  <td></td>
+                  <td className="py-1 text-right font-mono">{formatBRL(precoMedio)}</td>
+                  <td className={`py-1 text-right font-mono ${precoMedio - custo >= 0 ? "text-success" : "text-danger"}`}>
+                    {formatBRL(precoMedio - custo)}
+                    {precoMedio > 0 ? ` · ${formatPct(((precoMedio - custo) / precoMedio) * 100)}` : ""}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -184,6 +331,11 @@ function Indicador({ rotulo, valor, destaque }: { rotulo: string; valor: string;
   );
 }
 
+function valorDaTabela(tabela: CustoHora[], cargo: string, senioridade: string, tipo: string): number | null {
+  const achado = tabela.find((t) => t.cargo === cargo && t.senioridade === senioridade && t.tipo_contratacao === tipo);
+  return achado ? Number(achado.valor_hora) : null;
+}
+
 function EtapasImplementacao({
   produtoId,
   cenarioId,
@@ -191,6 +343,8 @@ function EtapasImplementacao({
   tabelaCustoHora,
   custoTotal,
   horasTotal,
+  custoEtapa,
+  onRascunho,
 }: {
   produtoId: string;
   cenarioId: string;
@@ -198,6 +352,8 @@ function EtapasImplementacao({
   tabelaCustoHora: CustoHora[];
   custoTotal: number;
   horasTotal: number;
+  custoEtapa: (e: EtapaImplementacao) => number;
+  onRascunho: (r: RascunhoCusto) => void;
 }) {
   const [state, formAction, pending] = useActionState(criarEtapaImplementacao, initialState);
   const formRef = useRef<HTMLFormElement>(null);
@@ -205,23 +361,27 @@ function EtapasImplementacao({
   const [cargoExecutor, setCargoExecutor] = useState("");
   const [senioridade, setSenioridade] = useState("pleno");
   const [tipo, setTipo] = useState("pj");
+  const [editandoId, setEditandoId] = useState<string | null>(null);
 
   const cargos = useMemo(() => [...new Set(tabelaCustoHora.map((t) => t.cargo))].sort(), [tabelaCustoHora]);
 
   // O valor/hora vem do cargo que EXECUTA as horas (o cargo de apoio da sua planilha), não do dono
   // da etapa — é ele quem determina o custo real.
-  const valorHoraSugerido = useMemo(() => {
-    const achado = tabelaCustoHora.find(
-      (t) => t.cargo === cargoExecutor && t.senioridade === senioridade && t.tipo_contratacao === tipo,
-    );
-    return achado ? Number(achado.valor_hora) : null;
-  }, [tabelaCustoHora, cargoExecutor, senioridade, tipo]);
+  const valorHoraSugerido = useMemo(
+    () => valorDaTabela(tabelaCustoHora, cargoExecutor, senioridade, tipo),
+    [tabelaCustoHora, cargoExecutor, senioridade, tipo],
+  );
+
+  function fecharEdicao() {
+    setEditandoId(null);
+    onRascunho(null);
+  }
 
   return (
     <div className="mt-4">
       <p className="mb-2 flex items-center text-[11.5px] font-semibold text-text-muted">
         Etapas da implantação
-        <InfoTooltip texto="O valor/hora é puxado automaticamente da tabela de custo/hora pelo cargo que executa as horas, a senioridade e o tipo de contratação." />
+        <InfoTooltip texto="O valor/hora é puxado automaticamente da tabela de custo/hora pelo cargo que executa as horas, a senioridade e o tipo de contratação. Clique em Editar pra ajustar uma etapa já lançada — a simulação de margem acima acompanha enquanto você edita." />
       </p>
 
       <div className="mb-3 overflow-x-auto">
@@ -244,45 +404,65 @@ function EtapasImplementacao({
                 </td>
               </tr>
             )}
-            {etapas.map((e) => (
-              <tr key={e.id} className="border-b border-border-soft">
-                <td className="px-2 py-2 text-[11.5px]">
-                  <div className="font-medium">{e.nome_etapa}</div>
-                  {e.cargo_dono && <div className="text-[9.5px] text-text-faint">dono: {e.cargo_dono}</div>}
-                </td>
-                <td className="px-2 py-2 text-[11px] text-text-muted">
-                  {e.cargo_executor}
-                  <span className="text-text-faint">
-                    {" "}
-                    · {SENIORIDADE_LABEL[e.senioridade] ?? e.senioridade} · {e.tipo_contratacao.toUpperCase()}
-                  </span>
-                </td>
-                <td className="px-2 py-2 text-right font-mono text-[11.5px]">{Number(e.horas)}h</td>
-                <td className="px-2 py-2 text-right font-mono text-[11.5px]">{formatBRL(Number(e.valor_hora))}</td>
-                <td className="px-2 py-2 text-right font-mono text-[11.5px] font-semibold">
-                  {formatBRL(Number(e.horas) * Number(e.valor_hora))}
-                </td>
-                <td className="px-2 py-2 text-right">
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() => startTransition(() => excluirEtapaImplementacao(e.id, produtoId))}
-                    className="text-[10.5px] text-danger"
-                  >
-                    ×
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {etapas.map((e) =>
+              editandoId === e.id ? (
+                <EdicaoEtapa
+                  key={e.id}
+                  etapa={e}
+                  produtoId={produtoId}
+                  cenarioId={cenarioId}
+                  cargos={cargos}
+                  tabelaCustoHora={tabelaCustoHora}
+                  onRascunho={onRascunho}
+                  onFechar={fecharEdicao}
+                />
+              ) : (
+                <tr key={e.id} className="border-b border-border-soft">
+                  <td className="px-2 py-2 text-[11.5px]">
+                    <div className="font-medium">{e.nome_etapa}</div>
+                    {e.cargo_dono && <div className="text-[9.5px] text-text-faint">dono: {e.cargo_dono}</div>}
+                  </td>
+                  <td className="px-2 py-2 text-[11px] text-text-muted">
+                    {e.cargo_executor}
+                    <span className="text-text-faint">
+                      {" "}
+                      · {SENIORIDADE_LABEL[e.senioridade] ?? e.senioridade} · {e.tipo_contratacao.toUpperCase()}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2 text-right font-mono text-[11.5px]">{Number(e.horas)}h</td>
+                  <td className="px-2 py-2 text-right font-mono text-[11.5px]">{formatBRL(Number(e.valor_hora))}</td>
+                  <td className="px-2 py-2 text-right font-mono text-[11.5px] font-semibold">{formatBRL(custoEtapa(e))}</td>
+                  <td className="whitespace-nowrap px-2 py-2 text-right">
+                    <button
+                      type="button"
+                      disabled={isPending || editandoId != null}
+                      onClick={() => setEditandoId(e.id)}
+                      className="mr-2.5 text-[10.5px] text-primary-deep disabled:opacity-40"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isPending || editandoId != null}
+                      onClick={() => {
+                        if (!confirm(`Excluir a etapa "${e.nome_etapa}"?`)) return;
+                        startTransition(() => excluirEtapaImplementacao(e.id, produtoId, cenarioId));
+                      }}
+                      className="text-[10.5px] text-danger disabled:opacity-40"
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              ),
+            )}
             {etapas.length > 0 && (
               <tr>
                 <td className="px-2 py-2 text-[11px] font-semibold">Custo direto total (COGS)</td>
                 <td></td>
                 <td className="px-2 py-2 text-right font-mono text-[11.5px] font-semibold">{horasTotal}h</td>
                 <td></td>
-                <td className="px-2 py-2 text-right font-mono text-[12.5px] font-bold text-primary-deep">
-                  {formatBRL(custoTotal)}
-                </td>
+                <td className="px-2 py-2 text-right font-mono text-[12.5px] font-bold text-primary-deep">{formatBRL(custoTotal)}</td>
                 <td></td>
               </tr>
             )}
@@ -346,12 +526,7 @@ function EtapasImplementacao({
           </div>
           <div className="form-campo">
             <label>Senioridade</label>
-            <select
-              name="senioridade"
-              value={senioridade}
-              onChange={(e) => setSenioridade(e.target.value)}
-              className="input campo-num"
-            >
+            <select name="senioridade" value={senioridade} onChange={(e) => setSenioridade(e.target.value)} className="input campo-num">
               <option value="junior">Júnior</option>
               <option value="pleno">Pleno</option>
               <option value="senior">Sênior</option>
@@ -359,12 +534,7 @@ function EtapasImplementacao({
           </div>
           <div className="form-campo">
             <label>Contratação</label>
-            <select
-              name="tipo_contratacao"
-              value={tipo}
-              onChange={(e) => setTipo(e.target.value)}
-              className="input campo-pct"
-            >
+            <select name="tipo_contratacao" value={tipo} onChange={(e) => setTipo(e.target.value)} className="input campo-pct">
               <option value="pj">PJ</option>
               <option value="clt">CLT</option>
             </select>
@@ -405,5 +575,165 @@ function EtapasImplementacao({
         {state.error && <p className="text-[10.5px] text-danger">{state.error}</p>}
       </form>
     </div>
+  );
+}
+
+/** Linha da tabela em modo edição: mesmos campos do cadastro, já preenchidos com o que foi lançado. */
+function EdicaoEtapa({
+  etapa,
+  produtoId,
+  cenarioId,
+  cargos,
+  tabelaCustoHora,
+  onRascunho,
+  onFechar,
+}: {
+  etapa: EtapaImplementacao;
+  produtoId: string;
+  cenarioId: string;
+  cargos: string[];
+  tabelaCustoHora: CustoHora[];
+  onRascunho: (r: RascunhoCusto) => void;
+  onFechar: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+  const [nome, setNome] = useState(etapa.nome_etapa);
+  const [dono, setDono] = useState(etapa.cargo_dono ?? "");
+  const [executor, setExecutor] = useState(etapa.cargo_executor);
+  const [senioridade, setSenioridade] = useState(etapa.senioridade);
+  const [tipo, setTipo] = useState(etapa.tipo_contratacao);
+  const [horas, setHoras] = useState(String(etapa.horas));
+  const [valorHora, setValorHora] = useState(String(etapa.valor_hora));
+
+  const sugerido = valorDaTabela(tabelaCustoHora, executor, senioridade, tipo);
+  const cargosComAtual = cargos.includes(etapa.cargo_executor) ? cargos : [etapa.cargo_executor, ...cargos];
+
+  function atualizarCusto(h: string, v: string) {
+    onRascunho({ id: etapa.id, horas: Number(h) || 0, valor_hora: Number(v) || 0 });
+  }
+
+  function salvar() {
+    setErro(null);
+    startTransition(async () => {
+      const r = await atualizarEtapaImplementacao(etapa.id, produtoId, cenarioId, {
+        nome_etapa: nome,
+        cargo_dono: dono || null,
+        cargo_executor: executor,
+        senioridade,
+        tipo_contratacao: tipo,
+        horas: Number(horas),
+        valor_hora: Number(valorHora),
+      });
+      if (r.error) setErro(r.error);
+      else onFechar();
+    });
+  }
+
+  return (
+    <tr className="border-b border-border-soft bg-primary-soft/20">
+      <td colSpan={6} className="px-2 py-2.5">
+        <div className="grid grid-cols-[1.4fr_1fr] gap-2">
+          <div>
+            <label className="mb-0.5 block text-[10px] text-text-faint">Etapa</label>
+            <input value={nome} onChange={(e) => setNome(e.target.value)} className="input w-full" />
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10px] text-text-faint">Dono</label>
+            <select value={dono} onChange={(e) => setDono(e.target.value)} className="input w-full">
+              <option value="">—</option>
+              {[...new Set([...(etapa.cargo_dono ? [etapa.cargo_dono] : []), ...cargos])].map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="mt-2 grid grid-cols-[1.4fr_0.8fr_0.6fr_0.6fr_0.8fr_auto] items-end gap-2">
+          <div>
+            <label className="mb-0.5 block text-[10px] text-text-faint">Cargo que executa</label>
+            <select value={executor} onChange={(e) => setExecutor(e.target.value)} className="input w-full">
+              {cargosComAtual.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10px] text-text-faint">Senioridade</label>
+            <select value={senioridade} onChange={(e) => setSenioridade(e.target.value)} className="input w-full">
+              <option value="junior">Júnior</option>
+              <option value="pleno">Pleno</option>
+              <option value="senior">Sênior</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10px] text-text-faint">Contratação</label>
+            <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="input w-full">
+              <option value="pj">PJ</option>
+              <option value="clt">CLT</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10px] text-text-faint">Horas</label>
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              value={horas}
+              onChange={(e) => {
+                setHoras(e.target.value);
+                atualizarCusto(e.target.value, valorHora);
+              }}
+              className="input w-full"
+            />
+          </div>
+          <div>
+            <label className="mb-0.5 block text-[10px] text-text-faint">R$/hora</label>
+            <input
+              type="number"
+              step="0.01"
+              value={valorHora}
+              onChange={(e) => {
+                setValorHora(e.target.value);
+                atualizarCusto(horas, e.target.value);
+              }}
+              className="input w-full"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={salvar}
+              className="rounded-lg bg-wine-deep px-3 py-2 text-[11.5px] font-medium text-white disabled:opacity-60"
+            >
+              {isPending ? "Salvando…" : "Salvar"}
+            </button>
+            <button type="button" disabled={isPending} onClick={onFechar} className="rounded-lg border border-border px-3 py-2 text-[11.5px] text-text-muted">
+              Cancelar
+            </button>
+          </div>
+        </div>
+        <div className="mt-1 flex items-center gap-3 text-[10px] text-text-faint">
+          <span>Total da etapa: {formatBRL((Number(horas) || 0) * (Number(valorHora) || 0))}</span>
+          {sugerido != null && sugerido !== Number(valorHora) && (
+            <button
+              type="button"
+              onClick={() => {
+                setValorHora(String(sugerido));
+                atualizarCusto(horas, String(sugerido));
+              }}
+              className="text-primary-deep underline"
+            >
+              usar R$/hora da tabela ({formatBRL(sugerido)})
+            </button>
+          )}
+          {erro && <span className="text-danger">{erro}</span>}
+        </div>
+      </td>
+    </tr>
   );
 }
