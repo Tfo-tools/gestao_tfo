@@ -129,7 +129,7 @@ export default async function PlanoVendasPage({ params }: { params: Promise<{ ce
   const { data: projecaoRaw } = await supabase
     .from("simulacao_mensal")
     .select(
-      "produto_id, mes_referencia, clientes_ativos, novos_clientes, novos_direto, novos_representante, novos_associacao, clientes_perdidos, churn_pct, receita_bruta, mrr, receita_implementacao, implementacoes_ativas",
+      "produto_id, mes_referencia, clientes_ativos, novos_clientes, novos_direto, novos_representante, novos_associacao, clientes_perdidos, churn_pct, receita_bruta, mrr, receita_implementacao, implementacoes_ativas, novas_implementacoes",
     )
     .eq("cenario_id", cenarioId)
     .order("mes_referencia");
@@ -167,6 +167,7 @@ export default async function PlanoVendasPage({ params }: { params: Promise<{ ce
     mrr: Number(l.mrr ?? 0),
     receita_implementacao: Number(l.receita_implementacao ?? 0),
     implementacoes_ativas: Number(l.implementacoes_ativas ?? 0),
+    novas_implementacoes: Number(l.novas_implementacoes ?? 0),
   }));
 
   return (

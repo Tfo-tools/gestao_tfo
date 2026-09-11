@@ -203,8 +203,10 @@ export async function recalcularSimulacao(
   // Feiras e eventos do cenário: vendas deste produto, mês a mês, com o plano/nível fechado
   // (casado pelo nome dentro do cenário — assim sobrevive à cópia de cenário).
   const { data: acoesRaw } = await supabase.from("acoes_marketing").select("*").eq("cenario_id", cenarioId);
-  const vendasAcoes = ((acoesRaw ?? []) as AcaoMarketing[]).flatMap((a) =>
-    vendasAcaoPorMes(a, produtoId).map((v) => {
+  // Por padrão os clientes das ações de marketing EXPLICAM a meta do canal direto (não somam) — só a
+  // ação marcada "somar à meta" acrescenta clientes além do crescimento da fase.
+  const vendasAcoes = ((acoesRaw ?? []) as AcaoMarketing[]).filter((a) => a.soma_na_meta === true).flatMap((a) =>
+    vendasAcaoPorMes(a, produtoId, cenario?.data_fim ?? null).map((v) => {
       const indice =
         v.retorno.plano_tipo === "plano"
           ? ((planos ?? []) as PlanoRow[]).findIndex((p) => p.nome_plano === v.retorno.plano_nome)

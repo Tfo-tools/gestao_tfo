@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { criarModeloContratacao, atualizarModeloContratacao, type ActionState } from "./actions";
 import { InfoTooltip } from "@/components/info-tooltip";
 import type { ParametrosModelo, TipoModelo } from "@/lib/modelos-contratacao";
+import { cargoChave } from "@/lib/necessidade-contratacao";
 
 const initialState: ActionState = { error: null };
 
@@ -33,7 +34,8 @@ export function ModeloForm({
   const formRef = useRef<HTMLFormElement>(null);
   const [cargo, setCargo] = useState(modeloExistente?.cargo ?? "");
   // SDR e vendedor trabalham reunião; suporte trabalha hora; coordenador, pessoas.
-  const unidadeEhReuniao = ["sdr", "vendedor", "closer"].includes(cargo.trim().toLowerCase());
+  // "Vendedor Pleno", "SDR Júnior": reconhece o cargo pelo que ele contém.
+  const unidadeEhReuniao = ["sdr", "vendedor"].includes(cargoChave(cargo) ?? "");
   const [tipo, setTipo] = useState<TipoModelo>((modeloExistente?.tipo_modelo as TipoModelo) ?? "clt");
   const p = modeloExistente?.parametros ?? {};
   const foiPending = useRef(false);
@@ -233,6 +235,13 @@ export function ModeloForm({
               <label className="mb-1 block text-[10.5px] text-text-muted">Valor mensal (R$, capacidade cheia)</label>
               <input name="valor_mensal" type="number" step="0.01" defaultValue={p.valor_mensal} className="input" required />
             </div>
+            {tipo === "pj" && (
+              <label className="col-span-2 flex items-center gap-2 text-[11px] text-text-muted">
+                <input type="checkbox" name="fixo_por_pessoa_inteira" defaultChecked={p.fixo_por_pessoa_inteira === true} />
+                Fixo mensal por pessoa inteira
+                <InfoTooltip texto="Marque quando o PJ tem um fixo de contrato (ex: vendedor R$ 4.500/mês): cada pessoa necessária paga o fixo cheio. Desmarcado, o PJ é proporcional às horas/volume usados — como um suporte por hora ou uma SDR que só cobra por reunião." />
+              </label>
+            )}
             {tipo === "pj" && (
               <div className="col-span-2">
                 <label className="mb-1 flex items-center text-[10.5px] text-text-muted">

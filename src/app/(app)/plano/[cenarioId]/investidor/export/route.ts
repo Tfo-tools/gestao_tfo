@@ -163,6 +163,26 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const rCap = ind.addRow(["Capital novo (base do retorno)", "", resumo.totalInvestido, "Só o investimento ainda não aplicado. Fomento entra nos aportes, fora do retorno."]);
   rCap.font = { bold: true };
   rCap.getCell(3).numFmt = BRL;
+  // Preço da rodada: o que o investidor recebe em troca do aporte (Fomento → programa → Rodada).
+  const idsRodada = resumo.aportes.programas.filter((p) => p.tipo !== "fomento").map((p) => p.id);
+  if (idsRodada.length > 0) {
+    const { data: rodadas } = await supabase
+      .from("programas_investimento")
+      .select("nome, valor_total, valuation_pre_money, valuation_post_money")
+      .in("id", idsRodada);
+    for (const rod of rodadas ?? []) {
+      const pos = Number(rod.valuation_post_money ?? 0);
+      const valorRodada = Number(rod.valor_total ?? 0);
+      const pctInv = pos > 0 ? (valorRodada / pos) * 100 : 0;
+      const texto =
+        pos > 0
+          ? `Pré-money R$ ${Math.round(Number(rod.valuation_pre_money ?? pos - valorRodada)).toLocaleString("pt-BR")} · pós-money R$ ${Math.round(pos).toLocaleString("pt-BR")} · investidor fica com ${pctInv.toFixed(1).replace(".", ",")}% · sócias com ${(100 - pctInv).toFixed(1).replace(".", ",")}%`
+          : "Preço da rodada ainda não definido (Fomento → programa → Rodada).";
+      const r = ind.addRow([`Rodada — ${rod.nome}`, "preço", valorRodada, texto]);
+      r.getCell(3).numFmt = BRL;
+      r.getCell(4).alignment = { wrapText: true, vertical: "top" };
+    }
+  }
   ind.addRow([]);
 
   titulo("Indicadores para decisão");
@@ -225,8 +245,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     cabecalho(["Ação", "Quando", "Custo total", "Retorno previsto", "Custo por cliente", ""]);
     const nomeProd = new Map((produtos ?? []).map((p) => [p.id, p.nome]));
     for (const a of acoes) {
-      const total = custoTotalAcao(a);
-      const clientes = clientesTotaisAcao(a);
+      const total = custoTotalAcao(a, resumo.periodo.fim);
+      const clientes = clientesTotaisAcao(a, resumo.periodo.fim);
       const r = ind.addRow([
         `${a.tipo === "feira" ? "Feira" : "Eventos"} — ${a.nome}`,
         a.tipo === "feira" && a.mes ? `${formatarMesAno(a.mes)} (custo em 3 parcelas até o mês)` : `${a.ano}: ${a.quantidade} evento(s) × R$ ${Math.round(Number(a.custo)).toLocaleString("pt-BR")} (provisão mensal)`,
@@ -308,12 +328,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (k === "marketing" && anual.some((a) => a.feirasEventos > 0))
       linhaRes("   dos quais feiras e eventos", (a) => a.feirasEventos, { total: "soma", foco: true, recuo: true });
   }
-  linhaRes("Impostos sobre a receita (DAS)", (a) => a.impostos, { total: "soma", recuo: true });
+  linhaRes("Impostos sobre a receita", (a) => a.impostos, { total: "soma", recuo: true });
   linhaRes("Outros variáveis", (a) => outrosVariaveis(a), { total: "soma", recuo: true });
   linhaRes("Total custos variáveis", (a) => a.variaveis, { total: "soma", negrito: true });
   secaoRes("RESULTADO");
   const rEbitda = linhaRes("EBITDA consolidado do ano", (a) => a.ebitda, { total: "soma", negrito: true });
   rEbitda.eachCell((c) => preencher(c, FECHAMENTO));
+  if (anual.some((a) => a.irpjCsll > 0)) {
+    linhaRes("IRPJ/CSLL (lucro presumido, fora do Simples)", (a) => a.irpjCsll, { total: "soma", recuo: true });
+    linhaRes("Resultado depois de IRPJ/CSLL", (a) => a.ebitda - a.irpjCsll, { total: "soma" });
+  }
   linhaRes("Margem EBITDA", (a) => a.margemEbitda, { fmt: PCT });
   linhaRes("Margem bruta", (a) => a.margemBruta, { fmt: PCT });
   linhaRes("Regra dos 40 (crescimento ARR + margem EBITDA)", (a) => a.regra40, { fmt: PCT });
@@ -336,7 +360,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     ...CATEGORIAS_FIXAS.map((k) => ({ titulo: LABEL_FOCO[k], grupo: "CUSTOS FIXOS", largura: 18, fmt: BRL, foco: focos.has(k), valor: (m: LinhaMensalInvestidor) => m[k], tipo: "valor" as const })),
     { titulo: "Total fixos", grupo: "CUSTOS FIXOS", largura: 14, fmt: BRL, tipo: "total_fixos" },
     ...focosVariaveis.map((k) => ({ titulo: LABEL_FOCO[k], grupo: "CUSTOS VARIÁVEIS", largura: 18, fmt: BRL, foco: true, valor: (m: LinhaMensalInvestidor) => m[k], tipo: "valor" as const })),
-    { titulo: "Impostos (DAS)", grupo: "CUSTOS VARIÁVEIS", largura: 14, fmt: BRL, valor: (m) => m.impostos, tipo: "valor" },
+    { titulo: "Impostos s/ receita", grupo: "CUSTOS VARIÁVEIS", largura: 14, fmt: BRL, valor: (m) => m.impostos, tipo: "valor" },
     { titulo: "Outros variáveis", grupo: "CUSTOS VARIÁVEIS", largura: 15, fmt: BRL, valor: (m) => outrosVariaveis(m), tipo: "valor" },
     { titulo: "Total variáveis", grupo: "CUSTOS VARIÁVEIS", largura: 15, fmt: BRL, tipo: "total_variaveis" },
     { titulo: "Custos totais", grupo: "RESULTADO", largura: 15, fmt: BRL, tipo: "custos" },

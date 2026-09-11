@@ -5,6 +5,8 @@ import { ConexaoGoogleCard } from "@/components/conexao-google-card";
 import { UsuariosForm } from "./usuarios-form";
 import { NotificacoesPush } from "./notificacoes-push";
 import { PlanoContasManager } from "./plano-contas-manager";
+import { ParametrosTributariosCard } from "./parametros-tributarios";
+import { parametrosTributariosDe } from "@/lib/impostos";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR");
@@ -14,11 +16,12 @@ export default async function ConfiguracoesPage() {
   const supabase = await createClient();
   const admin = createAdminClient();
 
-  const [{ data: profiles }, { data: usersData }, { data: planoContas }, contaConectada] = await Promise.all([
+  const [{ data: profiles }, { data: usersData }, { data: planoContas }, contaConectada, { data: tributosRaw }] = await Promise.all([
     supabase.from("profiles").select("id, nome, papel"),
     admin.auth.admin.listUsers(),
     supabase.from("plano_contas").select("id, codigo, conta, tipo, classificacao, descricao, parent_codigo"),
     contaGoogleConectada(),
+    supabase.from("parametros_tributarios").select("*").maybeSingle(),
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
@@ -43,6 +46,13 @@ export default async function ConfiguracoesPage() {
 
       <div className="mb-6">
         <PlanoContasManager contas={planoContas ?? []} />
+      </div>
+
+      <div className="mb-6">
+        <ParametrosTributariosCard
+          valores={parametrosTributariosDe(tributosRaw as Record<string, unknown> | null)}
+          observacoes={(tributosRaw as { observacoes?: string | null } | null)?.observacoes ?? null}
+        />
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-6">

@@ -49,14 +49,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
       empresaCogs: l.empresaCogs,
       parceiros: m.sm_vendas ?? 0,
       midia: m.sm_marketing ?? 0,
+      marketing: (m.sm_marketing ?? 0) + l.smFeirasEventos + l.empresaMarketingLancado,
       equipeVariavel: l.alocacaoVariavel,
     };
-    const fixos = { equipeFixa: l.alocacaoFixa, empresaGa: l.empresaGa, empresaPd: l.empresaPd, empresaSm: l.empresaSm, impostos: l.impostoMensal };
+    const vendasFixo = l.empresaSm - l.smFeirasEventos - l.empresaMarketingLancado;
+    const fixos = { equipeFixa: l.alocacaoFixa, empresaGa: l.empresaGa, empresaPd: l.empresaPd, vendasFixo: Math.abs(vendasFixo) < 0.005 ? 0 : vendasFixo, impostos: l.impostoMensal };
     // Marketing e vendas por frente — os mesmos custos de S&M, abertos pra planejar marketing.
     const sm = {
       feiras: l.smFeirasEventos,
       marketingLancado: l.empresaMarketingLancado,
       equipeComercial: l.alocacaoSm,
+      equipeSdr: l.alocacaoSdr,
+      equipeVendedor: l.alocacaoVendedor,
+      equipeCoordenador: Math.abs(l.alocacaoSm - l.alocacaoSdr - l.alocacaoVendedor) < 0.005 ? 0 : l.alocacaoSm - l.alocacaoSdr - l.alocacaoVendedor,
       vendasLancado: l.smMarketing + l.smVendas + l.smOutros - (m.sm_marketing ?? 0) - l.smFeirasEventos - l.empresaMarketingLancado - (m.sm_vendas ?? 0) - l.alocacaoSm,
       marca: l.empresaMarca,
     };
@@ -70,11 +75,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
   const VAR: Col[] = [
     { header: "Infra (1.1.1)", key: "infra" }, { header: "LLM (1.1.2)", key: "llm" }, { header: "Suporte + CS (1.1.3)", key: "suporteCs" },
     { header: "Gateway (1.1.5)", key: "gateway" }, { header: "Implantação (1.1.6)", key: "implementacao" }, { header: "COGS da empresa (1.1.x)", key: "empresaCogs" }, { header: "Parceiros (S&M)", key: "parceiros" },
-    { header: "Mídia (S&M)", key: "midia" }, { header: "Equipe por demanda", key: "equipeVariavel" },
+    { header: "Marketing (mídia + feiras/eventos + lançado)", key: "marketing" }, { header: "Equipe por demanda", key: "equipeVariavel" },
   ];
   const FIX: Col[] = [
     { header: "Equipe CLT / pacote", key: "equipeFixa" }, { header: "G&A", key: "empresaGa" }, { header: "P&D", key: "empresaPd" },
-    { header: "S&M fixo", key: "empresaSm" }, { header: "Impostos", key: "impostos" },
+    { header: "Vendas fixo", key: "vendasFixo" }, { header: "Impostos s/ receita", key: "impostos" },
   ];
 
   function aba(titulo: string, cols: Col[], totalLabel: string) {
@@ -132,7 +137,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
       { header: "Feiras e eventos", key: "feiras" },
       { header: "Marketing lançado (2.1.1–2.1.3, 2.1.8, 2.1.9)", key: "marketingLancado" },
       { header: "Parceiros", key: "parceiros" },
-      { header: "Equipe comercial", key: "equipeComercial" },
+      { header: "SDR", key: "equipeSdr" },
+      { header: "Vendedor", key: "equipeVendedor" },
+      { header: "Coordenador e outros", key: "equipeCoordenador" },
       { header: "Vendas lançado", key: "vendasLancado" },
       { header: "Marca 2.4 — em G&A, fora do total", key: "marca", foraDoTotal: true },
     ],
@@ -203,7 +210,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
   capa.addRow({ item: "Período", valor: `${cenario.data_inicio ?? "—"} a ${cenario.data_fim ?? "—"}` });
   capa.addRow({ item: "Gerado em", valor: new Date().toLocaleString("pt-BR") });
   capa.addRow({ item: "Variáveis", valor: "Escalam com clientes, receita ou vendas: regras de COGS, canais de parceiro, mídia do self-service, alocações por demanda (PJ/agência/bot)." });
-  capa.addRow({ item: "Fixos", valor: "Estrutura: alocações CLT/pacote, custos da empresa (G&A, P&D, S&M fixo) e impostos." });
+  capa.addRow({ item: "Fixos", valor: "Estrutura: alocações CLT/pacote, custos da empresa (G&A, P&D, vendas fixo) e impostos sobre a receita. Marketing (mídia, feiras, eventos, campanhas, marketing lançado) está nos variáveis." });
   capa.addRow({ item: "Marketing e vendas", valor: "Os mesmos custos de S&M (já nas abas Variáveis e Fixos), abertos por frente. Marca (2.4.x) conta em G&A no plano — aparece à parte, fora do total e do CAC." });
   capa.addRow({ item: "Suporte", valor: "Custo vem das regras de COGS (1.1.3). A alocação em Necessidade de Contratação só dimensiona." });
   capa.addRow({ item: "Fomento (Centelha)", valor: "Os custos do projeto estão em P&D/G&A como despesa normal; a subvenção entra como linha própria abaixo do EBITDA no relatório." });

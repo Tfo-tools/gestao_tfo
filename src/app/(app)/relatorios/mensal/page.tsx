@@ -3,17 +3,18 @@ import { horasAtendimentoPorProduto } from "@/lib/cogs";
 import { Fragment } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
-import { custoMensalModelo, volumeCobertoPelaAlocacao, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
-import { subgrupoDeConta, subgrupoDeCargo, type SubgrupoConta } from "@/lib/subgrupo-conta";
+import { type ParametrosModelo } from "@/lib/modelos-contratacao";
+import { subgrupoDeConta, type SubgrupoConta } from "@/lib/subgrupo-conta";
 import {
   calcularDemandaPorCargo,
   type CanalFunilInput,
   type FaseProdutoInput,
   type FunilPremissaInput,
   type SimulacaoMesInput,
-  cargoChave,
-} from "@/lib/necessidade-contratacao";
+  } from "@/lib/necessidade-contratacao";
 import type { FaseValue } from "@/lib/fases";
+import { custoEquipeNoMes, type AlocacaoEquipe, type ModeloEquipe } from "@/lib/equipe-comercial";
+import type { DemandaProdutoMes } from "@/lib/necessidade-contratacao";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -215,19 +216,6 @@ export default async function RelatoriosMensalPage({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       horasSuportePorProduto: horasAtendimentoPorProduto((cogsRaw ?? []) as any),
     });
-    const demandaPorCargoMes: Record<"sdr" | "coordenador" | "suporte", Map<string, number>> = {
-      sdr: new Map(demandaPorCargo.sdr.map((d) => [d.mes_referencia, d.demanda])),
-      coordenador: new Map(demandaPorCargo.coordenador.map((d) => [d.mes_referencia, d.demanda])),
-      suporte: new Map(demandaPorCargo.suporte.map((d) => [d.mes_referencia, d.demanda])),
-    };
-    const oportunidadesDiretoPorMes = new Map(demandaPorCargo.oportunidadesDireto.map((d) => [d.mes_referencia, d.demanda]));
-    function demandaCargoNoMes(cargo: string, mes: string): number {
-      const chave = cargoChave(cargo);
-      if (!chave) return 0;
-      if (chave === "vendedor") return new Map(demandaPorCargo.vendedor.map((d) => [d.mes_referencia, d.demanda])).get(mes) ?? 0;
-      return demandaPorCargoMes[chave].get(mes) ?? 0;
-    }
-
     const modeloById = new Map(
       ((modelosRaw ?? []) as { id: string; cargo: string; tipo_modelo: string; categoria: "pd" | "sm" | "ga"; parametros: ParametrosModelo }[]).map((m) => [
         m.id,
@@ -235,6 +223,15 @@ export default async function RelatoriosMensalPage({
       ]),
     );
 
+    const arpuPorMes = new Map<string, Record<string, number>>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const row of (simRaw ?? []) as any[]) {
+      const clientes = Number(row.clientes_ativos ?? 0);
+      if (clientes <= 0) continue;
+      const m = arpuPorMes.get(row.mes_referencia) ?? {};
+      m[row.produto_id] = Number(row.receita_bruta ?? 0) / clientes;
+      arpuPorMes.set(row.mes_referencia, m);
+    }
     for (const linha of porMes.values()) {
       const mesDate = new Date(linha.mes_referencia + "T00:00:00");
 
@@ -248,27 +245,23 @@ export default async function RelatoriosMensalPage({
         somarNaLinha(linha, sub, valor);
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const a of (alocacoesRaw ?? []) as any[]) {
-        const mes = linha.mes_referencia;
-        const inicio = a.data_inicio ? new Date(a.data_inicio + "T00:00:00") : null;
-        const fim = a.data_fim ? new Date(a.data_fim + "T00:00:00") : null;
-        const mesD = new Date(mes + "T00:00:00");
-        const iniciouAntes = !inicio || new Date(inicio.getFullYear(), inicio.getMonth(), 1) <= mesD;
-        const aindaAtiva = !fim || fim >= mesD;
-        if (!iniciouAntes || !aindaAtiva) continue;
-        const modelo = modeloById.get(a.modelo_id);
-        if (!modelo) continue;
-        // Suporte é custeado pelas regras de COGS do produto; a alocação só dimensiona.
-        if ((cargoChave(a.cargo) ?? cargoChave(modelo.cargo)) === "suporte") continue;
-        const tipo = modelo.tipo_modelo as TipoModelo;
-        const quantidade = Number(a.quantidade);
-        const { cobrado: demanda } = volumeCobertoPelaAlocacao(tipo, modelo.parametros, quantidade, demandaCargoNoMes(a.cargo, mes));
-        const custo = custoMensalModelo(tipo, modelo.parametros, demanda, {
-          reunioes: Math.min(oportunidadesDiretoPorMes.get(mes) ?? 0, demanda),
-          vendas: linha.novos_clientes,
-        }).custoMensal;
-        somarNaLinha(linha, subgrupoDeCargo(modelo.cargo, modelo.categoria), custo);
+      // Mesma regra do resumo do cenário (lib/equipe-comercial): cada alocação cobre a demanda dos
+      // produtos dela; suporte só dimensiona (o custo vem das regras de COGS).
+      const demandaMes: Record<string, DemandaProdutoMes> = {};
+      for (const [pid, porMesProduto] of Object.entries(demandaPorCargo.porProduto)) {
+        const d = porMesProduto[linha.mes_referencia];
+        if (d) demandaMes[pid] = d;
+      }
+      const equipe = custoEquipeNoMes({
+        mes: linha.mes_referencia,
+        alocacoes: (alocacoesRaw ?? []) as AlocacaoEquipe[],
+        modelos: modeloById as unknown as Map<string, ModeloEquipe>,
+        demanda: demandaMes,
+        arpuPorProduto: arpuPorMes.get(linha.mes_referencia) ?? {},
+      });
+      for (const item of equipe.itens) {
+        if (item.sub === "suporte") continue;
+        somarNaLinha(linha, item.sub, item.custo);
       }
     }
   }

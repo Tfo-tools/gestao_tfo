@@ -18,17 +18,24 @@ export type LinhaCustos = {
   empresaCogs: number;
   parceiros: number;
   midia: number;
+  /** Alavancagem do produto: mídia do self-service + feiras/eventos/campanhas + marketing lançado. */
+  marketing: number;
   equipeVariavel: number;
   // Fixos — estrutura
   equipeFixa: number;
   empresaGa: number;
   empresaPd: number;
   empresaSm: number;
+  /** S&M fixo da empresa sem o que é marketing (esse vai pra coluna Marketing dos variáveis). */
+  vendasFixo: number;
   impostos: number;
   // Marketing e vendas (S&M) — outra forma de ver os mesmos custos, por frente
   feiras: number;
   marketingLancado: number;
   equipeComercial: number;
+  equipeSdr: number;
+  equipeVendedor: number;
+  equipeCoordenador: number;
   vendasLancado: number;
   marca: number;
 };
@@ -43,15 +50,15 @@ const VARIAVEIS: Coluna[] = [
   { chave: "implementacao", label: "Implantação", tooltip: "1.1.6 — custo das etapas de implementação por cliente novo (e outros COGS lançados no plano da fase)." },
   { chave: "empresaCogs", label: "COGS da empresa", tooltip: "Custos da empresa lançados em contas 1.1.x (ex: infra compartilhada no card CSP, modo Compartilhado)." },
   { chave: "parceiros", label: "Parceiros", tooltip: "S&M — fechamento, comissão e crédito ao parceiro (canais representante/associação)." },
-  { chave: "midia", label: "Mídia", tooltip: "S&M — impulsionamento do self-service (testes × custo por teste)." },
+  { chave: "marketing", label: "Marketing", tooltip: "Investimento em alavancagem do produto: mídia do self-service + feiras, eventos e campanhas + custos lançados no card Marketing (2.1.1 mídia, 2.1.2 agências, 2.1.3 conteúdo, 2.1.8 feiras, 2.1.9 RP). O detalhe por frente está na aba Marketing e vendas." },
   { chave: "equipeVariavel", label: "Equipe p/ demanda", tooltip: "Alocações PJ/agência/bot cobradas pelo volume do mês (SDR, vendedor). A alocação de Suporte não soma aqui: o custo de suporte vem das regras de COGS (coluna Suporte + CS)." },
 ];
 const FIXOS: Coluna[] = [
   { chave: "equipeFixa", label: "Equipe CLT", tooltip: "Alocações CLT e pacote fechado — custo independe do volume." },
   { chave: "empresaGa", label: "G&A", tooltip: "Custos da empresa em G&A: jurídico, contador, filiações, software adm, assistente." },
   { chave: "empresaPd", label: "P&D", tooltip: "Custos da empresa em P&D: ferramentas e licenças." },
-  { chave: "empresaSm", label: "S&M fixo", tooltip: "Custos da empresa em S&M lançados como fixos (ex: Linktree)." },
-  { chave: "impostos", label: "Impostos", tooltip: "Simples Nacional sobre a receita do mês." },
+  { chave: "vendasFixo", label: "Vendas fixo", tooltip: "Custos fixos de vendas lançados pela empresa (CRM, ferramentas, parcerias — ex: Linktree). Marketing, feiras e eventos saem na coluna Marketing dos variáveis." },
+  { chave: "impostos", label: "Impostos", tooltip: "Impostos sobre a receita: DAS enquanto está no Simples; depois de passar de R$ 4,8 mi/ano, ISS + PIS/COFINS ou CBS/IBS líquidos de crédito. IRPJ/CSLL do lucro presumido ficam fora (abaixo do EBITDA)." },
 ];
 
 const SM: Coluna[] = [
@@ -59,7 +66,9 @@ const SM: Coluna[] = [
   { chave: "feiras", label: "Feiras e eventos", tooltip: "Feiras e eventos cadastrados no card Marketing do Plano de Custos." },
   { chave: "marketingLancado", label: "Marketing lançado", tooltip: "Custos lançados no card Marketing (contas 2.1.1 mídia, 2.1.2 agências, 2.1.3 conteúdo, 2.1.8 feiras, 2.1.9 RP)." },
   { chave: "parceiros", label: "Parceiros", tooltip: "Fechamento, comissão e crédito pagos a representantes e associações (Vendas → Canais)." },
-  { chave: "equipeComercial", label: "Equipe comercial", tooltip: "SDR, vendedor e coordenador alocados em Necessidade de Contratação." },
+  { chave: "equipeSdr", label: "SDR", tooltip: "SDR alocado em Necessidade de Contratação — ex: SDR PJ no Mind (por reunião) e SDR as a Service (bot) no Price e no Skills (por lead)." },
+  { chave: "equipeVendedor", label: "Vendedor", tooltip: "Vendedor alocado: fixo por pessoa + valor por venda + comissão, só sobre as vendas que passam por reunião." },
+  { chave: "equipeCoordenador", label: "Coordenador e outros", tooltip: "Coordenador comercial e outros cargos de S&M alocados em Necessidade de Contratação." },
   { chave: "vendasLancado", label: "Vendas lançado", tooltip: "Custos lançados no card Vendas (2.1.6 CRM, 2.1.7 parcerias, 2.1.4/2.1.5 pessoal e comissões) e outros S&M dos produtos." },
   { chave: "marca", label: "Marca (em G&A)", tooltip: "Custos de Marca (contas 2.4.x). No plano eles contam em G&A, não em S&M — por isso ficam fora do total e do CAC. Se for gasto de aquisição, lance numa conta 2.1.x.", foraDoTotal: true },
 ];

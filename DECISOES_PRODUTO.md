@@ -192,3 +192,40 @@ Ideia confirmada, escopo ainda não iniciado:
 - Quando efetivado, deve aparecer automaticamente em Prestação de Contas (hoje só "em breve" na
   sidebar), cruzando com os lançamentos de custo reais pra mostrar como o recurso está sendo
   usado, com anexo de comprovantes exigidos pelo programa.
+
+## Rodada set/2026 — estudo FUNCES, equipe comercial por produto, impostos e ações de marketing
+
+- **Equipe comercial por produto.** Alocação em Necessidade de Contratação pode valer só para alguns
+  produtos (`produto_ids`; vazio = todos). Modelo de negócio: **Mind** = SDR PJ + vendedor;
+  **Price e Skills** = só o SDR as a Service (bot), venda automática. A demanda é *consumida*: as
+  alocações presas a produto cobrem primeiro, as gerais ficam com o resto — nenhuma reunião é cobrada
+  duas vezes. Regra única em `lib/equipe-comercial.ts` (resumo do cenário, detalhamento mensal e tela
+  de necessidade usam a mesma).
+- **Vendedor.** Demanda em *reuniões* (capacidade do modelo = reuniões por pessoa/mês). "Por venda" e
+  comissão só sobre vendas que passaram por reunião — produto sem capacidade de closer ("venda
+  automática") e self-service ficam fora. PJ com "fixo por pessoa inteira" paga o fixo cheio por pessoa.
+- **Bot de SDR.** A oportunidade é o lead qualificado (taxa de qualificação estimada). As taxas atuais
+  (2% qualificam × 25% fecham ≈ 200 leads por cliente) são do exemplo do site do fornecedor (ticket
+  R$ 2.000) — validar no teste grátis de 7 dias.
+- **Horizonte** de todos os planos até dez/2030.
+- **Margem bruta = lucro bruto ÷ receita líquida** (receita − impostos sobre a receita), padrão SaaS e
+  base do benchmark de 70–85%. DRE em cascata: receita → impostos → receita líquida → COGS → lucro bruto.
+  Também há a margem só de assinatura (sem implementação).
+- **Saída do Simples** (LC 123, art. 30): faturamento do ano > R$ 4,8 mi → sai em janeiro seguinte;
+  > R$ 5,76 mi → no mês seguinte. Depois: lucro presumido com a transição da reforma (PIS/COFINS até
+  2026; CBS de 2027; IBS 10–40% de 2029 a 2032 com o ISS saindo na mesma proporção), crédito de
+  CBS/IBS sobre compras de fornecedor (folha não gera), IRPJ/CSLL abaixo do EBITDA. TIR e payback usam
+  o caixa depois de IRPJ/CSLL. Alíquotas em Configurações — estimativas, validar com o contador.
+- **Custos.** Aba Variáveis tem a coluna **Marketing** (mídia + feiras/eventos/campanhas + marketing
+  lançado); Fixos tem **Vendas fixo** (sem o marketing). Marketing e vendas abre a equipe em SDR,
+  Vendedor e Coordenador. Quadro de **CAC por produto**.
+- **Rodada.** Fomento → programa → Rodada: informa o % cedido ou o pré-money, o app mostra pós-money e
+  participações; vai pra 1ª aba da planilha do investidor. ESOP e análise de sensibilidade: não agora.
+- **Ações de marketing** (feira, eventos, **campanha de mídia**): feira com estande/logística/material;
+  campanha = verba ÷ CPL × conversão. Os clientes das ações **explicam** a meta do canal direto (não
+  somam); só a ação marcada "somar à projeção" acrescenta clientes. **Cobertura do canal direto**
+  mostra meta × previstos pelas ações × verba que faltaria. Duplicar ação pro ano seguinte.
+  Programa de indicação retirado (é desconto na receita, não mídia); workshops do estudo = os eventos
+  já lançados.
+- **Implantações.** Vendas mostra "Novas implant." (vendidas no mês) e "Implant. cobradas" (inclui
+  parcelas de meses anteriores).

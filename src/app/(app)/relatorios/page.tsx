@@ -87,8 +87,8 @@ async function RelatorioReal() {
   const now = new Date();
   const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  // Mesma cascata de DRE da aba Planos: Receita (–) COGS (–) Impostos (=) Margem Bruta (–) S&M
-  // (–) P&D (–) G&A (=) EBITDA — pra manter as duas telas comparáveis, mesmo sem receita lançada.
+  // Mesma cascata de DRE da aba Planos: Receita (–) Impostos (=) Receita líquida (–) COGS (=) Lucro
+  // bruto (–) S&M (–) P&D (–) G&A (=) EBITDA — pra manter as duas telas comparáveis, mesmo sem receita lançada.
   let cogsMes = 0, cogsAcum = 0, smMes = 0, smAcum = 0, pdMes = 0, pdAcum = 0, gaMes = 0, gaAcum = 0, marcaMes = 0, marcaAcum = 0, outrasMes = 0, outrasAcum = 0;
   for (const d of despesasTyped) {
     const conta = d.plano_contas;
@@ -147,6 +147,14 @@ async function RelatorioReal() {
           <tbody>
             <LinhaDreReal label="Receita Operacional Bruta" mes={receitaMes} acumulado={receitaAcumulada} />
             <LinhaDreReal
+              label="(–) Impostos sobre a receita"
+              mes={impostosMes}
+              acumulado={impostosAcum}
+              negativo
+              tooltip="DAS do Simples Nacional (depois de sair do Simples: ISS + PIS/COFINS ou CBS/IBS) — calculado de verdade assim que houver receita real lançada mês a mês (tela Vendas)."
+            />
+            <LinhaDreReal label="(=) Receita líquida" mes={receitaMes - impostosMes} acumulado={receitaAcumulada - impostosAcum} total />
+            <LinhaDreReal
               label="(–) Custo dos Serviços Prestados (COGS)"
               mes={cogsMes}
               acumulado={cogsAcum}
@@ -154,14 +162,7 @@ async function RelatorioReal() {
               tooltip={GRUPO_TOOLTIP.COGS}
               href="/relatorios/linha?grupo=cogs"
             />
-            <LinhaDreReal
-              label="(–) Deduções e Impostos sobre Receita"
-              mes={impostosMes}
-              acumulado={impostosAcum}
-              negativo
-              tooltip="DAS do Simples Nacional — calculado de verdade assim que houver receita real lançada mês a mês (tela Vendas)."
-            />
-            <LinhaDreReal label="(=) Margem Bruta" mes={margemBrutaMes} acumulado={margemBrutaAcum} total />
+            <LinhaDreReal label="(=) Lucro bruto" mes={margemBrutaMes} acumulado={margemBrutaAcum} total />
             <LinhaDreReal
               label="(–) Vendas e Marketing (S&M)"
               mes={smMes}
@@ -548,8 +549,8 @@ function MetricasInvestidor({
           valor={metricas.margemBruta != null ? `${metricas.margemBruta.toFixed(0)}%` : "—"}
           detalhe={
             metricas.receitaAcumulada > 0
-              ? `receita − COGS − ${((metricas.impostosAcumulados / metricas.receitaAcumulada) * 100).toFixed(1)}% DAS (Simples)`
-              : "receita − COGS − impostos"
+              ? `lucro bruto ÷ receita líquida${metricas.margemBrutaAssinatura != null ? ` · só assinatura ${metricas.margemBrutaAssinatura.toFixed(0)}%` : ""}`
+              : "lucro bruto ÷ receita líquida"
           }
         />
         <Metrica
@@ -712,14 +713,19 @@ function IndicadoresPeriodo({
       <table className="w-full border-collapse text-[12.5px]">
         <tbody>
           <DreLinha label="Receita Operacional Bruta" valor={metricas.receitaAcumulada} />
-          <DreLinha label="(–) Custo dos Serviços Prestados (COGS)" valor={-metricas.cogsAcumulado} negativo href={hrefLinha("cogs")} />
           <DreLinha
-            label="(–) Deduções e Impostos sobre Receita"
+            label="(–) Impostos sobre a receita"
             valor={-metricas.impostosAcumulados}
             negativo
-            tooltip="DAS do Simples Nacional (Anexo III ou V conforme o Fator R), calculado mês a mês pelo RBT12 (receita dos 12 meses anteriores) e pela folha CLT acumulada."
+            tooltip="Enquanto a empresa está no Simples: DAS (Anexo III ou V pelo Fator R), mês a mês pelo RBT12. Quando o faturamento do ano passa de R$ 4,8 mi: ISS + PIS/COFINS ou, na reforma, CBS/IBS — já descontado o crédito sobre compras de fornecedor. Alíquotas em Configurações."
           />
-          <DreLinha label="(=) Margem Bruta" valor={metricas.margemBrutaValor} total />
+          <DreLinha label="(=) Receita líquida" valor={metricas.receitaLiquidaAcumulada} total />
+          <DreLinha label="(–) Custo dos Serviços Prestados (COGS)" valor={-metricas.cogsAcumulado} negativo href={hrefLinha("cogs")} />
+          <DreLinha
+            label={`(=) Lucro bruto${metricas.margemBruta != null ? ` — margem bruta ${metricas.margemBruta.toFixed(0)}% da receita líquida` : ""}`}
+            valor={metricas.margemBrutaValor}
+            total
+          />
           <DreLinha label="(–) Vendas e Marketing (S&M)" valor={-metricas.smAcumulado} negativo href={hrefLinha("sm")} />
           <DreLinha label="(–) Pesquisa e Desenvolvimento (P&D)" valor={-metricas.pdAcumulado} negativo href={hrefLinha("pd")} />
           <DreLinha label="(–) Geral e Administrativo (G&A)" valor={-metricas.gaAcumulado} negativo href={hrefLinha("ga")} />
@@ -733,6 +739,17 @@ function IndicadoresPeriodo({
               {formatBRL(metricas.ebitdaAcumulado)}
             </td>
           </tr>
+          {metricas.irpjCsllAcumulado > 0 && (
+            <>
+              <DreLinha
+                label="(–) IRPJ e CSLL (fora do Simples)"
+                valor={-metricas.irpjCsllAcumulado}
+                negativo
+                tooltip="No Simples, IRPJ e CSLL estão dentro do DAS. Depois que a empresa sai, são calculados à parte sobre o lucro presumido (32% da receita) e ficam abaixo do EBITDA. É esse resultado que devolve o capital (payback e TIR)."
+              />
+              <DreLinha label="(=) Resultado depois de IRPJ/CSLL" valor={metricas.resultadoAposIrAcumulado} total />
+            </>
+          )}
           <tr className="border-t border-border-soft">
             <td className="flex items-center px-2 py-2.5 text-text-muted">
               5. Aportes e Investimentos (Capital)

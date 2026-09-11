@@ -10,6 +10,8 @@ import { TabelaCustos, type LinhaCustos } from "./tabela-custos";
 import { CustosCategoriaCard, type CustoFixoRow, type CustoVariavelRow } from "./custos-categoria-card";
 import { AvisoTelaGrande } from "@/components/aviso-tela-grande";
 import { FeirasEventos, type ProdutoPlanos } from "./feiras-eventos";
+import { CoberturaCanalDireto, type LinhaCobertura } from "./cobertura-canal-direto";
+import { custoAcaoPorMes, vendasAcaoPorMes } from "@/lib/acoes-marketing";
 import type { AcaoMarketing } from "@/lib/acoes-marketing";
 
 // Salvar uma feira/evento recalcula a projeção de todos os produtos — leva alguns segundos.
@@ -75,7 +77,7 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
   // de custos compartilhados (não muda nenhum total do DRE, é só a régua de divisão exibida).
   const { data: simRowsTodas } = await supabase
     .from("simulacao_mensal")
-    .select("produto_id, mes_referencia, clientes_ativos, receita_bruta, sm_vendas, cogs_outros, cogs_infraestrutura, cogs_suporte, cogs_llm, cogs_software, cogs_gateway, cogs_cs_proativo, cogs_suporte_reativo, novos_representante, novos_associacao")
+    .select("produto_id, mes_referencia, clientes_ativos, receita_bruta, novos_clientes, novos_direto, sm_vendas, sm_marketing, sm_outros, cogs_outros, cogs_infraestrutura, cogs_suporte, cogs_llm, cogs_software, cogs_gateway, cogs_cs_proativo, cogs_suporte_reativo, novos_representante, novos_associacao")
     .eq("cenario_id", cenarioId)
     .order("mes_referencia", { ascending: false });
   const dentroDoPeriodo = (mes: string) =>
@@ -214,6 +216,7 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
     }
     simPorMes.set(r.mes_referencia, m);
   }
+  const semResiduo = (v: number) => (Math.abs(v) < 0.005 ? 0 : v);
   const linhasCustos: LinhaCustos[] = resumo.linhasPeriodo.map((l) => {
     const m = simPorMes.get(l.mes_referencia) ?? {};
     const llm = m.cogs_llm ?? 0, software = m.cogs_software ?? 0, gateway = m.cogs_gateway ?? 0;
@@ -229,20 +232,86 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
       empresaCogs: l.empresaCogs,
       parceiros: m.sm_vendas ?? 0,
       midia: m.sm_marketing ?? 0,
+      marketing: (m.sm_marketing ?? 0) + l.smFeirasEventos + l.empresaMarketingLancado,
       equipeVariavel: l.alocacaoVariavel,
       equipeFixa: l.alocacaoFixa,
       empresaGa: l.empresaGa,
       empresaPd: l.empresaPd,
       empresaSm: l.empresaSm,
+      vendasFixo: semResiduo(l.empresaSm - l.smFeirasEventos - l.empresaMarketingLancado),
       impostos: l.impostoMensal,
       feiras: l.smFeirasEventos,
       marketingLancado: l.empresaMarketingLancado,
       equipeComercial: l.alocacaoSm,
+      equipeSdr: l.alocacaoSdr,
+      equipeVendedor: l.alocacaoVendedor,
+      equipeCoordenador: semResiduo(l.alocacaoSm - l.alocacaoSdr - l.alocacaoVendedor),
       // "Vendas lançado" fecha o S&M: tudo que não é mídia, feiras, marketing lançado, parceiros ou equipe.
       vendasLancado: l.smMarketing + l.smVendas + l.smOutros - (m.sm_marketing ?? 0) - l.smFeirasEventos - l.empresaMarketingLancado - (m.sm_vendas ?? 0) - l.alocacaoSm,
       marca: l.empresaMarca,
     };
   });
+
+  // CAC por produto: o que dá pra atribuir a cada produto — canais de parceiro, mídia do
+  // self-service, outros S&M do produto e a equipe comercial que trabalha nele — ÷ clientes novos.
+  // Marketing e vendas da empresa (feiras, campanhas, marketing lançado, CRM) ficam à parte.
+  const periodoIni = resumo.linhasPeriodo[0]?.mes_referencia ?? "";
+  const periodoFim = resumo.linhasPeriodo[resumo.linhasPeriodo.length - 1]?.mes_referencia ?? "";
+  const equipePorProduto: Record<string, number> = {};
+  for (const l of resumo.linhasPeriodo) {
+    for (const [pid, v] of Object.entries(l.equipePorProduto)) equipePorProduto[pid] = (equipePorProduto[pid] ?? 0) + v;
+  }
+  const cacProdutos = (produtosCenario ?? [])
+    .map((p) => {
+      const rows = (simRows ?? []).filter((r) => r.produto_id === p.id && r.mes_referencia >= periodoIni && r.mes_referencia <= periodoFim);
+      const novos = rows.reduce((s, r) => s + Number(r.novos_clientes ?? 0), 0);
+      const canais = rows.reduce((s, r) => s + Number(r.sm_marketing ?? 0) + Number(r.sm_vendas ?? 0) + Number(r.sm_outros ?? 0), 0);
+      const equipe = equipePorProduto[p.id] ?? 0;
+      return { id: p.id, nome: p.nome, novos, canais, equipe, cac: novos > 0 ? (canais + equipe) / novos : null };
+    })
+    .filter((x) => x.novos > 0 || x.canais + x.equipe > 0);
+  const smEmpresa = resumo.linhasPeriodo.reduce((s, l) => s + l.empresaSm + (l.equipePorProduto[""] ?? 0), 0);
+  const novosPeriodo = cacProdutos.reduce((s, x) => s + x.novos, 0);
+
+  // Cobertura do canal direto: a meta de clientes diretos (crescimento das fases) × o que as ações de
+  // marketing explicam. O custo de cada ação vai pros produtos pelos clientes que ela traz a cada um.
+  const acoesLista = (acoesRaw ?? []) as AcaoMarketing[];
+  const fimCenario = (cenario as { data_fim?: string | null }).data_fim ?? null;
+  const noPeriodoCobertura = (m: string) => m >= periodoIni && m <= periodoFim;
+  const nomeDoProduto = new Map((produtosCenario ?? []).map((p) => [p.id, p.nome]));
+  const coberturaMapa = new Map<string, LinhaCobertura>();
+  const semRetornoPorAno: Record<string, number> = {};
+  const linhaCobertura = (ano: string, pid: string) => {
+    const k = `${ano}|${pid}`;
+    let l = coberturaMapa.get(k);
+    if (!l) {
+      l = { ano, produto: nomeDoProduto.get(pid) ?? "Produto", meta: 0, previstos: 0, custo: 0 };
+      coberturaMapa.set(k, l);
+    }
+    return l;
+  };
+  for (const r of simRows ?? []) {
+    const d = Number((r as { novos_direto?: number | null }).novos_direto ?? 0);
+    if (d > 0 && noPeriodoCobertura(r.mes_referencia)) linhaCobertura(r.mes_referencia.slice(0, 4), r.produto_id).meta += d;
+  }
+  for (const a of acoesLista) {
+    const vendas = [...new Set((a.retorno ?? []).map((x) => x.produto_id).filter(Boolean))].map((pid) => ({ pid, linhas: vendasAcaoPorMes(a, pid, fimCenario) }));
+    const clientesDaAcao = vendas.reduce((s, v) => s + v.linhas.reduce((t, x) => t + x.clientes, 0), 0);
+    for (const v of vendas) for (const x of v.linhas) if (noPeriodoCobertura(x.mes)) linhaCobertura(x.mes.slice(0, 4), v.pid).previstos += x.clientes;
+    for (const [mes, valor] of custoAcaoPorMes(a, fimCenario)) {
+      if (!noPeriodoCobertura(mes)) continue;
+      const ano = mes.slice(0, 4);
+      if (clientesDaAcao <= 0) {
+        semRetornoPorAno[ano] = (semRetornoPorAno[ano] ?? 0) + valor;
+        continue;
+      }
+      for (const v of vendas) {
+        const parte = v.linhas.reduce((t, x) => t + x.clientes, 0) / clientesDaAcao;
+        if (parte > 0) linhaCobertura(ano, v.pid).custo += valor * parte;
+      }
+    }
+  }
+  const cobertura = [...coberturaMapa.values()].sort((a, b) => a.ano.localeCompare(b.ano) || a.produto.localeCompare(b.produto));
 
   const categoriaPorConta = (codigo: string | undefined) => (codigo ? categoriaDeConta({ codigo }) : undefined);
 
@@ -316,7 +385,10 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
                 chave === "csp" ? (
                   <CogsPremissasForm cenarioId={cenarioId} produtos={produtosCogs} perfis={perfisHora} />
                 ) : chave === "marketing" ? (
-                  <FeirasEventos cenarioId={cenarioId} acoes={(acoesRaw ?? []) as AcaoMarketing[]} produtos={produtosPlanos} />
+                  <>
+                    <FeirasEventos cenarioId={cenarioId} acoes={acoesLista} produtos={produtosPlanos} fimCenario={fimCenario} />
+                    <CoberturaCanalDireto linhas={cobertura} semRetornoPorAno={semRetornoPorAno} />
+                  </>
                 ) : undefined
               }
             />
@@ -327,6 +399,48 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
       <div className="mt-6">
         <TabelaCustos linhas={linhasCustos} cenarioId={cenarioId} />
       </div>
+
+      {cacProdutos.length > 0 && (
+        <div className="mt-6 rounded-xl border border-border bg-surface p-5">
+          <h2 className="mb-1 font-heading text-[13px] font-semibold">CAC por produto no período</h2>
+          <p className="mb-3 text-[11.5px] text-text-muted">
+            O que é de cada produto: canais de parceiro, mídia do self-service e a equipe comercial que trabalha nele (SDR PJ e vendedor no
+            Mind, SDR as a Service no Price e no Skills, conforme a alocação). Marketing e vendas da empresa ficam numa linha à parte.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[12px]">
+              <thead>
+                <tr className="text-left text-text-muted">
+                  <th className="px-2 py-1.5 font-medium">Produto</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Novos clientes</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Canais e mídia</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Equipe comercial</th>
+                  <th className="px-2 py-1.5 text-right font-medium">CAC do produto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cacProdutos.map((x) => (
+                  <tr key={x.id} className="border-t border-border-soft">
+                    <td className="px-2 py-1.5">{x.nome}</td>
+                    <td className="px-2 py-1.5 text-right font-mono">{Math.round(x.novos).toLocaleString("pt-BR")}</td>
+                    <td className="px-2 py-1.5 text-right font-mono">{formatBRL(x.canais)}</td>
+                    <td className="px-2 py-1.5 text-right font-mono">{formatBRL(x.equipe)}</td>
+                    <td className="px-2 py-1.5 text-right font-mono font-semibold">{x.cac != null ? formatBRL(x.cac) : "—"}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-border-soft text-text-muted">
+                  <td className="px-2 py-1.5">Marketing e vendas da empresa (feiras, campanhas, lançado, CRM)</td>
+                  <td className="px-2 py-1.5 text-right font-mono">—</td>
+                  <td className="px-2 py-1.5 text-right font-mono" colSpan={2}>{formatBRL(smEmpresa)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">
+                    {novosPeriodo > 0 ? `+ ${formatBRL(smEmpresa / novosPeriodo)} por cliente` : "—"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

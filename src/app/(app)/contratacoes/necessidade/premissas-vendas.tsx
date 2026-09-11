@@ -27,7 +27,13 @@ export function PremissasVendas({ cenarioId, produtos }: { cenarioId: string; pr
           <InfoTooltip texto="Valem pro produto inteiro, em todas as fases. Reuniões por closer/mês dimensiona a aba Vendedor; reuniões por oportunidade é a carga extra de produtos de ciclo mais longo (Mind = 1,25); vendedores por coordenador dimensiona a aba Coordenador. Horas de suporte não ficam aqui: vêm das regras de COGS do produto (Plano de Custos → CSP)." />
         </span>
         <span className="text-[11px] text-text-faint">
-          {produtos.map((p) => `${p.nome.replace("Fashion ", "")}: ${p.capacidade_vendedor_mes ?? "—"} reun/closer · ${p.reunioes_por_oportunidade != null ? Math.round((p.reunioes_por_oportunidade - 1) * 100) : 0}% 2ª reunião`).join(" · ")}{" "}
+          {produtos
+            .map((p) =>
+              p.capacidade_vendedor_mes == null
+                ? `${p.nome.replace("Fashion ", "")}: venda automática`
+                : `${p.nome.replace("Fashion ", "")}: ${p.capacidade_vendedor_mes} reun/closer · ${p.reunioes_por_oportunidade != null ? Math.round((p.reunioes_por_oportunidade - 1) * 100) : 0}% 2ª reunião`,
+            )
+            .join(" · ")}{" "}
           {aberto ? "▲" : "▼"}
         </span>
       </button>
@@ -49,6 +55,11 @@ function FormProduto({ cenarioId, p }: { cenarioId: string; p: PremissaVendasPro
       <input type="hidden" name="cenario_id" value={cenarioId} />
       <input type="hidden" name="produto_id" value={p.produto_id} />
       <span className="mb-1.5 w-[130px] text-[12px] font-medium">{p.nome}</span>
+      <label className="mb-1.5 flex items-center gap-1.5 text-[11.5px]">
+        <input type="checkbox" name="sem_vendedor" defaultChecked={p.capacidade_vendedor_mes == null} />
+        Venda automática
+        <InfoTooltip texto="O cliente assina sozinho (bot, teste grátis, checkout) — sem reunião com vendedor. O produto deixa de gerar demanda de vendedor e as vendas dele não pagam comissão nem valor por venda. A prospecção continua podendo ser feita por um SDR (humano ou bot)." />
+      </label>
       <div className="form-campo">
         <label className="flex items-center">
           Reuniões por closer/mês

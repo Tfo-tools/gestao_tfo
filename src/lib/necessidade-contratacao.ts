@@ -49,6 +49,28 @@ export type SimulacaoMesInput = {
   novos_associacao?: number;
 };
 
+/** Demanda de um produto num mês, já na unidade de cada cargo. É o que permite prender uma
+ *  alocação a alguns produtos (SDR PJ só no Mind, SDR IA só no Price e no Skills). */
+export type DemandaProdutoMes = {
+  /** Reuniões/oportunidades que o SDR precisa gerar (só canal direto). */
+  sdr: number;
+  oportunidadesDireto: number;
+  /** Reuniões que o vendedor atende (todas as de canais com reunião, já com a 2ª reunião). */
+  reunioesVendedor: number;
+  /** Vendedores necessários (reuniões ÷ capacidade do closer no produto). */
+  vendedores: number;
+  /** Coordenadores necessários (vendedores ÷ span). */
+  coordenador: number;
+  suporte: number;
+  /** Clientes que fecharam passando por reunião com vendedor — base do "por venda" e da
+   *  comissão. Self-service e produto sem vendedor ficam fora. */
+  vendasComReuniao: number;
+};
+
+export function demandaProdutoVazia(): DemandaProdutoMes {
+  return { sdr: 0, oportunidadesDireto: 0, reunioesVendedor: 0, vendedores: 0, coordenador: 0, suporte: 0, vendasComReuniao: 0 };
+}
+
 export type MesDemandaCargo = {
   mes_referencia: string;
   /** Unidade de demanda: "contatos" (SDR), "vendedores" (Coordenador) ou "horas" (Suporte). */
@@ -117,6 +139,8 @@ export function calcularDemandaPorCargo(params: {
   oportunidadesDireto: MesDemandaCargo[];
   /** Meses em que faltou taxa de qualificação — o custo de SDR sai subestimado nesses meses. */
   mesesSemQualificacao: string[];
+  /** A mesma demanda, aberta por produto e mês: porProduto[produtoId][mes]. */
+  porProduto: Record<string, Record<string, DemandaProdutoMes>>;
 } {
   const { fasesPorProduto, funis, canais, simulacao, horasSuportePorProduto } = params;
 
@@ -146,6 +170,12 @@ export function calcularDemandaPorCargo(params: {
   const porMesOportunidadesDireto = new Map<string, number>();
   const porMesVendedor = new Map<string, number>();
   const mesesSemQualificacao = new Set<string>();
+  const porProduto: Record<string, Record<string, DemandaProdutoMes>> = {};
+  function acc(produtoId: string, mesIso: string, campo: keyof DemandaProdutoMes, v: number) {
+    const doProduto = (porProduto[produtoId] ??= {});
+    const d = (doProduto[mesIso] ??= demandaProdutoVazia());
+    d[campo] += v;
+  }
 
   for (const s of simulacao) {
     const fases = fasesPorProdutoMap.get(s.produtoId) ?? [];
@@ -164,6 +194,7 @@ export function calcularDemandaPorCargo(params: {
     const horasPorCliente = horasSuportePorProduto?.[s.produtoId] ?? funil.horas_suporte_por_cliente_mes ?? 0;
     if (horasPorCliente > 0) {
       porMesSuporte.set(mesIso, (porMesSuporte.get(mesIso) ?? 0) + s.clientes_ativos * horasPorCliente);
+      acc(s.produtoId, mesIso, "suporte", s.clientes_ativos * horasPorCliente);
     }
 
     // Funil em dois estágios, calculado de trás pra frente e CANAL A CANAL — porque a taxa de
@@ -205,6 +236,7 @@ export function calcularDemandaPorCargo(params: {
       // pronta e não podem contar como resultado de SDR nem dimensionar o time.
       if (canal.tipo_canal === "direto") {
         porMesOportunidadesDireto.set(mesIso, (porMesOportunidadesDireto.get(mesIso) ?? 0) + oportunidades);
+        acc(s.produtoId, mesIso, "oportunidadesDireto", oportunidades);
       }
 
       // O vendedor atende TODAS as reuniões, de qualquer canal — inclusive as que o parceiro traz
@@ -214,9 +246,15 @@ export function calcularDemandaPorCargo(params: {
       if (funil.capacidade_vendedor_mes) {
         const vendedores = reunioesAtendidas / funil.capacidade_vendedor_mes;
         porMesVendedor.set(mesIso, (porMesVendedor.get(mesIso) ?? 0) + vendedores);
+        acc(s.produtoId, mesIso, "reunioesVendedor", reunioesAtendidas);
+        acc(s.produtoId, mesIso, "vendedores", vendedores);
+        // Produto sem capacidade de closer cadastrada vende sem vendedor (automático): as vendas
+        // dele não pagam "por venda" nem comissão.
+        acc(s.produtoId, mesIso, "vendasComReuniao", clientesDoCanal);
         // Coordenador supervisiona vendedores — span_of_control diz quantos por coordenador.
         if (funil.span_of_control) {
           porMesCoordenador.set(mesIso, (porMesCoordenador.get(mesIso) ?? 0) + vendedores / funil.span_of_control);
+          acc(s.produtoId, mesIso, "coordenador", vendedores / funil.span_of_control);
         }
       }
 
@@ -228,6 +266,7 @@ export function calcularDemandaPorCargo(params: {
       // eficiência de cada modelo e é calculado na hora de precificar, não aqui — assim o mesmo
       // plano de vendas pode ser comparado entre um CLT que qualifica 1% e um bot que qualifica 0,4%.
       porMesSdr.set(mesIso, (porMesSdr.get(mesIso) ?? 0) + oportunidades);
+      acc(s.produtoId, mesIso, "sdr", oportunidades);
       if (!canal.taxa_qualificacao) mesesSemQualificacao.add(mesIso);
     }
   }
@@ -245,6 +284,7 @@ export function calcularDemandaPorCargo(params: {
     oportunidades: toArray(porMesOportunidades),
     oportunidadesDireto: toArray(porMesOportunidadesDireto),
     mesesSemQualificacao: [...mesesSemQualificacao].sort(),
+    porProduto,
   };
 }
 

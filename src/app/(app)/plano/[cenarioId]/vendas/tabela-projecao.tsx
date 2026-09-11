@@ -19,6 +19,8 @@ export type LinhaProjecao = {
   mrr: number;
   receita_implementacao: number;
   implementacoes_ativas: number;
+  /** Implantações vendidas no mês — as cobradas incluem as parceladas de meses anteriores. */
+  novas_implementacoes: number;
 };
 
 export type ProdutoOpcao = { id: string; nome: string };
@@ -65,6 +67,7 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
       atual.mrr += l.mrr;
       atual.receita_implementacao += l.receita_implementacao;
       atual.implementacoes_ativas += l.implementacoes_ativas;
+      atual.novas_implementacoes += l.novas_implementacoes;
       // Churn consolidado: média ponderada pela base de clientes de cada produto.
       if (l.churn_pct != null) {
         const pesoAtual = (atual.churn_pct ?? 0) * (atual.clientes_ativos - l.clientes_ativos);
@@ -81,7 +84,7 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
   // junto de propósito: quando o cenário começa ou termina no meio do ano, somar o que tem e
   // comparar com um ano cheio dá a falsa impressão de queda.
   const comFechamentos = useMemo(() => {
-    const saida: (({ tipo: "mes" } & (typeof agregado)[number]) | { tipo: "ano"; ano: string; meses: number; clientesFim: number; novosDireto: number; novosRepresentante: number; novosAssociacao: number; novosTotal: number; saidas: number; receita: number; receitaImpl: number; implementacoes: number; arpu: number })[] = [];
+    const saida: (({ tipo: "mes" } & (typeof agregado)[number]) | { tipo: "ano"; ano: string; meses: number; clientesFim: number; novosDireto: number; novosRepresentante: number; novosAssociacao: number; novosTotal: number; saidas: number; receita: number; receitaImpl: number; implementacoes: number; novasImplementacoes: number; arpu: number })[] = [];
     let acc: (typeof agregado)[number][] = [];
 
     const fechar = () => {
@@ -104,6 +107,7 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
         receita,
         receitaImpl,
         implementacoes: implMes,
+        novasImplementacoes: acc.reduce((s, l) => s + l.novas_implementacoes, 0),
         // Ticket médio por cobrança: assinaturas + parcelas de implementação no denominador.
         arpu: clientesMes + implMes > 0 ? receita / (clientesMes + implMes) : 0,
       });
@@ -184,7 +188,11 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
                 )}
                 <th className="px-2 py-1.5 text-right font-medium">Total novos</th>
                 <th className="px-2 py-1.5 text-right font-medium">Saíram</th>
-                <th className="px-2 py-1.5 text-right font-medium">Implementações</th>
+                <th className="px-2 py-1.5 text-right font-medium">Novas implant.</th>
+                <th className="px-2 py-1.5 text-right font-medium">
+                  Implant. cobradas
+                  <InfoTooltip texto="Implantações com cobrança no mês: as vendidas agora (à vista ou 1ª parcela) + as parceladas de meses anteriores ainda em andamento. Por isso passa das novas quando há parcelamento — ex: 4 implantações do Mind = 2,8 à vista + 1,2 na 1ª de 5 parcelas." />
+                </th>
                 <th className="px-2 py-1.5 text-right font-medium">Receita implant.</th>
                 <th className="px-2 py-1.5 text-right font-medium">Faturamento</th>
                 <th className="px-2 py-1.5 text-right font-medium">
@@ -219,6 +227,9 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
                       <td className="px-2 py-1.5 text-right font-mono">{num(item.novosTotal, 0)}</td>
                       <td className="px-2 py-1.5 text-right font-mono text-text-muted">
                         {item.saidas > 0 ? `-${num(item.saidas)}` : "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                        {item.novasImplementacoes > 0 ? num(item.novasImplementacoes, 0) : "—"}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono text-text-muted">
                         {item.implementacoes > 0 ? num(item.implementacoes, 0) : "—"}
@@ -264,7 +275,10 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
                       {l.churn_pct ? <span className="ml-1 text-[9px] text-text-faint">({(l.churn_pct * 100).toFixed(1)}%)</span> : null}
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono text-text-muted">
-                      {l.implementacoes_ativas > 0 ? num(l.implementacoes_ativas, 0) : "—"}
+                      {l.novas_implementacoes > 0 ? num(l.novas_implementacoes, 1) : "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                      {l.implementacoes_ativas > 0 ? num(l.implementacoes_ativas, 1) : "—"}
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono text-text-muted">
                       {l.receita_implementacao > 0 ? formatBRL(l.receita_implementacao) : "—"}

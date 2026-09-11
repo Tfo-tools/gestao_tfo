@@ -261,6 +261,7 @@ async function clonarCenario(
       ...semColunasDeSistema(r),
       cenario_id: destinoId,
       ...("produto_id" in r ? { produto_id: mapProdutoId(r.produto_id) } : {}),
+      ...(Array.isArray(r.produto_ids) ? { produto_ids: (r.produto_ids as string[]).map((id) => mapProdutoId(id)) } : {}),
     }));
     await inserirVarios(tabela, linhas, tabela.replace(/_/g, " "));
   }
@@ -514,4 +515,14 @@ export async function completarCenarioClonado(cenarioId: string): Promise<{ erro
   revalidatePath("/cenarios");
   revalidatePath(`/plano/${cenarioId}`, "layout");
   return falhas.length > 0 ? { error: null, aviso: `Completado, exceto: ${falhas.join("; ")}.` } : { error: null };
+}
+
+/** Refaz a projeção de todos os produtos do cenário com as premissas atuais — botão do hub. */
+export async function recalcularCenario(cenarioId: string): Promise<{ error: string | null }> {
+  if (!cenarioId) return { error: "Cenário não identificado." };
+  const { falhas } = await recalcularTodosProdutos(cenarioId);
+  revalidatePath("/plano", "layout");
+  revalidatePath("/relatorios");
+  revalidatePath("/contratacoes/necessidade");
+  return falhas.length > 0 ? { error: `Não foi possível recalcular ${falhas.length} produto(s).` } : { error: null };
 }

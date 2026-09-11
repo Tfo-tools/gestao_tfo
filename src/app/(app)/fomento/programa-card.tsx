@@ -268,6 +268,7 @@ function ValuationSection({
   const [valuationState, valuationAction, valuationPending] = useActionState(atualizarValuationPrograma, initialState);
   const [reavalState, reavalAction, reavalPending] = useActionState(criarReavaliacao, initialState);
   const reavalFormRef = useRef<HTMLFormElement>(null);
+  const [editandoRodada, setEditandoRodada] = useState(false);
 
   const retorno = calcularRetornoPrograma({
     valor_investido: Number(programa.valor_total),
@@ -287,39 +288,29 @@ function ValuationSection({
         <InfoTooltip texto="ROI/MOIC/TIR calculados pela diluição de equity (valor investido ÷ valuation pós-money, ajustado pelas reavaliações), não pelo caixa da empresa — é a métrica que o investidor de fato enxerga." />
       </div>
 
-      {!programa.valuation_post_money ? (
-        <form action={valuationAction} className="flex flex-wrap items-end gap-2">
-          <input type="hidden" name="programa_id" value={programa.id} />
-          <div>
-            <label className="mb-1 block text-[10.5px] text-text-faint">Valuation pré-money (R$)</label>
-            <input name="valuation_pre_money" type="number" step="0.01" min="0" required className="input w-[160px]" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[10.5px] text-text-faint">Data do aporte</label>
-            <input name="data_aporte" type="date" defaultValue={programa.data_aporte ?? ""} className="input w-[150px]" />
-          </div>
-          <button
-            type="submit"
-            disabled={valuationPending}
-            className="rounded-lg border border-border px-3 py-2 text-[12px] font-medium text-primary-deep disabled:opacity-60"
-          >
-            {valuationPending ? "…" : "Salvar valuation"}
-          </button>
-          {valuationState.error && <p className="w-full text-[11px] text-danger">{valuationState.error}</p>}
-          <p className="mt-2 w-full text-[11px] text-text-muted">
-            Não sabe qual pré-money usar?{" "}
-            <Link href={`/fomento/${programa.id}/valuation`} className="font-medium text-primary-deep underline">
-              Estimar com o Método Berkus →
-            </Link>
-          </p>
-        </form>
+      {valuationState.error && <p className="mb-2 text-[11px] text-danger">{valuationState.error}</p>}
+      {!programa.valuation_post_money || editandoRodada ? (
+        <RodadaForm
+          programa={programa}
+          action={valuationAction}
+          pending={valuationPending}
+          onCancelar={programa.valuation_post_money ? () => setEditandoRodada(false) : undefined}
+          onEnviado={() => setEditandoRodada(false)}
+        />
       ) : (
         <>
-          <div className="mb-3 grid grid-cols-3 gap-2 text-[11px] text-text-muted">
+          <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-text-muted sm:grid-cols-4">
             <span>Pré-money: {formatBRL(Number(programa.valuation_pre_money))}</span>
             <span>Pós-money: {formatBRL(Number(programa.valuation_post_money))}</span>
+            <span>
+              Investidor fica com{" "}
+              <strong className="text-text">{formatPct((Number(programa.valor_total ?? 0) / Number(programa.valuation_post_money)) * 100)}</strong>
+            </span>
             <span>Aporte em: {formatDate(programa.data_aporte)}</span>
           </div>
+          <button type="button" onClick={() => setEditandoRodada(true)} className="mb-2 mr-3 text-[11px] font-medium text-primary-deep underline">
+            Editar rodada
+          </button>
           <Link href={`/fomento/${programa.id}/valuation`} className="mb-3 inline-block text-[11px] font-medium text-primary-deep underline">
             Refazer estimativa (Berkus) / ver histórico →
           </Link>
@@ -443,5 +434,117 @@ function MiniStat({ label, valor }: { label: string; valor: string }) {
       <div className="text-[10px] text-text-faint">{label}</div>
       <div className="mt-0.5 font-mono text-[13px] font-semibold">{valor}</div>
     </div>
+  );
+}
+
+
+/**
+ * Preço da rodada, explicado: o investidor põe o dinheiro e fica com uma parte da empresa. Dá pra
+ * informar essa parte de dois jeitos — o % que vocês aceitam ceder, ou o valuation pré-money — e o
+ * app mostra o resto na hora (pós-money, % do investidor, % que fica com as sócias).
+ */
+function RodadaForm({
+  programa,
+  action,
+  pending,
+  onCancelar,
+  onEnviado,
+}: {
+  programa: Programa;
+  action: (fd: FormData) => void;
+  pending: boolean;
+  onCancelar?: () => void;
+  onEnviado: () => void;
+}) {
+  const valor = Number(programa.valor_total ?? 0);
+  const [modo, setModo] = useState<"pct" | "pre">(programa.valuation_pre_money ? "pre" : "pct");
+  const [pct, setPct] = useState(() =>
+    programa.valuation_post_money ? Number(((valor / Number(programa.valuation_post_money)) * 100).toFixed(2)) : 10,
+  );
+  const [pre, setPre] = useState(() => Number(programa.valuation_pre_money ?? 0) || valor * 9);
+  const preMoney = modo === "pct" ? (pct > 0 && pct < 100 ? (valor * (100 - pct)) / pct : 0) : pre;
+  const posMoney = preMoney + valor;
+  const pctInvestidor = posMoney > 0 ? (valor / posMoney) * 100 : 0;
+
+  if (valor <= 0) {
+    return <p className="text-[11.5px] text-text-faint">Informe o valor do programa (quanto será captado) pra calcular a rodada.</p>;
+  }
+
+  return (
+    <form
+      action={(fd) => {
+        action(fd);
+        onEnviado();
+      }}
+      className="flex flex-col gap-2.5"
+    >
+      <input type="hidden" name="programa_id" value={programa.id} />
+      <input type="hidden" name="valuation_pre_money" value={preMoney > 0 ? preMoney.toFixed(2) : ""} />
+      <p className="text-[11.5px] text-text-muted">
+        O investidor coloca <strong className="text-text">{formatBRL(valor)}</strong> e recebe uma parte da empresa. Escolha como vocês
+        pensam o preço — o app calcula o resto:
+      </p>
+      <div className="flex w-fit gap-1 rounded-lg bg-surface p-1">
+        {(
+          [
+            ["pct", "Sei o % que vamos ceder"],
+            ["pre", "Sei o valuation pré-money"],
+          ] as const
+        ).map(([k, rotulo]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setModo(k)}
+            className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium ${modo === k ? "bg-bg shadow-sm" : "text-text-muted"}`}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        {modo === "pct" ? (
+          <div>
+            <label className="mb-1 block text-[10.5px] text-text-faint">% da empresa para o investidor</label>
+            <input type="number" step="0.1" min="0.1" max="99" value={pct} onChange={(e) => setPct(Number(e.target.value))} className="input w-[120px]" />
+          </div>
+        ) : (
+          <div>
+            <label className="mb-1 block text-[10.5px] text-text-faint">Valuation pré-money (R$)</label>
+            <input type="number" step="1000" min="0" value={pre} onChange={(e) => setPre(Number(e.target.value))} className="input w-[170px]" />
+          </div>
+        )}
+        <div>
+          <label className="mb-1 block text-[10.5px] text-text-faint">Data do aporte</label>
+          <input name="data_aporte" type="date" defaultValue={programa.data_aporte ?? ""} className="input w-[150px]" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <MiniStat label="Pré-money (antes do aporte)" valor={formatBRL(preMoney)} />
+        <MiniStat label="Pós-money (pré + aporte)" valor={formatBRL(posMoney)} />
+        <MiniStat label="Investidor fica com" valor={formatPct(pctInvestidor)} />
+        <MiniStat label="Sócias ficam com" valor={formatPct(100 - pctInvestidor)} />
+      </div>
+      <p className="text-[10.5px] text-text-faint">
+        Pré-money = quanto a empresa vale antes do dinheiro entrar. Pós-money = pré-money + investimento. % do investidor =
+        investimento ÷ pós-money. Ex: R$ 500 mil por 10% → pós-money R$ 5 mi e pré-money R$ 4,5 mi. Não sabe que preço pedir?{" "}
+        <Link href={`/fomento/${programa.id}/valuation`} className="font-medium text-primary-deep underline">
+          Estimar com o Método Berkus →
+        </Link>
+      </p>
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          disabled={pending || preMoney <= 0}
+          className="rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60"
+        >
+          {pending ? "…" : "Salvar rodada"}
+        </button>
+        {onCancelar && (
+          <button type="button" onClick={onCancelar} className="text-[11px] text-text-muted">
+            cancelar
+          </button>
+        )}
+      </div>
+    </form>
   );
 }

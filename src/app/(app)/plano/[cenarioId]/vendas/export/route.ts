@@ -82,7 +82,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       { header: "Novos associações", key: "assoc", width: 18 },
       { header: "Total novos", key: "novos", width: 12 },
       { header: "Saíram", key: "saidas", width: 10 },
-      { header: "Implementações", key: "implementacoes", width: 15 },
+      { header: "Implant. cobradas", key: "implementacoes", width: 15 },
       { header: "Receita implantação (R$)", key: "receitaImpl", width: 22 },
       { header: "Faturamento (R$)", key: "receita", width: 17 },
       { header: "Ticket médio (R$)", key: "arpu", width: 17 },

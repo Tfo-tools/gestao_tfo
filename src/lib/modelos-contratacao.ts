@@ -49,6 +49,9 @@ export type ParametrosModelo = {
   taxa_qualificacao_estimada?: number;
   valor_sessao_meta?: number;
   sessoes_meta_por_lead?: number;
+  /** PJ com fixo mensal de contrato (ex: vendedor R$ 4.500): cobra a pessoa inteira, não a fração
+   *  das horas usadas. Sem isso o PJ é proporcional à demanda (suporte por hora, SDR por reunião). */
+  fixo_por_pessoa_inteira?: boolean;
 };
 
 export const TIPO_MODELO_LABEL: Record<TipoModelo, string> = {
@@ -70,16 +73,27 @@ export type ContextoCusto = {
   vendas?: number;
   /** Receita do primeiro mês das vendas fechadas — base da comissão percentual. */
   receitaNovasVendas?: number;
+  /** Pessoas/unidades no mês — o teto de ligações combinado é por pessoa. */
+  unidades?: number;
 };
+
+/** Bot de SDR (IA): cobra por lead e escala em pacotes — não tem teto de ligações por pessoa. */
+function ehBotDeLeads(parametros: ParametrosModelo): boolean {
+  return parametros.leads_maximos_pacote != null || parametros.valor_por_lead_trabalhado != null;
+}
 
 /** Ligações necessárias pra agendar as reuniões do mês, na eficiência deste modelo. Respeita o
  *  teto combinado: com PJ dá pra contratar produtividade menor e pagar menos. */
 function ligacoesDoMes(parametros: ParametrosModelo, contexto: ContextoCusto): number {
   if (contexto.ligacoes != null) return contexto.ligacoes;
   const reunioes = contexto.reunioes ?? 0;
-  const taxa = parametros.taxa_qualificacao ?? 0;
+  // No bot, a oportunidade é o lead QUALIFICADO — a mesma taxa que ele usa pra cobrar o
+  // qualificado. Um número só, pra custo e dimensionamento não discordarem.
+  const bot = ehBotDeLeads(parametros);
+  const taxa = bot ? (parametros.taxa_qualificacao_estimada || parametros.taxa_qualificacao || 0) : (parametros.taxa_qualificacao ?? 0);
   const necessarias = taxa > 0 ? reunioes / taxa : 0;
-  const teto = parametros.ligacoes_maximas_mes ?? 0;
+  if (bot) return necessarias;
+  const teto = (parametros.ligacoes_maximas_mes ?? 0) * Math.max(1, Math.ceil((contexto.unidades ?? 1) - 1e-9));
   return teto > 0 ? Math.min(necessarias, teto) : necessarias;
 }
 
@@ -113,7 +127,7 @@ export function custoMensalModelo(
       const custoUnitario =
         (parametros.salario_bruto ?? 0) * (1 + (parametros.aliquota_encargos ?? 0)) + (parametros.custo_estrutura_mensal ?? 0);
       // O fixo é por cabeça; o variável é do volume do mês, que já está distribuído entre elas.
-      return { custoMensal: unidades * custoUnitario + remuneracaoVariavel(parametros, contexto), unidades };
+      return { custoMensal: unidades * custoUnitario + remuneracaoVariavel(parametros, { ...contexto, unidades }), unidades };
     }
     case "pj": {
       // PJ é contratado só pela quantidade de horas necessária — custo proporcional à demanda
@@ -122,12 +136,16 @@ export function custoMensalModelo(
       // inteiro) passa a compensar mais.
       const capacidade = parametros.capacidade_unidade_mes ?? 0;
       const unidades = capacidade > 0 ? demanda / capacidade : 0;
-      const custoEstrutura = unidades > 0 ? (parametros.custo_estrutura_mensal ?? 0) : 0;
+      const pessoas = Math.ceil(unidades - 1e-9);
+      const inteiro = parametros.fixo_por_pessoa_inteira === true;
+      // Estrutura (central, sistema, computador) é por pessoa trabalhando no mês.
+      const custoEstrutura = pessoas * (parametros.custo_estrutura_mensal ?? 0);
       // PJ sem fixo (valor_mensal 0) fica só com o variável — é o caso da SDR que cobra por
       // reunião e produtividade, sem salário.
+      const fixo = (inteiro ? pessoas : unidades) * (parametros.valor_mensal ?? 0);
       return {
-        custoMensal: unidades * (parametros.valor_mensal ?? 0) + custoEstrutura + remuneracaoVariavel(parametros, contexto),
-        unidades,
+        custoMensal: fixo + custoEstrutura + remuneracaoVariavel(parametros, { ...contexto, unidades: pessoas }),
+        unidades: inteiro ? pessoas : unidades,
       };
     }
     case "empresa_fixo_escopo": {

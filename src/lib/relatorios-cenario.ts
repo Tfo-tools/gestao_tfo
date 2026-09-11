@@ -1,17 +1,23 @@
 import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
 import { horasAtendimentoPorProduto } from "@/lib/cogs";
 import type { FaseValue } from "@/lib/fases";
-import { custoMensalModelo, volumeCobertoPelaAlocacao, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
+import { type ParametrosModelo } from "@/lib/modelos-contratacao";
+import { custoEquipeNoMes, type AlocacaoEquipe, type ModeloEquipe } from "@/lib/equipe-comercial";
 import {
   calcularDemandaPorCargo,
+  type DemandaProdutoMes,
   type CanalFunilInput,
   type FaseProdutoInput,
   type FunilPremissaInput,
   type SimulacaoMesInput,
-  cargoChave,
-} from "@/lib/necessidade-contratacao";
-import { calcularImpostoSimples } from "@/lib/impostos";
-import { subgrupoDeConta, subgrupoDeCargo } from "@/lib/subgrupo-conta";
+  } from "@/lib/necessidade-contratacao";
+import {
+  calcularImpostoSimples,
+  calcularTributosPosSimples,
+  LIMITE_SIMPLES_ANUAL,
+  parametrosTributariosDe,
+} from "@/lib/impostos";
+import { subgrupoDeConta } from "@/lib/subgrupo-conta";
 import { custoAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
 import { categoriaDeConta } from "@/lib/categoria-negocio";
 
@@ -28,8 +34,20 @@ export type Agregado = {
   churnPonderado: number;
   ltvPonderado: number;
   custoCLT: number;
+  /** Impostos sobre a receita (DAS no Simples; ISS + PIS/COFINS/CBS/IBS líquidos de crédito depois). */
   impostoMensal: number;
   aliquotaEfetivaImposto: number | null;
+  /** "simples" enquanto a empresa está no Simples; depois, lucro presumido. */
+  regimeTributario: "simples" | "lucro_presumido";
+  /** Crédito de CBS/IBS abatido dos impostos do mês (só fora do Simples). */
+  creditoTributos: number;
+  /** IRPJ + CSLL fora do Simples — abaixo do EBITDA (no Simples eles estão dentro do DAS). */
+  irpjCsll: number;
+  /** Compras de fornecedor que geram crédito de CBS/IBS: nuvem, LLM, software, gateway, marketing. */
+  custosCreditaveis: number;
+  /** Receita e custo de implementação — separados pra margem bruta só de assinatura. */
+  receitaImplementacao: number;
+  cogsImplementacao: number;
   // Quebra fina — produtos (via simulacao_mensal) + custos da empresa/alocações classificados
   // pelo mesmo critério de relatorios/mensal — usada nos drill-downs por indicador.
   smMarketing: number;
@@ -76,6 +94,10 @@ export type Agregado = {
   empresaMarca: number;
   /** Equipe alocada que entra em S&M (SDR, vendedor, coordenador...). */
   alocacaoSm: number;
+  /** A mesma equipe de S&M, atribuída a cada produto pela demanda que cobriu ("" = sem produto). */
+  equipePorProduto: Record<string, number>;
+  /** Demanda do mês sem ninguém alocado (esforço próprio, sem custo): reuniões de SDR e de vendedor. */
+  demandaDescoberta: { sdr: number; vendedor: number };
   /**
    * De onde vem cada real do mês, por linha da DRE: chave "grupo|origem|rótulo|produto" → R$.
    * grupo = cogs | sm | pd | ga; origem = onde se edita (regra_cogs, implementacao, canais,
@@ -229,6 +251,13 @@ export type Metricas = {
   margemOperacional: number | null;
   margemBruta: number | null;
   margemBrutaValor: number;
+  /** Receita − impostos sobre a receita: é sobre ela que a margem bruta é calculada (padrão SaaS). */
+  receitaLiquidaAcumulada: number;
+  /** Margem bruta só de assinatura — sem receita e custo de implementação. */
+  margemBrutaAssinatura: number | null;
+  /** IRPJ/CSLL fora do Simples (abaixo do EBITDA) e o resultado depois deles. */
+  irpjCsllAcumulado: number;
+  resultadoAposIrAcumulado: number;
   impostosAcumulados: number;
   cogsAcumulado: number;
   smAcumulado: number;
@@ -305,7 +334,7 @@ export function fluxoTir(linhas: Agregado[], capitalNovoPorMes?: Map<string, num
         if (mes === l.mes_referencia || (i === 0 && mes < primeiro)) aporte += v;
       }
     }
-    return l.ebitda - aporte;
+    return l.ebitda - l.irpjCsll - aporte;
   });
 }
 
@@ -318,8 +347,20 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
   const receitaAcumulada = linhas.reduce((s, l) => s + l.receita, 0);
   const cogsAcumulado = linhas.reduce((s, l) => s + l.cogs, 0);
   const impostosAcumulados = linhas.reduce((s, l) => s + l.impostoMensal, 0);
+  // Margem bruta no padrão SaaS: lucro bruto ÷ RECEITA LÍQUIDA (receita − impostos sobre a receita).
+  // Dividir pela receita bruta misturava imposto com eficiência de entrega e deixava a margem ~20
+  // pontos abaixo do benchmark de 70–85% com que o investidor compara.
+  const receitaLiquidaAcumulada = receitaAcumulada - impostosAcumulados;
   const margemBrutaValor = receitaAcumulada - cogsAcumulado - impostosAcumulados;
-  const margemBruta = receitaAcumulada > 0 ? (margemBrutaValor / receitaAcumulada) * 100 : null;
+  const margemBruta = receitaLiquidaAcumulada > 0 ? (margemBrutaValor / receitaLiquidaAcumulada) * 100 : null;
+  const receitaImpl = linhas.reduce((s, l) => s + l.receitaImplementacao, 0);
+  const cogsImpl = linhas.reduce((s, l) => s + l.cogsImplementacao, 0);
+  const receitaAssinatura = receitaAcumulada - receitaImpl;
+  const impostosAssinatura = receitaAcumulada > 0 ? impostosAcumulados * (receitaAssinatura / receitaAcumulada) : 0;
+  const liquidaAssinatura = receitaAssinatura - impostosAssinatura;
+  const margemBrutaAssinatura =
+    liquidaAssinatura > 0 ? ((liquidaAssinatura - (cogsAcumulado - cogsImpl)) / liquidaAssinatura) * 100 : null;
+  const irpjCsllAcumulado = linhas.reduce((s, l) => s + l.irpjCsll, 0);
   const smAcumulado = linhas.reduce((s, l) => s + l.smMarketing + l.smVendas + l.smOutros, 0);
   const pdAcumulado = linhas.reduce((s, l) => s + l.opexPd, 0);
   const gaAcumulado = linhas.reduce((s, l) => s + l.opexGa, 0);
@@ -346,7 +387,8 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
       breakEvenClientes = l.clientes;
     }
     if (totalInvestido > 0) {
-      acumuladoPayback += l.ebitda;
+      // Caixa que devolve o capital: EBITDA menos IRPJ/CSLL (fora do Simples eles saem abaixo do EBITDA).
+      acumuladoPayback += l.ebitda - l.irpjCsll;
       if (paybackMes === null && acumuladoPayback >= totalInvestido) paybackMes = l.mes_referencia;
     }
     somaNovosClientes += l.novosClientes;
@@ -362,6 +404,10 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
     margemOperacional,
     margemBruta,
     margemBrutaValor,
+    receitaLiquidaAcumulada,
+    margemBrutaAssinatura,
+    irpjCsllAcumulado,
+    resultadoAposIrAcumulado: ebitdaAcumulado - irpjCsllAcumulado,
     impostosAcumulados,
     cogsAcumulado,
     smAcumulado,
@@ -443,7 +489,7 @@ export async function agregarPorCenario(
     supabase
       .from("simulacao_mensal")
       .select(
-        "produto_id, mes_referencia, receita_bruta, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga, novos_direto, novos_representante, novos_associacao, preco_medio_venda, novos_acoes, cogs_infraestrutura, cogs_llm, cogs_suporte_reativo, cogs_cs_proativo, cogs_suporte, cogs_software, cogs_gateway, cogs_outros",
+        "produto_id, mes_referencia, receita_bruta, receita_implementacao, ebitda, cogs, clientes_ativos, cac_all_in, novos_clientes, churn_pct, ltv, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga, novos_direto, novos_representante, novos_associacao, preco_medio_venda, novos_acoes, cogs_infraestrutura, cogs_llm, cogs_suporte_reativo, cogs_cs_proativo, cogs_suporte, cogs_software, cogs_gateway, cogs_outros",
       )
       .eq("cenario_id", cenarioId)
       .order("mes_referencia"),
@@ -458,7 +504,9 @@ export async function agregarPorCenario(
   // Custo de feiras e eventos por mês — entra na linha de Marketing (S&M) do cenário.
   const custoAcoesPorMes = new Map<string, number>();
   for (const a of (acoesRaw ?? []) as AcaoMarketing[]) {
-    for (const [mes, v] of custoAcaoPorMes(a)) custoAcoesPorMes.set(mes, (custoAcoesPorMes.get(mes) ?? 0) + v);
+    // Campanha sem data fim roda até o fim do cenário.
+    const fimCenario = (cenarioRow as { data_fim?: string | null } | null)?.data_fim ?? null;
+    for (const [mes, v] of custoAcaoPorMes(a, fimCenario)) custoAcoesPorMes.set(mes, (custoAcoesPorMes.get(mes) ?? 0) + v);
   }
 
   // Nome de cada produto e o custo da implementação por cliente novo (soma das etapas) — pra
@@ -619,24 +667,15 @@ export async function agregarPorCenario(
       return acc + Number(pf.quantidade_parceiros);
     }, 0);
   }
-  const demandaPorCargoMes: Record<"sdr" | "vendedor" | "coordenador" | "suporte", Map<string, number>> = {
-    sdr: new Map(demandaPorCargo.sdr.map((d) => [d.mes_referencia, d.demanda])),
-    vendedor: new Map(demandaPorCargo.vendedor.map((d) => [d.mes_referencia, d.demanda])),
-    coordenador: new Map(demandaPorCargo.coordenador.map((d) => [d.mes_referencia, d.demanda])),
-    suporte: new Map(demandaPorCargo.suporte.map((d) => [d.mes_referencia, d.demanda])),
-  };
-  const oportunidadesPorMes = new Map(demandaPorCargo.oportunidades.map((d) => [d.mes_referencia, d.demanda]));
-  const oportunidadesDiretoPorMes = new Map(demandaPorCargo.oportunidadesDireto.map((d) => [d.mes_referencia, d.demanda]));
-  function demandaCargoNoMes(cargo: string, mes: string): number {
-    const chave = cargoChave(cargo);
-    if (!chave) return 0;
-    return demandaPorCargoMes[chave].get(mes) ?? 0;
-  }
-  /** Volume de saída do cargo — só o SDR converte leads em reuniões; usado pelos modelos que
-   * cobram por resultado. */
-  function convertidasCargoNoMes(cargo: string, mes: string): number | undefined {
-    // Só as reuniões do canal direto são resultado do SDR — as de parceiro chegam prontas.
-    return cargoChave(cargo) === "sdr" ? (oportunidadesDiretoPorMes.get(mes) ?? 0) : undefined;
+  // Receita média por cliente de cada produto no mês — base da comissão % do vendedor.
+  const arpuPorMes = new Map<string, Record<string, number>>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (simRows ?? []) as any[]) {
+    const clientes = Number(row.clientes_ativos ?? 0);
+    if (clientes <= 0) continue;
+    const m = arpuPorMes.get(row.mes_referencia) ?? {};
+    m[row.produto_id] = Number(row.receita_bruta ?? 0) / clientes;
+    arpuPorMes.set(row.mes_referencia, m);
   }
 
   const porMes = new Map<string, Agregado>();
@@ -659,6 +698,12 @@ export async function agregarPorCenario(
         custoCLT: 0,
         impostoMensal: 0,
         aliquotaEfetivaImposto: null,
+        regimeTributario: "simples",
+        creditoTributos: 0,
+        irpjCsll: 0,
+        custosCreditaveis: 0,
+        receitaImplementacao: 0,
+        cogsImplementacao: 0,
         smMarketing: 0,
         smVendas: 0,
         smOutros: 0,
@@ -686,6 +731,8 @@ export async function agregarPorCenario(
         empresaVendasLancado: 0,
         empresaMarca: 0,
         alocacaoSm: 0,
+        equipePorProduto: {},
+        demandaDescoberta: { sdr: 0, vendedor: 0 },
         composicao: {},
       } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
@@ -703,6 +750,9 @@ export async function agregarPorCenario(
     const produto = nomeProduto.get(row.produto_id) ?? "Produto";
     const n = (k: string) => Number(row[k] ?? 0);
     const implementacao = n("novos_clientes") * (custoImplPorCliente.get(row.produto_id) ?? 0);
+    atual.receitaImplementacao += n("receita_implementacao");
+    atual.cogsImplementacao += implementacao;
+    atual.custosCreditaveis += n("cogs_infraestrutura") + n("cogs_llm") + n("cogs_software") + n("cogs_gateway") + n("sm_marketing");
     compor(atual, "cogs", "regra_cogs", "Infraestrutura e cloud (1.1.1)", n("cogs_infraestrutura"), produto);
     compor(atual, "cogs", "regra_cogs", "APIs / LLM (1.1.2)", n("cogs_llm"), produto);
     compor(atual, "cogs", "regra_cogs", "Suporte reativo — horas × custo/hora (1.1.3)", n("cogs_suporte_reativo"), produto);
@@ -790,7 +840,7 @@ export async function agregarPorCenario(
       atual.smMarketing += custoAcoes;
       atual.empresaSm += custoAcoes;
       atual.smFeirasEventos += custoAcoes;
-      compor(atual, "sm", "feiras", "Feiras e eventos (2.1.8)", custoAcoes);
+      compor(atual, "sm", "feiras", "Feiras, eventos e campanhas (2.1.8 / 2.1.1)", custoAcoes);
     }
 
     // Mensalidade de manter cada parceiro (ex: associação): taxa de filiação, conta 2.3.5.1
@@ -808,56 +858,44 @@ export async function agregarPorCenario(
       compor(atual, "ga", "canais", "Filiação de associações parceiras (2.3.5.1)", custo);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const a of (alocacoesRaw ?? []) as any[]) {
-      if (!ativaNoMes(atual.mes_referencia, a.data_inicio, a.data_fim)) continue;
-      const modelo = modeloById.get(a.modelo_id);
-      if (!modelo) continue;
-      const tipo = modelo.tipo_modelo as TipoModelo;
-      const quantidade = Number(a.quantidade);
-      // CLT e pacote fechado (empresa_fixo_escopo) são decisões discretas — você contratou N
-      // unidades, o custo é esse independente da demanda real flutuar. PJ e os modelos pay-per-use
-      // (créditos/híbrido) são cobrados pela demanda real do mês (PJ só entra pelas horas usadas).
-      // Modelos por demanda pagam pelo volume que ELES precisam trabalhar: se este modelo qualifica
-      // menos que o do canal, precisa de mais leads pras mesmas reuniões — e custa mais.
-      // A quantidade alocada limita o que este modelo cobre: 1 SDR PJ entrega até a capacidade
-      // dela; o que a demanda pedir além disso não é cobrado (esforço próprio das sócias).
-      const { cobrado: demandaEquivalente } = volumeCobertoPelaAlocacao(
-        tipo,
-        modelo.parametros,
-        quantidade,
-        demandaCargoNoMes(a.cargo, atual.mes_referencia),
-      );
-      // O SDR é pago por reunião agendada e por ligação; o vendedor, por venda fechada. As reuniões
-      // pagas também respeitam o teto da alocação.
-      const reunioesDoMes = Math.min(
-        convertidasCargoNoMes(a.cargo, atual.mes_referencia) ?? (oportunidadesDiretoPorMes.get(atual.mes_referencia) ?? 0),
-        demandaEquivalente,
-      );
-      const custoModelo = custoMensalModelo(tipo, modelo.parametros, demandaEquivalente, {
-        reunioes: reunioesDoMes,
-        vendas: atual.novosClientes,
-        receitaNovasVendas: atual.clientes > 0 ? (atual.receita / atual.clientes) * atual.novosClientes : 0,
-      }).custoMensal;
+    // Equipe alocada em Necessidade de Contratação — uma regra só (lib/equipe-comercial): cada
+    // alocação cobre a demanda dos produtos dela, na unidade que o modelo cobra, e o vendedor só
+    // recebe por venda das vendas que passaram por reunião.
+    const demandaMes: Record<string, DemandaProdutoMes> = {};
+    for (const [pid, porMesProduto] of Object.entries(demandaPorCargo.porProduto)) {
+      const d = porMesProduto[atual.mes_referencia];
+      if (d) demandaMes[pid] = d;
+    }
+    const equipe = custoEquipeNoMes({
+      mes: atual.mes_referencia,
+      alocacoes: (alocacoesRaw ?? []) as AlocacaoEquipe[],
+      modelos: modeloById as Map<string, ModeloEquipe>,
+      demanda: demandaMes,
+      arpuPorProduto: arpuPorMes.get(atual.mes_referencia) ?? {},
+    });
+    atual.demandaDescoberta = { sdr: equipe.descoberto.sdr, vendedor: equipe.descoberto.vendedor };
+    for (const item of equipe.itens) {
+      const custoModelo = item.custo;
+      const tipo = item.tipo;
       custosEmpresa += custoModelo;
       // Folha CLT (pra Fator R do Simples) — só enxerga CLT contratado via Modelos de Contratação
       // (SDR/Coordenador/Suporte); CLT lançado direto em Equipe Alocada/Contratações por produto
       // não entra aqui ainda, então o Fator R pode ficar subestimado se você tiver CLT só lá.
       if (tipo === "clt") atual.custoCLT += custoModelo;
-      const chaveCargo = cargoChave(a.cargo) ?? cargoChave(modelo.cargo);
+      const chaveCargo = item.chave;
       if (chaveCargo === "sdr") atual.alocacaoSdr += custoModelo;
       else if (chaveCargo === "vendedor") atual.alocacaoVendedor += custoModelo;
       else if (chaveCargo === "coordenador") atual.alocacaoCoordenador += custoModelo;
       else if (chaveCargo === "suporte") atual.alocacaoSuporte += custoModelo;
       else atual.alocacaoOutros += custoModelo;
-      const sub = subgrupoDeCargo(modelo.cargo, modelo.categoria);
+      const sub = item.sub;
       // Alocação de Suporte só dimensiona equipe: o custo de suporte vem das regras de COGS (1.1.3).
       // Ela não entra no EBITDA — e por isso também não entra nas colunas de equipe.
       if (sub !== "suporte") {
         if (tipo === "clt" || tipo === "empresa_fixo_escopo") atual.alocacaoFixa += custoModelo;
         else atual.alocacaoVariavel += custoModelo;
       }
-      const rotuloEquipe = `${modelo.nome ?? a.cargo} — ${a.cargo}`;
+      const rotuloEquipe = item.rotulo;
       if (sub === "marketing") atual.smMarketing += custoModelo;
       else if (sub === "vendas") atual.smVendas += custoModelo;
       else if (sub === "outros_sm") atual.smOutros += custoModelo;
@@ -865,7 +903,10 @@ export async function agregarPorCenario(
       else if (sub === "ga") atual.opexGa += custoModelo;
       if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") {
         atual.alocacaoSm += custoModelo;
-        compor(atual, "sm", "equipe", rotuloEquipe, custoModelo);
+        for (const [pid, v] of Object.entries(item.porProduto)) {
+          atual.equipePorProduto[pid] = (atual.equipePorProduto[pid] ?? 0) + v;
+          compor(atual, "sm", "equipe", rotuloEquipe, v, pid ? (nomeProduto.get(pid) ?? "") : "");
+        }
       }
       else if (sub === "pd") compor(atual, "pd", "equipe", rotuloEquipe, custoModelo);
       else if (sub === "ga") compor(atual, "ga", "equipe", rotuloEquipe, custoModelo);
@@ -879,6 +920,13 @@ export async function agregarPorCenario(
   // de novo aqui contaria o desconto duas vezes.
 
   const linhas = [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
+
+  // Tributação depois do Simples — alíquotas editáveis em Configurações (estimativa; validar com o contador).
+  const { data: tributosRaw } = await supabase.from("parametros_tributarios").select("*").maybeSingle();
+  const parametrosTributarios = parametrosTributariosDe(tributosRaw as Record<string, unknown> | null);
+  let acumuladoAno = 0;
+  let foraDoSimples = false;
+  let saiNoProximoMes = false;
 
   // Simples Nacional: RBT12 e Folha+Pró-labore 12m são sempre a JANELA DOS 12 MESES ANTERIORES ao
   // mês corrente (não incluem o próprio mês — é assim que a Receita Federal calcula o DAS). Sem
@@ -898,9 +946,30 @@ export async function agregarPorCenario(
           ? (janela.reduce((s, l) => s + l.custoCLT, 0) / janela.length) * 12
           : linhas[i].custoCLT * 12;
     const fatorR = rbt12 > 0 ? folha12 / rbt12 : 0;
-    const resultado = calcularImpostoSimples(linhas[i].receita, rbt12, fatorR);
-    linhas[i].impostoMensal = resultado.impostoMensal;
-    linhas[i].aliquotaEfetivaImposto = resultado.aliquotaEfetiva;
+    const l = linhas[i];
+    const mesDoAno = l.mes_referencia.slice(5, 7);
+    if (mesDoAno === "01") acumuladoAno = 0;
+    if (saiNoProximoMes) foraDoSimples = true;
+    // Compras da empresa que geram crédito: COGS compartilhado, marketing lançado, feiras e eventos.
+    l.custosCreditaveis += l.empresaCogs + l.empresaMarketingLancado + l.smFeirasEventos;
+    if (!foraDoSimples) {
+      const resultado = calcularImpostoSimples(l.receita, rbt12, fatorR);
+      l.impostoMensal = resultado.impostoMensal;
+      l.aliquotaEfetivaImposto = resultado.aliquotaEfetiva;
+      l.regimeTributario = "simples";
+    } else {
+      const r = calcularTributosPosSimples(l.receita, l.custosCreditaveis, Number(l.mes_referencia.slice(0, 4)), parametrosTributarios);
+      l.impostoMensal = r.deducoes;
+      l.aliquotaEfetivaImposto = r.aliquotaEfetiva;
+      l.creditoTributos = r.credito;
+      l.irpjCsll = r.irpjCsll;
+      l.regimeTributario = "lucro_presumido";
+    }
+    // LC 123, art. 30: passou de R$ 4,8 mi no ano, sai em janeiro seguinte; passou de 20% acima
+    // (R$ 5,76 mi), sai já no mês seguinte. Depois de sair, não volta.
+    acumuladoAno += l.receita;
+    if (!foraDoSimples && acumuladoAno > LIMITE_SIMPLES_ANUAL * 1.2) saiNoProximoMes = true;
+    if (!foraDoSimples && mesDoAno === "12" && acumuladoAno > LIMITE_SIMPLES_ANUAL) saiNoProximoMes = true;
   }
 
   // EBITDA em cascata, só depois de ter os impostos do mês: Receita (–) COGS (–) Impostos

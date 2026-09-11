@@ -45,6 +45,8 @@ export type LinhaMensalInvestidor = {
   fixos: number;
   custosTotais: number;
   ebitda: number;
+  /** IRPJ/CSLL do lucro presumido, fora do Simples — abaixo do EBITDA. */
+  irpjCsll: number;
   ebitdaAcumulado: number;
   aportes: number;
   /** Aportes acumulados + EBITDA acumulado desde o início do período. */
@@ -117,6 +119,7 @@ export function linhasMensaisInvestidor(
       fixos,
       custosTotais: variaveis + fixos,
       ebitda: l.ebitda,
+      irpjCsll: l.irpjCsll ?? 0,
       ebitdaAcumulado,
       aportes,
       caixaAcumulado,
@@ -124,7 +127,7 @@ export function linhasMensaisInvestidor(
   });
 }
 
-const SOMAVEIS = ["novos", "novosAcoes", "perdidos", "receita", "impostos", "operacao", "marketing", "feirasEventos", "vendas", "outrosSm", "produto", "estrutura", "variaveis", "fixos", "custosTotais", "ebitda", "aportes"] as const;
+const SOMAVEIS = ["novos", "irpjCsll", "novosAcoes", "perdidos", "receita", "impostos", "operacao", "marketing", "feirasEventos", "vendas", "outrosSm", "produto", "estrutura", "variaveis", "fixos", "custosTotais", "ebitda", "aportes"] as const;
 
 export function resumoAnualInvestidor(mensal: LinhaMensalInvestidor[]): LinhaAnualInvestidor[] {
   const porAno = new Map<string, LinhaMensalInvestidor[]>();
@@ -150,7 +153,7 @@ export function resumoAnualInvestidor(mensal: LinhaMensalInvestidor[]): LinhaAnu
       clientesFinal: ultimo.clientes,
       mrrFinal: ultimo.mrr,
       arrFinal,
-      margemBruta: soma.receita > 0 ? (soma.receita - soma.operacao - soma.impostos) / soma.receita : null,
+      margemBruta: soma.receita - soma.impostos > 0 ? (soma.receita - soma.operacao - soma.impostos) / (soma.receita - soma.impostos) : null,
       margemEbitda,
       caixaFinal: ultimo.caixaAcumulado,
       crescimentoArr,
@@ -239,7 +242,9 @@ export function indicadoresInvestidor(input: {
     { grupo: "Receita e crescimento", nome: "Crescimento mensal do MRR — 12 primeiros meses de receita", valor: cmgr12, formato: "pct", calculo: "Crescimento médio composto do MRR entre o 1º mês com receita recorrente e 12 meses depois.", referencia: "Bom 10–15% a.m. · Alto > 20% a.m. · Atenção < 5% a.m.", leitura: faixa(cmgr12, (v) => v > 0.2, (v) => v >= 0.05) },
     { grupo: "Receita e crescimento", nome: "Crescimento mensal do MRR — período todo", valor: cmgrPeriodo, formato: "pct", calculo: "Crescimento médio composto do MRR do 1º mês com receita até o fim do período.", referencia: "Desacelera com a maturidade — compare com o ARR ano a ano (aba Resumo anual).", leitura: null },
     // Eficiência
-    { grupo: "Margens e unit economics", nome: "Margem bruta", valor: margemBrutaPct, formato: "pct", calculo: "(Receita − COGS − DAS) ÷ Receita. COGS inclui infraestrutura, APIs/LLM, suporte/CS, gateway e implementação.", referencia: "Bom 70–75% · Alto > 80%", leitura: faixa(margemBrutaPct, (v) => v > 0.8, (v) => v >= 0.7) },
+    { grupo: "Margens e unit economics", nome: "Margem bruta", valor: margemBrutaPct, formato: "pct", calculo: "(Receita líquida − COGS) ÷ Receita líquida, onde receita líquida = receita − impostos sobre a receita (DAS no Simples; ISS/PIS/COFINS/CBS/IBS depois). É a base do benchmark de SaaS. COGS inclui infraestrutura, APIs/LLM, suporte/CS, gateway e implementação.", referencia: "Bom 70–75% · Alto > 80%", leitura: faixa(margemBrutaPct, (v) => v > 0.8, (v) => v >= 0.7) },
+    { grupo: "Margens e unit economics", nome: "P&D em % da receita", valor: receita > 0 ? mensal.reduce((s, m) => s + m.produto, 0) / receita : null, formato: "pct", calculo: "Custos de produto e tecnologia (P&D) do período ÷ receita do período.", referencia: "SaaS em crescimento: 15–25% · Atenção < 8% (produto sem time pra evoluir)", leitura: faixa(receita > 0 ? mensal.reduce((s, m) => s + m.produto, 0) / receita : null, (v) => v >= 0.15, (v) => v >= 0.08) },
+    { grupo: "Margens e unit economics", nome: "S&M em % da receita", valor: receita > 0 ? sm / receita : null, formato: "pct", calculo: "Marketing + vendas + outros S&M do período ÷ receita do período.", referencia: "Tração: 30–50% · Atenção < 10% (meta de clientes sem verba pra sustentar)", leitura: faixa(receita > 0 ? sm / receita : null, (v) => v >= 0.2 && v <= 0.6, (v) => v >= 0.1) },
     { grupo: "Margens e unit economics", nome: "Margem EBITDA do período", valor: metricas.margemOperacional != null ? metricas.margemOperacional / 100 : null, formato: "pct", calculo: "EBITDA acumulado ÷ receita acumulada.", referencia: "—", leitura: null },
     { grupo: "Margens e unit economics", nome: "Preço médio de venda (PMV)", valor: metricas.precoMedioVenda, formato: "brl", calculo: "Mensalidade de tabela de cada venda nova (planos pelo mix + níveis/módulos pela adesão), ponderada pelas vendas do período. Sem descontos e sem implementação.", referencia: "Compare com o ticket médio (abaixo): a diferença são descontos, beta testers e combos.", leitura: null },
     { grupo: "Margens e unit economics", nome: "Ticket médio mensal por cliente (ARPA)", valor: arpa, formato: "brl", calculo: "MRR ÷ clientes ativos, média do período.", referencia: "Define o perfil do cliente (SMB, mid-market, enterprise).", leitura: null },

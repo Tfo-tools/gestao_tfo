@@ -49,7 +49,10 @@ function montarParametros(formData: FormData, tipo_modelo: TipoModelo): Record<s
   } else if (tipo_modelo === "pj" || tipo_modelo === "empresa_fixo_escopo") {
     parametros.capacidade_unidade_mes = num(formData, "capacidade_unidade_mes");
     parametros.valor_mensal = num(formData, "valor_mensal");
-    if (tipo_modelo === "pj") parametros.custo_estrutura_mensal = num(formData, "custo_estrutura_mensal") ?? 0;
+    if (tipo_modelo === "pj") {
+      parametros.custo_estrutura_mensal = num(formData, "custo_estrutura_mensal") ?? 0;
+      parametros.fixo_por_pessoa_inteira = formData.get("fixo_por_pessoa_inteira") === "on";
+    }
     if (tipo_modelo === "empresa_fixo_escopo") parametros.canal = String(formData.get("canal") || "multicanal");
   } else if (tipo_modelo === "empresa_hibrido") {
     parametros.valor_fixo_mensal = num(formData, "valor_fixo_mensal");

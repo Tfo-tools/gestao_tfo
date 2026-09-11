@@ -5,6 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 
 export type ActionState = { error: string | null; success?: boolean };
 
+/** Produtos marcados na alocação — nenhum marcado = vale para todos (null). */
+function produtosDoForm(formData: FormData): string[] | null {
+  const ids = formData.getAll("produto_ids").map(String).filter(Boolean);
+  return ids.length > 0 ? ids : null;
+}
+
 /** Alocar uma equipe muda o S&M, e com ele o CAC e o EBITDA das telas de plano. Sem revalidar
  *  essas rotas a pessoa aloca o SDR e continua vendo o CAC antigo, achando que não funcionou. */
 function revalidarTelasAfetadas() {
@@ -39,6 +45,7 @@ export async function criarAlocacaoModelo(
     quantidade,
     data_inicio,
     data_fim,
+    produto_ids: produtosDoForm(formData),
   });
 
   if (error) {
@@ -67,7 +74,10 @@ export async function editarAlocacaoModelo(_prevState: ActionState, formData: Fo
   if (!(quantidade >= 0)) return { error: "Quantidade inválida." };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("alocacao_modelo_contratacao").update({ quantidade, data_inicio, data_fim }).eq("id", id);
+  const { error } = await supabase
+    .from("alocacao_modelo_contratacao")
+    .update({ quantidade, data_inicio, data_fim, produto_ids: produtosDoForm(formData), produto_id: null })
+    .eq("id", id);
   if (error) return { error: "Não foi possível salvar a alteração." };
 
   revalidarTelasAfetadas();
@@ -91,14 +101,18 @@ export async function salvarPremissasVendas(_prevState: ActionState, formData: F
   const segunda = num("segunda_reuniao_pct");
   const reunioes = segunda != null ? 1 + Math.max(0, segunda) / 100 : null;
   const span = num("span_of_control");
+  // Venda automática (bot, teste grátis, checkout): o produto não passa por vendedor — sem
+  // capacidade de closer, ele não gera reunião nem paga "por venda".
+  const semVendedor = formData.get("sem_vendedor") === "on";
   if (!cenario_id || !produto_id) return { error: "Produto não identificado." };
 
   const supabase = await createClient();
   const { data: fases } = await supabase.from("fases_produto").select("id").eq("produto_id", produto_id).eq("cenario_id", cenario_id);
   if (!fases || fases.length === 0) return { error: "Cadastre as fases do produto antes." };
 
-  const premissas: Record<string, number> = {};
-  if (capacidade != null) premissas.capacidade_vendedor_mes = capacidade;
+  const premissas: Record<string, number | null> = {};
+  if (semVendedor) premissas.capacidade_vendedor_mes = null;
+  else if (capacidade != null) premissas.capacidade_vendedor_mes = capacidade;
   if (reunioes != null) premissas.reunioes_por_oportunidade = reunioes;
   if (span != null) premissas.span_of_control = span;
 

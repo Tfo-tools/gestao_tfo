@@ -5,6 +5,7 @@ import { agregarPorCenario, computeMetricas } from "@/lib/relatorios-cenario";
 import { MetasHeader } from "../metas-header";
 import { MetasForm } from "./metas-form";
 import { CompletarCopia } from "./completar-copia";
+import { RecalcularProjecao } from "./recalcular-projecao";
 
 // "Completar cópia" copia o que falta e recalcula todos os produtos — leva alguns segundos.
 export const maxDuration = 60;
@@ -63,12 +64,15 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
           </div>
           <p className="text-[13px] text-text-muted">{cenario.descricao ?? "Sem descrição."}</p>
         </div>
-        <Link
-          href={`/plano/${cenarioId}/indicadores`}
-          className="rounded-lg bg-wine-deep px-4 py-2.5 text-[13px] font-medium text-white"
-        >
-          Ver indicadores e EBITDA →
-        </Link>
+        <div className="flex items-center gap-3">
+          <RecalcularProjecao cenarioId={cenarioId} />
+          <Link
+            href={`/plano/${cenarioId}/indicadores`}
+            className="rounded-lg bg-wine-deep px-4 py-2.5 text-[13px] font-medium text-white"
+          >
+            Ver indicadores e EBITDA →
+          </Link>
+        </div>
       </div>
 
       {origem && <CompletarCopia cenarioId={cenarioId} origemNome={origem.nome} />}

@@ -274,6 +274,8 @@ export type MesResultado = {
   receita_implementacao: number;
   /** Quantas implementações estão em cobrança no mês — uma por cliente em andamento. */
   implementacoes_ativas: number;
+  /** Implantações vendidas no mês (clientes novos que pagam implementação, sem os isentos). */
+  novas_implementacoes: number;
   cogs: number;
   opex_sm: number;
   opex_pd: number;
@@ -505,6 +507,7 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         receita_modulos: 0,
         receita_implementacao: 0,
         implementacoes_ativas: 0,
+        novas_implementacoes: 0,
         cogs: 0,
         opex_sm: 0,
         opex_pd: 0,
@@ -820,12 +823,14 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     // do canal por onde ele veio — um isento gera custo e nenhuma receita.
     let receitaImplementacao = 0;
     let implementacoesAtivas = 0;
+    let novasImplementacoes = 0;
     let custoImplementacao = 0;
     if (input.implementacao) {
       // Equivalente em clientes pagando preço cheio: 3 clientes com 50% de desconto valem 1,5.
       const pagantesEquivalentes = Math.max(0, novosClientes - descontoImplementacaoDoMes);
       // Quem tem desconto parcial continua sendo UMA cobrança na contagem; só o isento não paga.
       const cobrancasNovas = Math.max(0, novosClientes - novosClientesIsentosImplementacao);
+      novasImplementacoes = cobrancasNovas;
       if (cobrancasNovas > 0 && input.implementacao.preco_venda > 0) {
         // Cada leva de clientes novos se divide pelo mix de formas de pagamento: cada fatia vira um
         // lote com o seu número de parcelas (e o desconto da forma, se houver). Sem mix, é uma forma só.
@@ -947,6 +952,7 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       // Quantas parcelas de implementação estão sendo cobradas neste mês (uma por cliente em
       // andamento) — é o denominador extra do ticket médio, junto das assinaturas.
       implementacoes_ativas: implementacoesAtivas,
+      novas_implementacoes: novasImplementacoes,
       churn_pct: taxaChurn,
       cac_all_in: cacAllIn,
       ltv,

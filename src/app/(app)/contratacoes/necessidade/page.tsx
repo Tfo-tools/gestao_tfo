@@ -53,7 +53,7 @@ export default async function NecessidadeContratacaoPage({
       : Promise.resolve({ data: [] }),
     supabase
       .from("simulacao_mensal")
-      .select("produto_id, mes_referencia, novos_clientes, clientes_ativos, novos_direto, novos_representante, novos_associacao")
+      .select("produto_id, mes_referencia, novos_clientes, clientes_ativos, receita_bruta, novos_direto, novos_representante, novos_associacao")
       .eq("cenario_id", cenarioAtual),
     supabase.from("modelos_contratacao").select("*").order("cargo"),
     supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioAtual),
@@ -112,6 +112,13 @@ export default async function NecessidadeContratacaoPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const horasSuportePorProduto = horasAtendimentoPorProduto((cogsRaw ?? []) as any);
   const demanda = calcularDemandaPorCargo({ fasesPorProduto, funis, canais, simulacao, horasSuportePorProduto });
+  // Receita média por cliente, por mês e produto — base da comissão % na comparação de vendedor.
+  const arpuPorProdutoMes: Record<string, Record<string, number>> = {};
+  for (const s of simulacaoRaw ?? []) {
+    const clientes = Number(s.clientes_ativos ?? 0);
+    if (clientes <= 0) continue;
+    (arpuPorProdutoMes[s.mes_referencia] ??= {})[s.produto_id] = Number(s.receita_bruta ?? 0) / clientes;
+  }
 
   // Premissas do time de vendas por produto (lê a primeira fase com valor; grava em todas).
   const { data: produtosRaw } = await supabase.from("produtos").select("id, nome").order("nome");
@@ -219,7 +226,9 @@ export default async function NecessidadeContratacaoPage({
       )}
       <NecessidadeTabelas
         cenarioId={cenarioAtual}
-        demanda={demanda}
+        porProduto={demanda.porProduto}
+        arpuPorProdutoMes={arpuPorProdutoMes}
+        produtos={(produtosRaw ?? []).filter((p) => fasesPorProduto.some((f) => f.produtoId === p.id))}
         modelos={modelos ?? []}
         alocacoes={alocacoes ?? []}
         mesesSemQualificacao={demanda.mesesSemQualificacao}

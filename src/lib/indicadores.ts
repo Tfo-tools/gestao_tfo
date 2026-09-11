@@ -53,7 +53,8 @@ export const INDICADORES: IndicadorDef[] = [
   {
     key: "margem_bruta",
     titulo: "Margem bruta",
-    formula: "(Receita − COGS − DAS do Simples Nacional) ÷ Receita, no período selecionado.",
+    formula:
+      "(Receita líquida − COGS) ÷ Receita líquida, no período selecionado. Receita líquida = receita − impostos sobre a receita (DAS enquanto está no Simples; ISS + PIS/COFINS ou CBS/IBS, líquidos de crédito, depois). É a mesma base do benchmark de SaaS (70–85%).",
     editarLinks: [{ label: "Plano de Custos (custos COGS do produto)", href: hrefPlanoCustos }],
   },
   {

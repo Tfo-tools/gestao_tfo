@@ -237,7 +237,7 @@ function TabelaIndicador({
           linhas={[
             `Receita total do período: ${formatBRL(totalReceita)}`,
             `(–) COGS: ${formatBRL(totalCogs)}`,
-            `(–) Impostos (DAS Simples): ${formatBRL(totalImposto)}`,
+            `(–) Impostos sobre a receita (DAS no Simples; ISS/PIS/COFINS/CBS/IBS depois): ${formatBRL(totalImposto)}`,
             `(–) S&M (marketing+vendas+outros): ${formatBRL(totalSm)}`,
             `(–) P&D: ${formatBRL(totalPd)}`,
             `(–) G&A: ${formatBRL(totalGa)}`,
@@ -248,11 +248,11 @@ function TabelaIndicador({
           ]}
         />
         <p className="mb-3 text-[12px] text-text-muted">
-          DRE em cascata: Receita (–) COGS (–) Impostos (=) Margem Bruta (–) S&amp;M (–) P&amp;D (–) G&amp;A (=) EBITDA. Clique num
+          DRE em cascata: Receita (–) Impostos (=) Receita líquida (–) COGS (=) Lucro bruto (–) S&amp;M (–) P&amp;D (–) G&amp;A (=) EBITDA. Clique num
           mês pra ver os lançamentos reais dele, pra conferência.
         </p>
         <Table
-          head={["Mês", "Receita", "COGS", "Impostos", "Margem Bruta", "S&M", "P&D", "G&A", "EBITDA"]}
+          head={["Mês", "Receita", "COGS", "Impostos", "Lucro bruto", "S&M", "P&D", "G&A", "EBITDA"]}
           rows={linhas.map((l) => {
             const sm = l.smMarketing + l.smVendas + l.smOutros;
             const margemBruta = l.receita - l.cogs - l.impostoMensal;
