@@ -6,7 +6,7 @@ import { agregarPorCenario } from "@/lib/relatorios-cenario";
 const CABECALHO = "FFF1E6E9";
 const FECHAMENTO = "FFEDEDED";
 
-type Col = { header: string; key: string; width?: number; fmt?: string };
+type Col = { header: string; key: string; width?: number; fmt?: string; foraDoTotal?: boolean };
 
 /** Mesmo padrão da exportação de vendas: uma aba por visão, fechamento de ano, aba de premissas. */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ cenarioId: string }> }) {
@@ -52,7 +52,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
       equipeVariavel: l.alocacaoVariavel,
     };
     const fixos = { equipeFixa: l.alocacaoFixa, empresaGa: l.empresaGa, empresaPd: l.empresaPd, empresaSm: l.empresaSm, impostos: l.impostoMensal };
-    return { mes: l.mes_referencia, clientes: l.clientes, receita: l.receita, ...variaveis, ...fixos, ebitda: l.ebitda };
+    // Marketing e vendas por frente — os mesmos custos de S&M, abertos pra planejar marketing.
+    const sm = {
+      feiras: l.smFeirasEventos,
+      marketingLancado: l.empresaMarketingLancado,
+      equipeComercial: l.alocacaoSm,
+      vendasLancado: l.smMarketing + l.smVendas + l.smOutros - (m.sm_marketing ?? 0) - l.smFeirasEventos - l.empresaMarketingLancado - (m.sm_vendas ?? 0) - l.alocacaoSm,
+      marca: l.empresaMarca,
+    };
+    return { mes: l.mes_referencia, clientes: l.clientes, receita: l.receita, ...variaveis, ...fixos, ...sm, ebitda: l.ebitda };
   });
 
   const workbook = new ExcelJS.Workbook();
@@ -75,9 +83,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
       { header: "Mês", key: "mes", width: 12 },
       { header: "Clientes", key: "clientes", width: 10 },
       { header: "Receita (R$)", key: "receita", width: 15 },
-      ...cols.map((c) => ({ header: `${c.header} (R$)`, key: c.key, width: 18 })),
+      ...cols.filter((c) => !c.foraDoTotal).map((c) => ({ header: `${c.header} (R$)`, key: c.key, width: 18 })),
       { header: `${totalLabel} (R$)`, key: "total", width: 16 },
       { header: "% da receita", key: "pct", width: 12 },
+      ...cols.filter((c) => c.foraDoTotal).map((c) => ({ header: `${c.header} (R$)`, key: c.key, width: 22 })),
     ];
     sheet.getRow(1).font = { bold: true };
     sheet.getRow(1).eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: CABECALHO } }; });
@@ -89,7 +98,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
       const soma: Record<string, number> = {};
       for (const c of cols) soma[c.key] = acc.reduce((s, l) => s + (l as unknown as Record<string, number>)[c.key], 0);
       const receita = acc.reduce((s, l) => s + l.receita, 0);
-      const total = cols.reduce((s, c) => s + soma[c.key], 0);
+      const total = cols.filter((c) => !c.foraDoTotal).reduce((s, c) => s + soma[c.key], 0);
       const ano = acc[0].mes.slice(0, 4);
       const row = sheet.addRow({
         mes: acc.length === 12 ? ano : `${ano} (${acc.length} meses)`,
@@ -102,7 +111,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
     };
     for (const l of linhas) {
       if (acc.length && l.mes.slice(0, 4) !== acc[0].mes.slice(0, 4)) fechar();
-      const total = cols.reduce((s, c) => s + (l as unknown as Record<string, number>)[c.key], 0);
+      const total = cols.filter((c) => !c.foraDoTotal).reduce((s, c) => s + (l as unknown as Record<string, number>)[c.key], 0);
       sheet.addRow({ mes: new Date(l.mes + "T00:00:00"), clientes: l.clientes, receita: l.receita, ...Object.fromEntries(cols.map((c) => [c.key, (l as unknown as Record<string, number>)[c.key]])), total, pct: l.receita > 0 ? total / l.receita : null });
       acc.push(l);
     }
@@ -116,6 +125,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
   }
   aba("Variáveis", VAR, "Total variável");
   aba("Fixos", FIX, "Total fixo");
+  aba(
+    "Marketing e vendas",
+    [
+      { header: "Mídia self-service", key: "midia" },
+      { header: "Feiras e eventos", key: "feiras" },
+      { header: "Marketing lançado (2.1.1–2.1.3, 2.1.8, 2.1.9)", key: "marketingLancado" },
+      { header: "Parceiros", key: "parceiros" },
+      { header: "Equipe comercial", key: "equipeComercial" },
+      { header: "Vendas lançado", key: "vendasLancado" },
+      { header: "Marca 2.4 — em G&A, fora do total", key: "marca", foraDoTotal: true },
+    ],
+    "Total S&M",
+  );
 
   // Aba DRE resumida: receita, variável, fixo, EBITDA por mês
   const dre = workbook.addWorksheet("Resumo");
@@ -182,6 +204,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cen
   capa.addRow({ item: "Gerado em", valor: new Date().toLocaleString("pt-BR") });
   capa.addRow({ item: "Variáveis", valor: "Escalam com clientes, receita ou vendas: regras de COGS, canais de parceiro, mídia do self-service, alocações por demanda (PJ/agência/bot)." });
   capa.addRow({ item: "Fixos", valor: "Estrutura: alocações CLT/pacote, custos da empresa (G&A, P&D, S&M fixo) e impostos." });
+  capa.addRow({ item: "Marketing e vendas", valor: "Os mesmos custos de S&M (já nas abas Variáveis e Fixos), abertos por frente. Marca (2.4.x) conta em G&A no plano — aparece à parte, fora do total e do CAC." });
   capa.addRow({ item: "Suporte", valor: "Custo vem das regras de COGS (1.1.3). A alocação em Necessidade de Contratação só dimensiona." });
   capa.addRow({ item: "Fomento (Centelha)", valor: "Os custos do projeto estão em P&D/G&A como despesa normal; a subvenção entra como linha própria abaixo do EBITDA no relatório." });
   capa.addRow({ item: "Anos incompletos", valor: "Linhas de fechamento marcam quantos meses do ano estão dentro do cenário." });

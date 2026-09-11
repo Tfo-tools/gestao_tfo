@@ -188,6 +188,14 @@ export function ImplementacaoProduto({
         )}
 
         {configState.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-[11px] text-danger">{configState.error}</p>}
+        {!configState.error && configState.mensagem && !configPending && (
+          <p className="rounded-lg bg-success-soft px-3 py-2 text-[11px] text-success">
+            {configState.mensagem}{" "}
+            <a href={`/plano/${cenarioId}/vendas`} className="font-medium underline">
+              Ver faturamento em Vendas →
+            </a>
+          </p>
+        )}
 
         <button
           type="submit"

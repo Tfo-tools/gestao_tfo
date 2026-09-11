@@ -25,9 +25,15 @@ export type LinhaCustos = {
   empresaPd: number;
   empresaSm: number;
   impostos: number;
+  // Marketing e vendas (S&M) — outra forma de ver os mesmos custos, por frente
+  feiras: number;
+  marketingLancado: number;
+  equipeComercial: number;
+  vendasLancado: number;
+  marca: number;
 };
 
-type Coluna = { chave: keyof LinhaCustos; label: string; tooltip: string };
+type Coluna = { chave: keyof LinhaCustos; label: string; tooltip: string; foraDoTotal?: boolean };
 
 const VARIAVEIS: Coluna[] = [
   { chave: "infra", label: "Infra", tooltip: "1.1.1 — base da plataforma em degraus + incremento por cliente (regras de COGS)." },
@@ -48,12 +54,22 @@ const FIXOS: Coluna[] = [
   { chave: "impostos", label: "Impostos", tooltip: "Simples Nacional sobre a receita do mês." },
 ];
 
+const SM: Coluna[] = [
+  { chave: "midia", label: "Mídia self-service", tooltip: "Impulsionamento do teste grátis (testes × custo por teste), dos canais self-service em Vendas." },
+  { chave: "feiras", label: "Feiras e eventos", tooltip: "Feiras e eventos cadastrados no card Marketing do Plano de Custos." },
+  { chave: "marketingLancado", label: "Marketing lançado", tooltip: "Custos lançados no card Marketing (contas 2.1.1 mídia, 2.1.2 agências, 2.1.3 conteúdo, 2.1.8 feiras, 2.1.9 RP)." },
+  { chave: "parceiros", label: "Parceiros", tooltip: "Fechamento, comissão e crédito pagos a representantes e associações (Vendas → Canais)." },
+  { chave: "equipeComercial", label: "Equipe comercial", tooltip: "SDR, vendedor e coordenador alocados em Necessidade de Contratação." },
+  { chave: "vendasLancado", label: "Vendas lançado", tooltip: "Custos lançados no card Vendas (2.1.6 CRM, 2.1.7 parcerias, 2.1.4/2.1.5 pessoal e comissões) e outros S&M dos produtos." },
+  { chave: "marca", label: "Marca (em G&A)", tooltip: "Custos de Marca (contas 2.4.x). No plano eles contam em G&A, não em S&M — por isso ficam fora do total e do CAC. Se for gasto de aquisição, lance numa conta 2.1.x.", foraDoTotal: true },
+];
+
 const brl = (v: number) => (v === 0 ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }));
 const mes = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { month: "short", year: "2-digit" });
 
 export function TabelaCustos({ linhas, cenarioId }: { linhas: LinhaCustos[]; cenarioId: string }) {
-  const [aba, setAba] = useState<"variaveis" | "fixos">("variaveis");
-  const colunas = aba === "variaveis" ? VARIAVEIS : FIXOS;
+  const [aba, setAba] = useState<"variaveis" | "fixos" | "sm">("variaveis");
+  const colunas = aba === "variaveis" ? VARIAVEIS : aba === "fixos" ? FIXOS : SM;
 
   // Fechamento de ano intercalado, como na tabela de vendas — com a contagem de meses.
   const comAnos = useMemo(() => {
@@ -81,7 +97,8 @@ export function TabelaCustos({ linhas, cenarioId }: { linhas: LinhaCustos[]; cen
     return out;
   }, [linhas]);
 
-  const total = (l: LinhaCustos) => colunas.reduce((s, c) => s + (l[c.chave] as number), 0);
+  const total = (l: LinhaCustos) => colunas.filter((c) => !c.foraDoTotal).reduce((s, c) => s + (l[c.chave] as number), 0);
+  const rotuloTotal = aba === "variaveis" ? "Total variável" : aba === "fixos" ? "Total fixo" : "Total S&M";
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
@@ -106,14 +123,14 @@ export function TabelaCustos({ linhas, cenarioId }: { linhas: LinhaCustos[]; cen
             Exportar Excel
           </a>
         <div className="flex gap-1 rounded-lg bg-bg p-1">
-          {(["variaveis", "fixos"] as const).map((a) => (
+          {(["variaveis", "fixos", "sm"] as const).map((a) => (
             <button
               key={a}
               type="button"
               onClick={() => setAba(a)}
               className={`rounded-md px-3 py-1 text-[11.5px] font-medium ${aba === a ? "bg-surface shadow-sm" : "text-text-muted"}`}
             >
-              {a === "variaveis" ? "Variáveis" : "Fixos"}
+              {a === "variaveis" ? "Variáveis" : a === "fixos" ? "Fixos" : "Marketing e vendas"}
             </button>
           ))}
         </div>
@@ -130,7 +147,7 @@ export function TabelaCustos({ linhas, cenarioId }: { linhas: LinhaCustos[]; cen
                 <th className="px-2 py-1.5 font-medium">Mês</th>
                 <th className="px-2 py-1.5 text-right font-medium">Clientes</th>
                 <th className="px-2 py-1.5 text-right font-medium">Receita</th>
-                {colunas.map((c) => (
+                {colunas.filter((c) => !c.foraDoTotal).map((c) => (
                   <th key={c.chave} className="px-2 py-1.5 text-right font-medium">
                     <span className="flex items-center justify-end">
                       {c.label}
@@ -138,8 +155,16 @@ export function TabelaCustos({ linhas, cenarioId }: { linhas: LinhaCustos[]; cen
                     </span>
                   </th>
                 ))}
-                <th className="px-2 py-1.5 text-right font-medium">Total {aba === "variaveis" ? "variável" : "fixo"}</th>
+                <th className="px-2 py-1.5 text-right font-medium">{rotuloTotal}</th>
                 <th className="px-2 py-1.5 text-right font-medium">% da receita</th>
+                {colunas.filter((c) => c.foraDoTotal).map((c) => (
+                  <th key={c.chave} className="border-l border-border-soft px-2 py-1.5 text-right font-medium text-text-faint">
+                    <span className="flex items-center justify-end">
+                      {c.label}
+                      <InfoTooltip texto={c.tooltip} />
+                    </span>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -165,13 +190,18 @@ export function TabelaCustos({ linhas, cenarioId }: { linhas: LinhaCustos[]; cen
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono">{l.clientes}</td>
                     <td className="px-2 py-1.5 text-right font-mono">{brl(l.receita)}</td>
-                    {colunas.map((c) => (
+                    {colunas.filter((c) => !c.foraDoTotal).map((c) => (
                       <td key={c.chave} className="px-2 py-1.5 text-right font-mono text-text-muted">
                         {brl(l[c.chave] as number)}
                       </td>
                     ))}
                     <td className="px-2 py-1.5 text-right font-mono">{brl(t)}</td>
                     <td className="px-2 py-1.5 text-right font-mono text-text-muted">{pct != null ? `${pct.toFixed(0)}%` : "—"}</td>
+                    {colunas.filter((c) => c.foraDoTotal).map((c) => (
+                      <td key={c.chave} className="border-l border-border-soft px-2 py-1.5 text-right font-mono text-text-faint">
+                        {brl(l[c.chave] as number)}
+                      </td>
+                    ))}
                   </tr>
                 );
               })}

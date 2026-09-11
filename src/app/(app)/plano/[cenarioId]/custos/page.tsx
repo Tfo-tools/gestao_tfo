@@ -235,6 +235,12 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
       empresaPd: l.empresaPd,
       empresaSm: l.empresaSm,
       impostos: l.impostoMensal,
+      feiras: l.smFeirasEventos,
+      marketingLancado: l.empresaMarketingLancado,
+      equipeComercial: l.alocacaoSm,
+      // "Vendas lançado" fecha o S&M: tudo que não é mídia, feiras, marketing lançado, parceiros ou equipe.
+      vendasLancado: l.smMarketing + l.smVendas + l.smOutros - (m.sm_marketing ?? 0) - l.smFeirasEventos - l.empresaMarketingLancado - (m.sm_vendas ?? 0) - l.alocacaoSm,
+      marca: l.empresaMarca,
     };
   });
 

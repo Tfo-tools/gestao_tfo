@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { FASES } from "@/lib/fases";
 import { recalcularSimulacao } from "./[id]/simulacao-actions";
 
-export type ActionState = { error: string | null; success?: boolean };
+export type ActionState = { error: string | null; success?: boolean; mensagem?: string };
 
 export async function salvarFase(
   _prevState: ActionState,
@@ -713,10 +713,16 @@ export async function excluirCanalAquisicao(id: string, cenarioId: string) {
 /** Preço e custo de implementação mudam receita e COGS da projeção — recalcula na hora. Preço e
  * parcelas são do produto (valem em todos os cenários); as etapas são de um cenário só. Cenário em
  * que o produto ainda não tem fase é ignorado (a simulação só devolve aviso, não grava nada). */
-async function recalcularProdutoNosCenarios(produtoId: string, cenarioId?: string) {
+async function recalcularProdutoNosCenarios(produtoId: string, cenarioId?: string): Promise<string[]> {
   const supabase = await createClient();
-  const ids = cenarioId ? [cenarioId] : ((await supabase.from("cenarios").select("id")).data ?? []).map((c) => c.id as string);
-  for (const id of ids) await recalcularSimulacao(produtoId, id);
+  const query = supabase.from("cenarios").select("id, nome");
+  const { data: cenarios } = cenarioId ? await query.eq("id", cenarioId) : await query;
+  const recalculados: string[] = [];
+  for (const c of cenarios ?? []) {
+    const r = await recalcularSimulacao(produtoId, c.id as string);
+    if (!r.error) recalculados.push(c.nome as string);
+  }
+  return recalculados;
 }
 
 export async function salvarConfigImplementacao(
@@ -774,9 +780,16 @@ export async function salvarConfigImplementacao(
     return { error: "Não foi possível salvar a implementação." };
   }
 
-  await recalcularProdutoNosCenarios(produto_id);
+  const recalculados = await recalcularProdutoNosCenarios(produto_id);
   revalidatePath(`/produtos/${produto_id}`);
-  return { error: null, success: true };
+  return {
+    error: null,
+    success: true,
+    mensagem:
+      recalculados.length > 0
+        ? `Salvo. Projeção recalculada em: ${recalculados.join(", ")}.`
+        : "Salvo. Nenhum cenário com fases deste produto pra recalcular.",
+  };
 }
 
 export async function criarEtapaImplementacao(

@@ -13,6 +13,7 @@ import {
 import { calcularImpostoSimples } from "@/lib/impostos";
 import { subgrupoDeConta, subgrupoDeCargo } from "@/lib/subgrupo-conta";
 import { custoAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
+import { categoriaDeConta } from "@/lib/categoria-negocio";
 
 export type Agregado = {
   mes_referencia: string;
@@ -67,6 +68,14 @@ export type Agregado = {
   alocacaoVariavel: number;
   /** Custos da empresa lançados em contas de COGS (1.1.x) — ex: modo Compartilhado do card CSP. */
   empresaCogs: number;
+  /** Dentro de empresaSm, só pra exibir: o que foi lançado no card Marketing (2.1.1–2.1.3, 2.1.8,
+   * 2.1.9) e o resto (Vendas: CRM, parcerias, comissões). */
+  empresaMarketingLancado: number;
+  empresaVendasLancado: number;
+  /** Dentro de opexGa, só pra exibir: custos de Marca (2.4.x) — fora do S&M e do CAC. */
+  empresaMarca: number;
+  /** Equipe alocada que entra em S&M (SDR, vendedor, coordenador...). */
+  alocacaoSm: number;
   /**
    * De onde vem cada real do mês, por linha da DRE: chave "grupo|origem|rótulo|produto" → R$.
    * grupo = cogs | sm | pd | ga; origem = onde se edita (regra_cogs, implementacao, canais,
@@ -673,6 +682,10 @@ export async function agregarPorCenario(
         alocacaoFixa: 0,
         alocacaoVariavel: 0,
         empresaCogs: 0,
+        empresaMarketingLancado: 0,
+        empresaVendasLancado: 0,
+        empresaMarca: 0,
+        alocacaoSm: 0,
         composicao: {},
       } satisfies Agregado);
     atual.receita += Number(row.receita_bruta);
@@ -756,12 +769,15 @@ export async function agregarPorCenario(
         }
         if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") {
           atual.empresaSm += valor;
+          if (categoriaDeConta({ codigo: c.plano_contas.codigo }) === "marketing") atual.empresaMarketingLancado += valor;
+          else atual.empresaVendasLancado += valor;
           compor(atual, "sm", "empresa", rotulo, valor);
         } else if (sub === "pd") {
           atual.empresaPd += valor;
           compor(atual, "pd", "empresa", rotulo, valor);
         } else if (sub === "ga") {
           atual.empresaGa += valor;
+          if (String(c.plano_contas.codigo).startsWith("2.4")) atual.empresaMarca += valor;
           compor(atual, "ga", "empresa", rotulo, valor);
         }
         // Financeiro (3.x), capital e ativos ficam fora da DRE operacional — e fora das colunas.
@@ -847,7 +863,10 @@ export async function agregarPorCenario(
       else if (sub === "outros_sm") atual.smOutros += custoModelo;
       else if (sub === "pd") atual.opexPd += custoModelo;
       else if (sub === "ga") atual.opexGa += custoModelo;
-      if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") compor(atual, "sm", "equipe", rotuloEquipe, custoModelo);
+      if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") {
+        atual.alocacaoSm += custoModelo;
+        compor(atual, "sm", "equipe", rotuloEquipe, custoModelo);
+      }
       else if (sub === "pd") compor(atual, "pd", "equipe", rotuloEquipe, custoModelo);
       else if (sub === "ga") compor(atual, "ga", "equipe", rotuloEquipe, custoModelo);
     }

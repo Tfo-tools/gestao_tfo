@@ -108,6 +108,10 @@ O hub `/plano/[cenarioId]` conecta tudo isso. `/cenarios` → clicar no nome do 
 - **Aquisição nunca cai no COGS**: SDR/vendedor (alocações S&M), fechamento/comissão/crédito a
   parceiros e mídia do self-service vão pra S&M; filiação mensal às associações vai pra G&A (fora do
   CAC). Do cliente de canal, só entram no COGS a implementação (custo de entrega) e o gateway.
+- Tabela de custos e planilha têm a visão **Marketing e vendas**: mídia do self-service, feiras e
+  eventos, marketing lançado (card Marketing: 2.1.1–2.1.3, 2.1.8, 2.1.9), parceiros, equipe
+  comercial e vendas lançado; total = S&M da DRE. **Marca (2.4.x) conta em G&A** no plano — aparece
+  à parte, fora do total e do CAC (decisão pendente: tratar Marca como S&M?).
 - Custo da empresa em conta 1.1.x (ex: infra compartilhada) entra no COGS; financeiro (3.x),
   capital e ativos ficam fora da DRE operacional.
 
