@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
 import { agregarPorCenario, computeMetricas, recortarPeriodo } from "@/lib/relatorios-cenario";
+import { mesesDaReceita, resumirReceitasHistoricas, type ReceitaHistorica } from "@/lib/receitas-historicas";
 import { carregarOrcamentoProgramas, LABEL_CATEGORIA_USO, somaPorCategoria } from "@/lib/orcamento-programa";
 import { clientesTotaisAcao, custoTotalAcao, type AcaoMarketing } from "@/lib/acoes-marketing";
 import { calcularRetornoPrograma, agregarRetornoProgramas, simularRetornoInvestidor } from "@/lib/retorno-investidor";
@@ -73,6 +74,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     supabase.from("acoes_marketing").select("*").eq("cenario_id", cenarioId).order("created_at"),
   ]);
   const orcamento = await carregarOrcamentoProgramas(supabase, resumo.aportes.programas.map((p) => p.id));
+  const { data: historicoRaw } = await supabase
+    .from("receitas_historicas")
+    .select("id, descricao, valor_mensal, data_inicio, data_fim, mostrar, observacoes")
+    .eq("cenario_id", cenarioId)
+    .order("data_inicio");
+  const historico = resumirReceitasHistoricas((historicoRaw ?? []) as ReceitaHistorica[], resumo.periodo);
   const acoes = (acoesRaw ?? []) as AcaoMarketing[];
   if (!cenario) return new NextResponse("Cenário não encontrado", { status: 404 });
 
@@ -192,6 +199,36 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     r.font = { bold: true };
     r.eachCell((c) => preencher(c, CABECALHO));
   };
+
+  // Tração antes do produto: receita já realizada (consultoria, serviço) que validou a metodologia.
+  // Fica fora da projeção de propósito — não entra em MRR, ARR, CAC nem EBITDA — e aparece aqui só
+  // quando o registro está com a exibição ligada.
+  if (historico.ativos.length > 0 && historico.total > 0) {
+    titulo("Tração antes do produto (receita já realizada, fora da projeção)");
+    cabecalho(["O que foi vendido", "Valor mensal", "Período", "Meses", "Total realizado"]);
+    for (const h of historico.ativos) {
+      const meses = mesesDaReceita(h, resumo.periodo.fim);
+      const fimTexto = h.data_fim ? formatarMesAno(`${h.data_fim.slice(0, 7)}-01`) : "em aberto";
+      const r = ind.addRow([
+        h.descricao + (h.observacoes ? ` — ${h.observacoes}` : ""),
+        Number(h.valor_mensal),
+        `${formatarMesAno(`${h.data_inicio.slice(0, 7)}-01`)} a ${fimTexto}`,
+        meses,
+        Number(h.valor_mensal) * meses,
+      ]);
+      r.getCell(2).numFmt = BRL;
+      r.getCell(5).numFmt = BRL;
+      r.getCell(1).alignment = { wrapText: true, vertical: "top" };
+    }
+    const rTotal = ind.addRow(["Total realizado antes do produto", "", "", "", historico.total]);
+    rTotal.font = { bold: true };
+    rTotal.getCell(5).numFmt = BRL;
+    const rNota = ind.addRow([
+      "Não entra em MRR, ARR, preço médio, CAC, churn nem no EBITDA projetado: é receita de serviço já realizada, mostrada como prova de que a metodologia era vendida antes de existir software.",
+    ]);
+    rNota.getCell(1).alignment = { wrapText: true, vertical: "top" };
+    ind.addRow([]);
+  }
 
   titulo("Captação vinculada ao cenário");
   cabecalho(["Programa", "Tipo", "Valor total", "Tratamento na planilha", "Parcelas previstas", ""]);

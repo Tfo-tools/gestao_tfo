@@ -12,6 +12,8 @@ import {
 } from "@/lib/relatorios-cenario";
 import { ExportarInvestidor } from "./exportar-investidor";
 import { SimuladorRetorno } from "./simulador-retorno";
+import { ReceitasHistoricas } from "./receitas-historicas-card";
+import type { ReceitaHistorica } from "@/lib/receitas-historicas";
 import { carregarOrcamentoProgramas, LABEL_CATEGORIA_USO, somaPorCategoria, type LinhaOrcamento } from "@/lib/orcamento-programa";
 import type { FocoInvestimento } from "@/lib/indicadores-investidor";
 import { grupoDeConta, GRUPO_TOOLTIP as GRUPO_TOOLTIP_DRE } from "@/lib/grupo-dre";
@@ -348,6 +350,15 @@ export async function RelatorioPlanos({
 
   const resumo = await agregarPorCenario(supabase, cenarioId);
 
+  // Receita realizada antes de existir produto (consultoria). Fora da simulação — só contexto.
+  const { data: receitasHistoricas } = cenarioId
+    ? await supabase
+        .from("receitas_historicas")
+        .select("id, descricao, valor_mensal, data_inicio, data_fim, mostrar, observacoes")
+        .eq("cenario_id", cenarioId)
+        .order("data_inicio")
+    : { data: [] };
+
   const { data: alocacoes } = cenarioId
     ? await supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioId).order("created_at")
     : { data: [] };
@@ -529,6 +540,11 @@ export async function RelatorioPlanos({
             fim={fimSel}
           />
           <UsoDoRecurso programas={resumo.aportes.programas} orcamento={orcamento} />
+          <ReceitasHistoricas
+            cenarioId={cenarioId}
+            itens={(receitasHistoricas ?? []) as ReceitaHistorica[]}
+            periodo={resumo.periodo}
+          />
           <AlocacaoInvestimento cenarioId={cenarioId} itens={alocacoes ?? []} nomeCenario={nome} />
           <GraficoReceitaEInvestimento nome={nome} linhasPeriodo={linhasPeriodo} investimentoPorMes={investimentoPorMes} />
         </>

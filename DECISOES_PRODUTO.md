@@ -261,3 +261,14 @@ Ideia confirmada, escopo ainda não iniciado:
   02/12/2027 e o motor escolhe o bloco por `floor(meses desde o início da fase / 3)`. De mar/2028 em
   diante as taxas seguem como estavam. Beta tester também não sai: os meses de teste são gratuitos e
   o compromisso começa quando o teste termina. Taxas antigas em `backup_churn_mind_20260912`.
+- **Receita anterior ao produto fica FORA da projeção.** A consultoria (R$ 4.500/mês, da abertura da
+  empresa até fev/2027) é receita de serviço já realizada, não assinatura projetada: entra em
+  `receitas_historicas` como contexto e não é lida por `simulacao.ts`, `relatorios-cenario.ts` nem
+  pelos indicadores — MRR, ARR, preço médio, ARPA, CAC, churn e EBITDA projetado seguem intactos.
+  O motor também não sabe partir de um cliente único: `novosOrganicos = clientesAtivos × taxa de
+  crescimento`, então cadastrar a consultoria como produto exigiria uma taxa artificial e ainda
+  contaminaria os indicadores. Cada registro tem `data_fim` editável a qualquer momento (nula = segue
+  até o fim do período) e um interruptor `mostrar`, separado da exclusão: desligado, sai da tela e da
+  planilha do investidor sem ser apagado — dá para ligar, olhar o resultado e decidir se apresenta.
+  Na planilha vira a seção "Tração antes do produto", antes da captação, com a nota de que está fora
+  da projeção.
