@@ -1,4 +1,4 @@
-import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
+import { calcularRateioPorProduto, custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
 import { horasAtendimentoPorProduto } from "@/lib/cogs";
 import type { FaseValue } from "@/lib/fases";
 import { type ParametrosModelo } from "@/lib/modelos-contratacao";
@@ -18,7 +18,7 @@ import {
   parametrosTributariosDe,
 } from "@/lib/impostos";
 import { subgrupoDeConta } from "@/lib/subgrupo-conta";
-import { custoAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
+import { custoAcaoPorMes, vendasAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
 import { categoriaDeConta } from "@/lib/categoria-negocio";
 
 export type Agregado = {
@@ -96,6 +96,12 @@ export type Agregado = {
   alocacaoSm: number;
   /** A mesma equipe de S&M, atribuída a cada produto pela demanda que cobriu ("" = sem produto). */
   equipePorProduto: Record<string, number>;
+  /**
+   * Marketing da empresa atribuído a cada produto ("" = não atribuído). Ação de marketing vai pelos
+   * clientes que ela promete em cada produto (retorno cadastrado); ação sem retorno fica sem produto.
+   * Custo lançado segue o rateio do item — em marketing, por receita quando não há rateio definido.
+   */
+  marketingPorProduto: Record<string, number>;
   /** Demanda do mês sem ninguém alocado (esforço próprio, sem custo): reuniões de SDR e de vendedor. */
   demandaDescoberta: { sdr: number; vendedor: number };
   /**
@@ -157,6 +163,7 @@ export function agregadoVazio(mes: string): Agregado {
         empresaMarca: 0,
         alocacaoSm: 0,
         equipePorProduto: {},
+        marketingPorProduto: {},
         demandaDescoberta: { sdr: 0, vendedor: 0 },
         composicao: {},
       } satisfies Agregado;
@@ -225,6 +232,11 @@ export function linhasDoProduto(
     const equipe = l.equipePorProduto[produtoId] ?? 0;
     a.smVendas += equipe;
     a.alocacaoSm = equipe;
+    // Marketing da empresa atribuído a este produto: ações pelo retorno que prometem nele e custo
+    // lançado pelo rateio. O que não tem produto fica fora (aparece como "não atribuído" na tela).
+    const marketing = l.marketingPorProduto[produtoId] ?? 0;
+    a.smMarketing += marketing;
+    a.empresaMarketingLancado = marketing;
     // Imposto rateado pela fatia do produto na receita do mês.
     const fatia = l.receita > 0 ? a.receita / l.receita : 0;
     a.impostoMensal = l.impostoMensal * fatia;
@@ -669,6 +681,26 @@ export async function agregarPorCenario(
     for (const [mes, v] of custoAcaoPorMes(a, fimCenario)) custoAcoesPorMes.set(mes, (custoAcoesPorMes.get(mes) ?? 0) + v);
   }
 
+  // Custo das ações atribuído a cada produto: pela fatia de clientes que a ação promete a ele. Ação
+  // sem retorno cadastrado não tem produto — fica no balde "" (não atribuído), visível na tela.
+  const acoesPorProdutoMes = new Map<string, Record<string, number>>();
+  for (const a of (acoesRaw ?? []) as AcaoMarketing[]) {
+    const fimCenario = (cenarioRow as { data_fim?: string | null } | null)?.data_fim ?? null;
+    const produtosDaAcao = [...new Set((a.retorno ?? []).map((r) => r.produto_id).filter(Boolean))];
+    const clientesPorProduto = new Map<string, number>();
+    for (const pid of produtosDaAcao) {
+      const total = vendasAcaoPorMes(a, pid, fimCenario).reduce((s, x) => s + x.clientes, 0);
+      if (total > 0) clientesPorProduto.set(pid, total);
+    }
+    const totalClientes = [...clientesPorProduto.values()].reduce((s, v) => s + v, 0);
+    for (const [mes, valor] of custoAcaoPorMes(a, fimCenario)) {
+      const destino = acoesPorProdutoMes.get(mes) ?? {};
+      if (totalClientes <= 0) destino[""] = (destino[""] ?? 0) + valor;
+      else for (const [pid, qtd] of clientesPorProduto) destino[pid] = (destino[pid] ?? 0) + valor * (qtd / totalClientes);
+      acoesPorProdutoMes.set(mes, destino);
+    }
+  }
+
   // Nome de cada produto e o custo da implementação por cliente novo (soma das etapas) — pra
   // separar, no detalhamento do COGS, a implementação dos outros custos lançados.
   const [{ data: produtosRaw }, { data: etapasRaw }] = await Promise.all([
@@ -829,6 +861,7 @@ export async function agregarPorCenario(
   }
   // Receita média por cliente de cada produto no mês — base da comissão % do vendedor.
   const arpuPorMes = new Map<string, Record<string, number>>();
+  const receitaPorProdutoMes = new Map<string, Record<string, number>>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const row of (simRows ?? []) as any[]) {
     const clientes = Number(row.clientes_ativos ?? 0);
@@ -836,6 +869,19 @@ export async function agregarPorCenario(
     const m = arpuPorMes.get(row.mes_referencia) ?? {};
     m[row.produto_id] = Number(row.receita_bruta ?? 0) / clientes;
     arpuPorMes.set(row.mes_referencia, m);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (simRows ?? []) as any[]) {
+    const r = receitaPorProdutoMes.get(row.mes_referencia) ?? {};
+    r[row.produto_id] = (r[row.produto_id] ?? 0) + Number(row.receita_bruta ?? 0);
+    receitaPorProdutoMes.set(row.mes_referencia, r);
+  }
+  const clientesPorProdutoMes = new Map<string, Record<string, number>>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (simRows ?? []) as any[]) {
+    const c = clientesPorProdutoMes.get(row.mes_referencia) ?? {};
+    c[row.produto_id] = (c[row.produto_id] ?? 0) + Number(row.clientes_ativos ?? 0);
+    clientesPorProdutoMes.set(row.mes_referencia, c);
   }
 
   const porMes = new Map<string, Agregado>();
@@ -926,9 +972,26 @@ export async function agregarPorCenario(
         }
         if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") {
           atual.empresaSm += valor;
-          if (categoriaDeConta({ codigo: c.plano_contas.codigo }) === "marketing") atual.empresaMarketingLancado += valor;
+          const ehMarketing = categoriaDeConta({ codigo: c.plano_contas.codigo }) === "marketing";
+          if (ehMarketing) atual.empresaMarketingLancado += valor;
           else atual.empresaVendasLancado += valor;
           compor(atual, "sm", "empresa", rotulo, valor);
+          // Marketing lançado vai pros produtos pelo rateio do item — por receita quando não há
+          // rateio configurado, ou 100% num produto quando a pessoa vinculou o custo a ele.
+          if (ehMarketing) {
+            const receitas = receitaPorProdutoMes.get(atual.mes_referencia) ?? {};
+            const clientes = clientesPorProdutoMes.get(atual.mes_referencia) ?? {};
+            const idsProdutos = [...new Set([...Object.keys(receitas), ...Object.keys(clientes)])].map((id) => ({ id }));
+            const partes = calcularRateioPorProduto(c.parametros ?? {}, valor, idsProdutos, clientes, receitas, true);
+            let atribuido = 0;
+            for (const parte of partes) {
+              if (parte.valor === 0) continue;
+              atual.marketingPorProduto[parte.produtoId] = (atual.marketingPorProduto[parte.produtoId] ?? 0) + parte.valor;
+              atribuido += parte.valor;
+            }
+            const resto = valor - atribuido;
+            if (Math.abs(resto) > 0.005) atual.marketingPorProduto[""] = (atual.marketingPorProduto[""] ?? 0) + resto;
+          }
         } else if (sub === "pd") {
           atual.empresaPd += valor;
           compor(atual, "pd", "empresa", rotulo, valor);
@@ -948,6 +1011,9 @@ export async function agregarPorCenario(
       atual.empresaSm += custoAcoes;
       atual.smFeirasEventos += custoAcoes;
       compor(atual, "sm", "feiras", "Feiras, eventos e campanhas (2.1.8 / 2.1.1)", custoAcoes);
+      for (const [pid, v] of Object.entries(acoesPorProdutoMes.get(atual.mes_referencia) ?? {})) {
+        atual.marketingPorProduto[pid] = (atual.marketingPorProduto[pid] ?? 0) + v;
+      }
     }
 
     // Mensalidade de manter cada parceiro (ex: associação): taxa de filiação, conta 2.3.5.1

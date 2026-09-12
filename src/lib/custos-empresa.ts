@@ -38,6 +38,8 @@ export function calcularRateioPorProduto(
   produtos: { id: string }[],
   clientesPorProduto: Record<string, number>,
   receitaPorProduto: Record<string, number> = {},
+  /** true em custos de marketing: sem rateio configurado, divide pela receita de cada produto. */
+  padraoReceita = false,
 ): RateioProduto[] {
   if (parametros.rateio_modo === "manual" && parametros.rateio_manual) {
     return produtos.map((p) => {
@@ -48,7 +50,7 @@ export function calcularRateioPorProduto(
   // Marketing e tudo que é "% da receita" rateia pela RECEITA de cada produto: quem fatura mais
   // carrega mais — um cliente de Mind a R$722 pesa mais que um de Skills a R$61. Por clientes
   // continua sendo o padrão pro que escala por cabeça (infra compartilhada, suporte).
-  const base = rateioPorReceita(parametros) ? receitaPorProduto : clientesPorProduto;
+  const base = rateioPorReceita(parametros, undefined, padraoReceita) ? receitaPorProduto : clientesPorProduto;
   const total = produtos.reduce((s, p) => s + (base[p.id] ?? 0), 0);
   if (total <= 0) return produtos.map((p) => ({ produtoId: p.id, percentual: 0, valor: 0 }));
   return produtos.map((p) => {
@@ -59,10 +61,16 @@ export function calcularRateioPorProduto(
 
 /** Rateia por receita quando pedido explicitamente, ou por padrão quando o próprio custo é
  *  calculado como % da receita — não faz sentido cobrar % do faturamento e dividir por cabeça. */
-export function rateioPorReceita(parametros: ParametrosCustoEmpresa, tipoCusto?: TipoCustoEmpresa): boolean {
+export function rateioPorReceita(
+  parametros: ParametrosCustoEmpresa,
+  tipoCusto?: TipoCustoEmpresa,
+  /** Marketing rateia por receita por padrão: quem fatura mais carrega mais a verba de marca e
+   *  demanda — um cliente de R$ 727 pesa mais que um de R$ 61. */
+  padraoReceita = false,
+): boolean {
   if (parametros.rateio_modo === "auto_receita") return true;
   if (parametros.rateio_modo === "auto_clientes" || parametros.rateio_modo === "manual") return false;
-  return tipoCusto === "variavel_receita" || parametros.percentual != null;
+  return padraoReceita || tipoCusto === "variavel_receita" || parametros.percentual != null;
 }
 
 export type CustoEmpresaInput = {
