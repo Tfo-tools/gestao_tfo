@@ -45,9 +45,22 @@ export function ExportarInvestidor({
               </label>
             ))}
           </div>
-          <button type="submit" className="mt-1 w-fit rounded-lg bg-wine-deep px-3.5 py-2 text-[12.5px] font-medium text-white">
-            Baixar planilha (.xlsx)
-          </button>
+          {/* Os dois botões mandam o MESMO formulário (período + focos marcados); só o formato muda.
+              O PDF sai da mesma montagem da planilha — não é uma segunda versão dos números. */}
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <button type="submit" className="w-fit rounded-lg bg-wine-deep px-3.5 py-2 text-[12.5px] font-medium text-white">
+              Baixar planilha (.xlsx)
+            </button>
+            <button
+              type="submit"
+              name="formato"
+              value="pdf"
+              className="w-fit rounded-lg border border-border px-3.5 py-2 text-[12.5px] font-medium text-primary-deep hover:bg-bg"
+            >
+              Baixar PDF (todas as abas)
+            </button>
+            <span className="text-[10.5px] text-text-faint">O PDF traz as mesmas abas e números da planilha, prontos pra leitura.</span>
+          </div>
         </form>
       </div>
     </div>

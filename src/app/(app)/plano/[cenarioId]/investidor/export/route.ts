@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+
+/** PDF de 6 abas com a DRE mês a mês é mais pesado que o xlsx — o padrão da Vercel (10s) não basta. */
+export const maxDuration = 60;
 import ExcelJS from "exceljs";
+import { criarCapturaPlanilha, type PlanilhaAlvo } from "@/lib/planilha-modelo";
+import { planilhaParaPdf } from "@/lib/planilha-pdf";
 import { createClient } from "@/lib/supabase/server";
 import { agregarPorCenario, computeMetricas, recortarPeriodo } from "@/lib/relatorios-cenario";
 import { mesesDaReceita, resumirReceitasHistoricas, type ReceitaHistorica } from "@/lib/receitas-historicas";
@@ -44,7 +49,7 @@ function letra(n: number): string {
   return s;
 }
 
-function preencher(cell: ExcelJS.Cell, argb: string) {
+function preencher(cell: { fill: unknown }, argb: string) {
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
 }
 
@@ -173,14 +178,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       : null,
   });
 
-  const workbook = new ExcelJS.Workbook();
+  // A MESMA montagem serve o xlsx (exceljs) e o PDF (captura em planilha-modelo.ts): um único
+  // código produz as abas, e cada formato só muda quem recebe as chamadas. É o que garante que
+  // planilha e PDF nunca divirjam.
+  const periodoTexto = mensal.length > 0 ? `${formatarMesAno(mensal[0].mes)} a ${formatarMesAno(mensal[mensal.length - 1].mes)}` : "sem projeção no período";
+  const focoTexto = [...focos].map((f) => LABEL_FOCO[f]).join(", ") || "nenhum (custos consolidados)";
+
+  // Preço da rodada: consultado uma vez, fora da montagem — a montagem é síncrona pra poder rodar
+  // igual contra o exceljs e contra a captura do PDF.
+  const idsRodada = resumo.aportes.programas.filter((p) => p.tipo !== "fomento").map((p) => p.id);
+  const { data: rodadas } =
+    idsRodada.length > 0
+      ? await supabase.from("programas_investimento").select("nome, valor_total, valuation_pre_money, valuation_post_money").in("id", idsRodada)
+      : { data: [] };
+
+  const montar = (workbook: PlanilhaAlvo) => {
   workbook.creator = "TFO-Gestão";
   workbook.created = new Date();
   // As fórmulas já vão com o valor calculado; isso só garante o recálculo se alguém editar a planilha.
   workbook.calcProperties.fullCalcOnLoad = true;
-
-  const periodoTexto = mensal.length > 0 ? `${formatarMesAno(mensal[0].mes)} a ${formatarMesAno(mensal[mensal.length - 1].mes)}` : "sem projeção no período";
-  const focoTexto = [...focos].map((f) => LABEL_FOCO[f]).join(", ") || "nenhum (custos consolidados)";
 
   // ─── Aba 1: Indicadores ────────────────────────────────────────────────────────────────────
   const ind = workbook.addWorksheet("Indicadores", { views: [{ showGridLines: false }] });
@@ -251,12 +267,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   rCap.font = { bold: true };
   rCap.getCell(3).numFmt = BRL;
   // Preço da rodada: o que o investidor recebe em troca do aporte (Fomento → programa → Rodada).
-  const idsRodada = resumo.aportes.programas.filter((p) => p.tipo !== "fomento").map((p) => p.id);
   if (idsRodada.length > 0) {
-    const { data: rodadas } = await supabase
-      .from("programas_investimento")
-      .select("nome, valor_total, valuation_pre_money, valuation_post_money")
-      .in("id", idsRodada);
     for (const rod of rodadas ?? []) {
       const pos = Number(rod.valuation_post_money ?? 0);
       const valorRodada = Number(rod.valor_total ?? 0);
@@ -628,8 +639,29 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   nota("Referências de mercado", "Manual de Treinamento da Banca Avaliadora de Venture Capital — B2B SaaS (faixas por estágio: validação, PMF, tração, escala).");
   nota("Fórmulas", "Na aba Mês a mês, totais, EBITDA e acumulados são fórmulas: se alguém ajustar um custo na planilha, o resultado se recalcula.");
 
-  const buffer = await workbook.xlsx.writeBuffer();
+  };
+
   const slug = cenario.nome.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+  if (searchParams.get("formato") === "pdf") {
+    const captura = criarCapturaPlanilha();
+    montar(captura);
+    const pdf = await planilhaParaPdf(
+      captura.modelo(),
+      `Plano financeiro — ${cenario.nome}`,
+      `Período: ${periodoTexto} · foco do investimento: ${focoTexto} · gerado em ${new Date().toLocaleDateString("pt-BR")}`,
+    );
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="plano-investidor-${slug}.pdf"`,
+      },
+    });
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  montar(workbook);
+  const buffer = await workbook.xlsx.writeBuffer();
   return new NextResponse(buffer, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
