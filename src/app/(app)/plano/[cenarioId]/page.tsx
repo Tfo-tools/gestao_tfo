@@ -93,6 +93,10 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
 
       {origem && <CompletarCopia cenarioId={cenarioId} origemNome={origem.nome} />}
 
+      <div className="mb-5">
+        <ProdutosDoCenario cenarioId={cenarioId} ehBase={cenario.is_base === true} produtos={produtosDoCenario} />
+      </div>
+
       <MetasHeader
         metas={cenario}
         atuais={{
@@ -104,10 +108,6 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
         }}
       />
       <MetasForm cenarioId={cenarioId} metas={cenario} />
-
-      <div className="mt-5">
-        <ProdutosDoCenario cenarioId={cenarioId} ehBase={cenario.is_base === true} produtos={produtosDoCenario} />
-      </div>
 
       <div className="mt-5 flex flex-col gap-3">
         <LinhaPlano

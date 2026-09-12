@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { excluirCustoEmpresa } from "./actions";
+import { excluirCustoEmpresa, salvarComoModeloMercado } from "./actions";
 import { CustoEmpresaForm } from "./custo-empresa-form";
-import type { ParametrosCustoEmpresa, TipoCustoEmpresa } from "@/lib/custos-empresa";
+import type {
+  ParametrosCustoEmpresa,
+  TipoCustoEmpresa,
+} from "@/lib/custos-empresa";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
 type Produto = { id: string; nome: string };
@@ -33,16 +36,25 @@ const TIPO_LABEL: Record<string, string> = {
   variavel_cliente: "Por cliente ativo",
 };
 
-function resumo(tipo: TipoCustoEmpresa, valorMensal: number | null, p: ParametrosCustoEmpresa, produtos: Produto[]): string {
+function resumo(
+  tipo: TipoCustoEmpresa,
+  valorMensal: number | null,
+  p: ParametrosCustoEmpresa,
+  produtos: Produto[],
+): string {
   switch (tipo) {
     case "fixo":
       return `${formatBRL(valorMensal ?? 0)}/mês`;
     case "escalonado":
       if (p.baseado_em === "fase") {
-        const nomeProduto = produtos.find((prod) => prod.id === p.produto_referencia_id)?.nome ?? "produto não encontrado";
+        const nomeProduto =
+          produtos.find((prod) => prod.id === p.produto_referencia_id)?.nome ??
+          "produto não encontrado";
         const faixas = p.faixasPorFase ?? [];
-        const min = faixas.length > 0 ? Math.min(...faixas.map((f) => f.valor)) : 0;
-        const max = faixas.length > 0 ? Math.max(...faixas.map((f) => f.valor)) : 0;
+        const min =
+          faixas.length > 0 ? Math.min(...faixas.map((f) => f.valor)) : 0;
+        const max =
+          faixas.length > 0 ? Math.max(...faixas.map((f) => f.valor)) : 0;
         return `${faixas.length} fase(s) · ${formatBRL(min)} a ${formatBRL(max)} · referência: ${nomeProduto}`;
       }
       return `${(p.faixas ?? []).length} faixa(s) por ${p.baseado_em === "clientes" ? "clientes ativos" : "faturamento"}`;
@@ -70,7 +82,9 @@ export function CustosEmpresaLista({
   if (custos.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
-        <p className="text-sm text-text-muted">Nenhum custo de empresa cadastrado ainda.</p>
+        <p className="text-sm text-text-muted">
+          Nenhum custo de empresa cadastrado ainda.
+        </p>
       </div>
     );
   }
@@ -99,7 +113,10 @@ export function CustosEmpresaLista({
             onCancelar={() => setEditandoId(null)}
           />
         ) : (
-          <div key={c.id} className="rounded-lg border border-border-soft bg-surface px-3 py-2.5">
+          <div
+            key={c.id}
+            className="rounded-lg border border-border-soft bg-surface px-3 py-2.5"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
@@ -107,21 +124,62 @@ export function CustosEmpresaLista({
                   <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[9.5px] font-semibold text-primary-deep">
                     {TIPO_LABEL[c.tipo_custo] ?? c.tipo_custo}
                   </span>
-                  {c.plano_contas && <span className="text-[9.5px] text-text-faint">{c.plano_contas.codigo} {c.plano_contas.conta}</span>}
+                  {c.plano_contas && (
+                    <span className="text-[9.5px] text-text-faint">
+                      {c.plano_contas.codigo} {c.plano_contas.conta}
+                    </span>
+                  )}
                 </div>
                 <div className="mt-0.5 text-[10.5px] text-text-faint">
-                  {resumo(c.tipo_custo as TipoCustoEmpresa, c.valor_mensal, c.parametros, produtos)}
+                  {resumo(
+                    c.tipo_custo as TipoCustoEmpresa,
+                    c.valor_mensal,
+                    c.parametros,
+                    produtos,
+                  )}
                 </div>
-                {c.observacoes && <div className="mt-0.5 text-[10.5px] text-text-faint">{c.observacoes}</div>}
+                {c.observacoes && (
+                  <div className="mt-0.5 text-[10.5px] text-text-faint">
+                    {c.observacoes}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setEditandoId(c.id)} className="text-[11px] text-primary-deep">
+                <button
+                  type="button"
+                  onClick={() => setEditandoId(c.id)}
+                  className="text-[11px] text-primary-deep"
+                >
                   Editar
                 </button>
                 <button
                   type="button"
                   disabled={isPending}
-                  onClick={() => startTransition(() => excluirCustoEmpresa(c.id))}
+                  title="Guarda este custo como modelo de mercado, pra aplicar em outros cenários"
+                  onClick={() => {
+                    const fonte = prompt(
+                      "Fonte do preço (opcional — ex.: cotação Agilize set/2026):",
+                      "",
+                    );
+                    if (fonte === null) return;
+                    startTransition(async () => {
+                      const r = await salvarComoModeloMercado(
+                        c.id,
+                        fonte || null,
+                      );
+                      if (r.error) alert(r.error);
+                    });
+                  }}
+                  className="text-[11px] text-text-muted"
+                >
+                  Salvar como modelo
+                </button>
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() =>
+                    startTransition(() => excluirCustoEmpresa(c.id))
+                  }
                   className="text-[11px] text-danger"
                 >
                   Remover
