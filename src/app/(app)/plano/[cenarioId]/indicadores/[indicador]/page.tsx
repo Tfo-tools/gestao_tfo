@@ -445,29 +445,45 @@ function TabelaIndicador({
 
   if (indicador === "ltv") {
     let somaLtvPonderado = 0;
-    let somaClientes = 0;
+    // Mês sem churn (plano anual antes de completar 12 meses) não entra na média: o LTV ali não é
+    // zero, é "não se aplica" — ninguém pode sair ainda. Contá-lo como zero afundava a média.
+    let clientesComLtv = 0;
+    let mesesSemChurn = 0;
     const rows = linhas.map((l) => {
       const arpu = l.clientes > 0 ? l.receita / l.clientes : 0;
       const churn = l.clientes > 0 ? l.churnPonderado / l.clientes : 0;
-      const ltv = churn > 0 ? arpu / churn : 0;
-      somaLtvPonderado += l.ltvPonderado;
-      somaClientes += l.clientes;
-      return [formatMes(l.mes_referencia), l.clientes.toLocaleString("pt-BR"), formatBRL(arpu), churn > 0 ? formatPct(churn * 100) : "—", churn > 0 ? formatBRL(ltv) : "—"];
+      const ltvDoMes = l.clientes > 0 ? l.ltvPonderado / l.clientes : 0;
+      if (churn > 0 && l.ltvPonderado > 0) {
+        somaLtvPonderado += l.ltvPonderado;
+        clientesComLtv += l.clientes;
+      } else if (l.clientes > 0) {
+        mesesSemChurn += 1;
+      }
+      return [
+        formatMes(l.mes_referencia),
+        l.clientes.toLocaleString("pt-BR"),
+        formatBRL(arpu),
+        churn > 0 ? formatPct(churn * 100) : "sem saída",
+        churn > 0 && ltvDoMes > 0 ? formatBRL(ltvDoMes) : "não se aplica",
+      ];
     });
-    const ltvMedio = somaClientes > 0 ? somaLtvPonderado / somaClientes : 0;
+    const ltvMedio = clientesComLtv > 0 ? somaLtvPonderado / clientesComLtv : 0;
     return (
       <>
         <CalculoBox
           linhas={[
-            `LTV do mês = ARPU (receita ÷ clientes ativos) × margem bruta ÷ churn do mês, calculado mês a mês`,
+            `LTV do mês = mensalidade por cliente (MRR ÷ clientes ativos) × margem bruta do produto ÷ churn do mês`,
             `Média ponderada pelos clientes ativos de cada mês (meses com mais clientes pesam mais na média)`,
-            `LTV médio do período: ${somaClientes > 0 ? formatBRL(ltvMedio) : "—"}`,
+            ...(mesesSemChurn > 0
+              ? [`${mesesSemChurn} mês(es) sem saída prevista ficam fora da média — com plano anual, o cliente ainda não pode sair`]
+              : []),
+            `LTV médio do período: ${clientesComLtv > 0 ? formatBRL(ltvMedio) : "—"}`,
           ]}
         />
         <Table
           head={["Mês", "Clientes ativos", "ARPU (receita/cliente)", "Churn do mês", "LTV do mês"]}
           rows={rows}
-          total={["Média ponderada do período", "—", "—", "—", somaClientes > 0 ? formatBRL(ltvMedio) : "—"]}
+          total={["Média ponderada do período", "—", "—", "—", clientesComLtv > 0 ? formatBRL(ltvMedio) : "—"]}
         />
       </>
     );

@@ -932,10 +932,16 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     // alocada + custos fixos/variáveis categorizados como S&M) dividido pelos clientes novos.
     const cacAllIn = novosClientes > 0 ? totais.sm / novosClientes : null;
 
-    // LTV = ARPU × margem bruta ÷ churn mensal — a margem bruta pondera o LTV pelo que
-    // realmente sobra por cliente depois do COGS (infra/suporte), não a receita bruta inteira.
+    // LTV = mensalidade por cliente × margem bruta ÷ churn mensal. A mensalidade vem do MRR
+    // REALIZADO dividido pelos clientes ativos, não do `arpu` de tabela: `arpu` só existe em produto
+    // precificado por planos com mix (calcularArpu), e num produto por módulos/níveis — o caso do
+    // Fashion Mind — ele é zero, o que zerava o LTV inteiro. O MRR por cliente funciona nos dois
+    // formatos e já reflete descontos e níveis contratados.
+    const mensalidadePorCliente = clientesAtivos > 0 ? mrrLiquido / clientesAtivos : arpu;
     const margemBrutaProduto = receitaBruta > 0 ? Math.max(0, (receitaBruta - totais.cogs) / receitaBruta) : 1;
-    const ltv = taxaChurn > 0 ? (arpu * margemBrutaProduto) / taxaChurn : null;
+    // Churn zero (plano anual antes de completar 12 meses) não significa LTV zero: significa que a
+    // conta não se aplica ainda — ninguém pode sair. Fica nulo, e as telas tiram esses meses da média.
+    const ltv = taxaChurn > 0 ? (mensalidadePorCliente * margemBrutaProduto) / taxaChurn : null;
 
     resultados.push({
       mes_referencia: isoMonth(mes),
