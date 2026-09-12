@@ -255,3 +255,9 @@ Ideia confirmada, escopo ainda não iniciado:
   alocações, ações e projeção são de cada um. Compartilhados: produto (preço de implantação e formas de
   pagamento), modelos de contratação, impostos, plano de contas e tabela de custo/hora — mexer neles
   afeta os dois cenários, e implantação/formas pedem recálculo nos dois.
+- **Churn zero do Fashion Mind até fev/2028.** O plano do Mind é anual e o produto lança em fev/2027:
+  ninguém completa 12 meses de contrato antes de fev/2028, então não há saída até lá. Zerado no PMF
+  (mar–dez/2027) e no trimestre 0 da tração, que cobre dez/2027, jan e fev/2028 — a tração começa em
+  02/12/2027 e o motor escolhe o bloco por `floor(meses desde o início da fase / 3)`. De mar/2028 em
+  diante as taxas seguem como estavam. Beta tester também não sai: os meses de teste são gratuitos e
+  o compromisso começa quando o teste termina. Taxas antigas em `backup_churn_mind_20260912`.
