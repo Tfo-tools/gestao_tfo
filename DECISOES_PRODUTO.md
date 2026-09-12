@@ -229,3 +229,29 @@ Ideia confirmada, escopo ainda não iniciado:
   já lançados.
 - **Implantações.** Vendas mostra "Novas implant." (vendidas no mês) e "Implant. cobradas" (inclui
   parcelas de meses anteriores).
+- **Churn.** Ajuste proporcional das taxas de cada fase/trimestre até a média ponderada pelos clientes
+  ativos bater a meta (Batch 13 fechou em 1,895%). O ajuste é multiplicativo: preserva o desenho da
+  curva. Cópia das taxas antigas em `backup_churn_20260912_*` antes de mexer.
+- **2ª reunião do Fashion Mind: 12%** (era 25%). Só dimensiona o time — não exige recálculo. Efeito:
+  pico de vendedores 21 → 19 em 2030 e −R$ 86 mil no ano. Os R$ 500 por venda e a comissão não mudam,
+  porque dependem do número de clientes, não das reuniões.
+- **ISS de 3%** (Vitória-ES, item 01 da LC 116/03 — faixa de 2% a 3%, usado o teto por prudência).
+- **Retorno da rodada.** O retorno histórico por equity dá 0% enquanto não há reavaliação (a
+  participação vale o que foi paga). Quem decide olha o valor PROJETADO: `simularRetornoInvestidor()`
+  = múltiplo de ARR ou de EBITDA do fim do período × a fatia, contra o capital. Card em Relatórios com
+  capital, fatia, mês do aporte, múltiplo e base editáveis na URL (não altera o programa cadastrado).
+  **Payback em meses** contado da entrada do capital. A TIR do fluxo da empresa virou "TIR do projeto
+  (empresa)", com aviso de que não é o retorno do investidor.
+- **Filtro por produto nos indicadores.** `linhasDoProduto()` recorta as linhas mensais para um produto
+  no MESMO formato do consolidado — todos os indicadores herdam o filtro sem lógica própria (inclusive
+  a composição de COGS/S&M/P&D/G&A). O produto carrega a simulação dele mais a equipe comercial
+  alocada; custos da empresa ficam fora e o imposto é rateado pela fatia na receita. TIR e retorno do
+  investimento não têm filtro (o capital é da empresa). `agregadoVazio()` é a fonte única dos campos,
+  para agregação e recorte não saírem de sincronia.
+- **Atalhos dos indicadores** abrem o Plano de Custos já no card certo e expandido, com o período
+  preservado (`?card=marketing#card-marketing`). A tela de custos tem o botão "Recalcular projeção" —
+  ajusta, recalcula ali e olha a tabela, o mesmo ciclo da tela de Vendas.
+- **Cenários são independentes**: fases, premissas, preços, planos, módulos, canais, COGS, custos,
+  alocações, ações e projeção são de cada um. Compartilhados: produto (preço de implantação e formas de
+  pagamento), modelos de contratação, impostos, plano de contas e tabela de custo/hora — mexer neles
+  afeta os dois cenários, e implantação/formas pedem recálculo nos dois.
