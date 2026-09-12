@@ -608,10 +608,30 @@ function MetricasInvestidor({
           label="Preço médio de venda"
           valor={metricas.precoMedioVenda != null ? formatBRL(metricas.precoMedioVenda) : "recalcule a projeção"}
           detalhe={
-            metricas.ticketMedio != null
-              ? `mensalidade de tabela das vendas · ticket médio ${formatBRL(metricas.ticketMedio)}`
+            metricas.arpaRecorrente != null
+              ? `mensalidade de tabela · ARPA recorrente ${formatBRL(metricas.arpaRecorrente)}`
               : "mensalidade de tabela, ponderada pelas vendas"
           }
+        />
+        {/* Implantação é serviço profissional: receita única, fora do MRR/ARR/PMV/ARPA — mas é o
+            caixa do mês 1, e é com ele que o CAC se compara. */}
+        <Metrica
+          href={hrefDetalhe("ticket_entrada")}
+          label="Ticket de entrada (mês 1)"
+          valor={metricas.ticketEntrada != null ? formatBRL(metricas.ticketEntrada) : "sem implantação no plano"}
+          detalhe={
+            metricas.ticketEntrada != null && metricas.cacMedio != null
+              ? metricas.ticketEntrada >= metricas.cacMedio
+                ? `implantação no ato + 1ª mensalidade · cobre o CAC de ${formatBRL(metricas.cacMedio)}`
+                : `implantação no ato + 1ª mensalidade · CAC de ${formatBRL(metricas.cacMedio)}`
+              : "implantação que o cliente quita no ato + 1ª mensalidade"
+          }
+        />
+        <Metrica
+          href={hrefDetalhe("ticket_entrada")}
+          label="Receita por cobrança"
+          valor={metricas.ticketMedio != null ? formatBRL(metricas.ticketMedio) : "—"}
+          detalhe="receita ÷ cobranças do mês — inclui implantação e descontos"
         />
         <Metrica
           href={hrefDetalhe("churn")}

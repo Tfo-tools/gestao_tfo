@@ -8,6 +8,7 @@ export type IndicadorKey =
   | "churn"
   | "retorno_investimento"
   | "pmv"
+  | "ticket_entrada"
   | "tir"
   | "cogs"
   | "sm"
@@ -67,6 +68,16 @@ export const INDICADORES: IndicadorDef[] = [
     formula:
       "(Receita líquida − COGS) ÷ Receita líquida, no período selecionado. Receita líquida = receita − impostos sobre a receita (DAS enquanto está no Simples; ISS + PIS/COFINS ou CBS/IBS, líquidos de crédito, depois). É a mesma base do benchmark de SaaS (70–85%).",
     editarLinks: [{ label: "Plano de Custos → CSP (COGS do produto)", href: hrefCard("csp") }],
+  },
+  {
+    key: "ticket_entrada",
+    titulo: "Ticket de entrada (mês 1)",
+    formula:
+      "O que um cliente novo paga no mês em que entra: a parcela de implantação que ele quita no ato (pelo mix de formas de pagamento) + a 1ª mensalidade. Implantação é serviço profissional, receita ÚNICA — por isso não entra em MRR, ARR, PMV nem ARPA, mas é o caixa do mês 1 e é com ele que se compara o CAC.",
+    editarLinks: [
+      { label: "Implantação e formas de pagamento (Produtos)", href: (cenarioId: string) => (cenarioId ? `/produtos?cenario=${cenarioId}` : "/produtos") },
+      { label: "Planos e níveis (Produtos)", href: (cenarioId: string) => (cenarioId ? `/produtos?cenario=${cenarioId}` : "/produtos") },
+    ],
   },
   {
     key: "cac",

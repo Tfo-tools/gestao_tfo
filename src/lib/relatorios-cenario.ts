@@ -19,6 +19,7 @@ import {
 } from "@/lib/impostos";
 import { subgrupoDeConta } from "@/lib/subgrupo-conta";
 import { custoAcaoPorMes, vendasAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
+import { formasDePagamento, type FormaPagamentoImplementacao } from "@/lib/simulacao";
 import { categoriaDeConta } from "@/lib/categoria-negocio";
 
 export type Agregado = {
@@ -70,6 +71,15 @@ export type Agregado = {
   /** Fallback do PMV em mês sem venda nova: Σ preço médio × clientes ativos, e esses clientes. */
   pmvPonderadoBase: number;
   clientesComPmv: number;
+  /**
+   * Ticket de entrada: o que um cliente novo paga no mês em que entra — a parcela de implantação
+   * que ele quita no ato (pelo mix de formas de pagamento) + a 1ª mensalidade. Serviço profissional
+   * é receita única, então não entra em MRR, ARR, PMV nem ARPA — mas é o caixa do mês 1.
+   */
+  entradaPonderada: number;
+  /** Valor CHEIO da implantação contratada pelos clientes novos do mês (antes do parcelamento). */
+  implantacaoContratadaPonderada: number;
+  novosComEntrada: number;
   // Quebra por ORIGEM, pra tela de custos mostrar coluna a coluna de onde vem cada real:
   // alocações de equipe por cargo (Necessidade de Contratação) e custos da empresa por grupo.
   alocacaoSdr: number;
@@ -147,6 +157,9 @@ export function agregadoVazio(mes: string): Agregado {
         novosComPmv: 0,
         pmvPonderadoBase: 0,
         clientesComPmv: 0,
+        entradaPonderada: 0,
+        implantacaoContratadaPonderada: 0,
+        novosComEntrada: 0,
         alocacaoSdr: 0,
         alocacaoVendedor: 0,
         alocacaoCoordenador: 0,
@@ -435,8 +448,15 @@ export type Metricas = {
   roiPct: number | null;
   /** Preço médio de venda (mensalidade de tabela) ponderado pelas vendas do período. */
   precoMedioVenda: number | null;
-  /** Ticket médio: receita ÷ clientes ativos, média do período (inclui implementação e descontos). */
+  /** Receita por cobrança: receita ÷ cobranças do período — INCLUI implantação e descontos. Não é
+   *  o ARPA: serviço profissional é receita única e não entra em ticket recorrente. */
   ticketMedio: number | null;
+  /** ARPA recorrente: MRR ÷ clientes ativos, sem implantação — o ticket que o investidor compara. */
+  arpaRecorrente: number | null;
+  /** Ticket de entrada: implantação no ato + 1ª mensalidade do cliente novo (caixa do mês 1). */
+  ticketEntrada: number | null;
+  /** Implantação contratada por cliente novo (valor cheio, já com o desconto da forma escolhida). */
+  implantacaoContratada: number | null;
   /** TIR anualizada (%) — ver tirDoPeriodo. */
   tirAnualPct: number | null;
   /** "capital_novo" quando há investimento novo no fluxo; "projeto" quando é só o fluxo de EBITDA. */
@@ -610,6 +630,11 @@ function precoETir(linhas: Agregado[], totalInvestido: number, capitalNovoPorMes
   const pmvBase = linhas.reduce((s, l) => s + (l.pmvPonderadoBase ?? 0), 0);
   const receita = linhas.reduce((s, l) => s + l.receita, 0);
   const clientesMes = linhas.reduce((s, l) => s + l.clientes, 0);
+  // Recorrente = receita − implantação: é a base do ARPA, que não carrega serviço profissional.
+  const recorrente = linhas.reduce((s, l) => s + l.receita - l.receitaImplementacao, 0);
+  const entradaPonderada = linhas.reduce((s, l) => s + l.entradaPonderada, 0);
+  const implantacaoPonderada = linhas.reduce((s, l) => s + l.implantacaoContratadaPonderada, 0);
+  const novosComEntrada = linhas.reduce((s, l) => s + l.novosComEntrada, 0);
   // Capital novo sem data (programa sem parcela nem data prevista) entra no 1º mês do período.
   const capital =
     capitalNovoPorMes && capitalNovoPorMes.size > 0
@@ -621,6 +646,9 @@ function precoETir(linhas: Agregado[], totalInvestido: number, capitalNovoPorMes
   return {
     precoMedioVenda: novosComPmv > 0 ? pmvPonderado / novosComPmv : clientesComPmv > 0 ? pmvBase / clientesComPmv : null,
     ticketMedio: clientesMes > 0 ? receita / clientesMes : null,
+    arpaRecorrente: clientesMes > 0 ? recorrente / clientesMes : null,
+    ticketEntrada: novosComEntrada > 0 ? entradaPonderada / novosComEntrada : null,
+    implantacaoContratada: novosComEntrada > 0 ? implantacaoPonderada / novosComEntrada : null,
     tirAnualPct: tir != null ? (Math.pow(1 + tir, 12) - 1) * 100 : null,
     tirBase: (capital ? "capital_novo" : "projeto") as "capital_novo" | "projeto",
   };
@@ -704,12 +732,33 @@ export async function agregarPorCenario(
   // Nome de cada produto e o custo da implementação por cliente novo (soma das etapas) — pra
   // separar, no detalhamento do COGS, a implementação dos outros custos lançados.
   const [{ data: produtosRaw }, { data: etapasRaw }] = await Promise.all([
-    supabase.from("produtos").select("id, nome, tem_implementacao, preco_implementacao"),
+    supabase.from("produtos").select("id, nome, tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento"),
     supabase.from("implementacao_etapas").select("produto_id, horas, valor_hora").eq("cenario_id", cenarioId),
   ]);
   const nomeProduto = new Map<string, string>(
     ((produtosRaw ?? []) as { id: string; nome: string }[]).map((p) => [p.id, p.nome]),
   );
+  // Quanto um cliente novo paga de implantação NO ATO, pelo mix de formas: 70% à vista com 10% de
+  // desconto + 30% na 1ª de 5 parcelas = R$ 4.830 de um preço de R$ 7.000. É a parte que entra no
+  // ticket de entrada; o valor cheio contratado fica à parte, pro detalhe.
+  const entradaImplPorCliente = new Map<string, number>();
+  const implContratadaPorCliente = new Map<string, number>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (produtosRaw ?? []) as any[]) {
+    const preco = Number(p.preco_implementacao ?? 0);
+    if (!p.tem_implementacao || preco <= 0) continue;
+    const formas = formasDePagamento({
+      preco_venda: preco,
+      parcelas: Number(p.implementacao_parcelas ?? 1),
+      formas: (p.implementacao_formas_pagamento ?? null) as FormaPagamentoImplementacao[] | null,
+      custo_total: 0,
+    });
+    const noAto = formas.reduce((s, f) => s + (f.fracao * preco * (1 - f.desconto)) / Math.max(1, f.parcelas), 0);
+    const contratado = formas.reduce((s, f) => s + f.fracao * preco * (1 - f.desconto), 0);
+    entradaImplPorCliente.set(p.id, noAto);
+    implContratadaPorCliente.set(p.id, contratado);
+  }
+
   const custoImplPorCliente = new Map<string, number>();
   for (const p of (produtosRaw ?? []) as { id: string; tem_implementacao: boolean | null; preco_implementacao: number | null }[]) {
     if (!p.tem_implementacao || p.preco_implementacao == null) continue;
@@ -937,6 +986,13 @@ export async function agregarPorCenario(
       atual.novosComPmv += novos;
       atual.pmvPonderadoBase += pmv * clientesRow;
       atual.clientesComPmv += clientesRow;
+      // Ticket de entrada do cliente novo deste produto: implantação no ato + 1ª mensalidade.
+      if (novos > 0) {
+        const entradaImpl = entradaImplPorCliente.get(row.produto_id) ?? 0;
+        atual.entradaPonderada += (entradaImpl + pmv) * novos;
+        atual.implantacaoContratadaPonderada += (implContratadaPorCliente.get(row.produto_id) ?? 0) * novos;
+        atual.novosComEntrada += novos;
+      }
     }
     if (row.churn_pct != null) atual.churnPonderado += Number(row.churn_pct) * clientesRow;
     if (row.ltv != null) atual.ltvPonderado += Number(row.ltv) * clientesRow;

@@ -228,6 +228,15 @@ export function indicadoresInvestidor(input: {
   const ltvCac = ltv != null && cac != null && cac > 0 ? ltv / cac : null;
   const lucroBrutoPorCliente = arpa != null && margemBrutaPct != null ? arpa * margemBrutaPct : null;
   const cacPayback = cac != null && lucroBrutoPorCliente != null && lucroBrutoPorCliente > 0 ? cac / lucroBrutoPorCliente : null;
+  // Com a implantação: o que falta do CAC depois da entrada, em meses de lucro bruto. Zero quando a
+  // entrada já cobre a aquisição inteira.
+  const faltaDepoisDaEntrada = cac != null && metricas.ticketEntrada != null ? Math.max(0, cac - metricas.ticketEntrada) : null;
+  const cacPaybackComEntrada =
+    faltaDepoisDaEntrada != null && lucroBrutoPorCliente != null && lucroBrutoPorCliente > 0
+      ? faltaDepoisDaEntrada === 0
+        ? 0
+        : faltaDepoisDaEntrada / lucroBrutoPorCliente
+      : null;
 
   // Churn efetivo: clientes que saíram ÷ clientes que havia no começo de cada mês.
   const baseInicioMes = mensal.reduce((s, m) => s + Math.max(0, m.clientes - m.novos + m.perdidos), 0);
@@ -259,11 +268,14 @@ export function indicadoresInvestidor(input: {
     { grupo: "Margens e unit economics", nome: "S&M em % da receita", valor: receita > 0 ? sm / receita : null, formato: "pct", calculo: "Marketing + vendas + outros S&M do período ÷ receita do período.", referencia: "Tração: 30–50% · Atenção < 10% (meta de clientes sem verba pra sustentar)", leitura: faixa(receita > 0 ? sm / receita : null, (v) => v >= 0.2 && v <= 0.6, (v) => v >= 0.1) },
     { grupo: "Margens e unit economics", nome: "Margem EBITDA do período", valor: metricas.margemOperacional != null ? metricas.margemOperacional / 100 : null, formato: "pct", calculo: "EBITDA acumulado ÷ receita acumulada.", referencia: "—", leitura: null },
     { grupo: "Margens e unit economics", nome: "Preço médio de venda (PMV)", valor: metricas.precoMedioVenda, formato: "brl", calculo: "Mensalidade de tabela de cada venda nova (planos pelo mix + níveis/módulos pela adesão), ponderada pelas vendas do período. Sem descontos e sem implementação.", referencia: "Compare com o ticket médio (abaixo): a diferença são descontos, beta testers e combos.", leitura: null },
-    { grupo: "Margens e unit economics", nome: "Ticket médio mensal por cliente (ARPA)", valor: arpa, formato: "brl", calculo: "MRR ÷ clientes ativos, média do período.", referencia: "Define o perfil do cliente (SMB, mid-market, enterprise).", leitura: null },
+    { grupo: "Margens e unit economics", nome: "Ticket médio mensal por cliente (ARPA)", valor: arpa, formato: "brl", calculo: "MRR ÷ clientes ativos, média do período. Sem implantação: serviço profissional é receita única.", referencia: "Define o perfil do cliente (SMB, mid-market, enterprise).", leitura: null },
+    { grupo: "Margens e unit economics", nome: "Ticket de entrada (mês 1)", valor: metricas.ticketEntrada, formato: "brl", calculo: "Implantação que o cliente novo quita no ato (pelo mix de formas de pagamento) + 1ª mensalidade. É o caixa que ele gera no mês em que entra — fora do MRR/ARR, que só medem recorrência.", referencia: "Compare com o CAC: entrada acima do CAC significa aquisição paga na venda.", leitura: null },
+    { grupo: "Margens e unit economics", nome: "Implantação contratada por cliente", valor: metricas.implantacaoContratada, formato: "brl", calculo: "Valor cheio da implantação por cliente novo, já com o desconto da forma escolhida (à vista, 3×, 5×…). Receita de serviços profissionais, reconhecida na venda.", referencia: "Fora do MRR e do ARR, por ser cobrança única.", leitura: null },
     { grupo: "Margens e unit economics", nome: "CAC (all-in)", valor: cac, formato: "brl", calculo: "(Marketing + Vendas + Outros S&M — mídia, ferramentas, equipe comercial, comissões, parceiros) ÷ novos clientes do período.", referencia: "Precisa incluir salários, comissões e ferramentas (CAC mascarado é red flag).", leitura: null },
     { grupo: "Margens e unit economics", nome: "LTV", valor: ltv, formato: "brl", calculo: "ARPU × margem bruta ÷ churn mensal, ponderado pelos clientes ativos de cada mês.", referencia: "—", leitura: null },
     { grupo: "Margens e unit economics", nome: "LTV : CAC", valor: ltvCac, formato: "x", calculo: "LTV ÷ CAC.", referencia: "Mínimo 3x · Tração > 3,5x", leitura: faixa(ltvCac, (v) => v > 3.5, (v) => v >= 3) },
-    { grupo: "Margens e unit economics", nome: "Payback do CAC", valor: cacPayback, formato: "meses", calculo: "CAC ÷ (ARPA × margem bruta) — meses de lucro bruto pra pagar a aquisição de um cliente.", referencia: "Bom 12–18 meses · Alto < 9 meses · Atenção > 24 meses", leitura: faixa(cacPayback, (v) => v < 9, (v) => v <= 24) },
+    { grupo: "Margens e unit economics", nome: "Payback do CAC com a entrada", valor: cacPaybackComEntrada, formato: cacPaybackComEntrada === 0 ? "texto" : "meses", calculo: "Mesma conta, descontando antes o ticket de entrada (implantação no ato + 1ª mensalidade). Zero = a aquisição se paga já na venda.", referencia: "É o argumento mais forte quando há implantação relevante.", leitura: null },
+    { grupo: "Margens e unit economics", nome: "Payback do CAC", valor: cacPayback, formato: "meses", calculo: "CAC ÷ (ARPA × margem bruta) — meses de lucro bruto pra pagar a aquisição de um cliente. Não considera a implantação.", referencia: "Bom 12–18 meses · Alto < 9 meses · Atenção > 24 meses", leitura: faixa(cacPayback, (v) => v < 9, (v) => v <= 24) },
     { grupo: "Margens e unit economics", nome: "Churn mensal planejado", valor: churnPlanejado, formato: "pct", calculo: "Taxa de churn de cada fase, ponderada pelos clientes ativos do mês.", referencia: "Bom 3–5% a.m. (SMB) · Alto < 2% a.m. · Atenção > 7% a.m.", leitura: faixa(churnPlanejado, (v) => v < 0.02, (v) => v <= 0.07) },
     { grupo: "Margens e unit economics", nome: "Churn mensal efetivo (logos)", valor: churnEfetivo, formato: "pct", calculo: "Clientes que saíram ÷ clientes no início de cada mês, no período.", referencia: "Bom 3–5% a.m. (SMB) · Alto < 2% a.m. · Atenção > 7% a.m.", leitura: faixa(churnEfetivo, (v) => v < 0.02, (v) => v <= 0.07) },
     // Caixa

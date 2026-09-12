@@ -391,6 +391,55 @@ function TabelaIndicador({
     );
   }
 
+  if (indicador === "ticket_entrada") {
+    const novos = linhas.reduce((s, l) => s + l.novosComEntrada, 0);
+    const entrada = linhas.reduce((s, l) => s + l.entradaPonderada, 0);
+    const contratada = linhas.reduce((s, l) => s + l.implantacaoContratadaPonderada, 0);
+    const pmv = linhas.reduce((s, l) => s + l.pmvPonderado, 0);
+    const novosPmv = linhas.reduce((s, l) => s + l.novosComPmv, 0);
+    const mensalidade = novosPmv > 0 ? pmv / novosPmv : 0;
+    const noAto = novos > 0 ? entrada / novos - mensalidade : 0;
+    const smTotal = linhas.reduce((s, l) => s + l.smMarketing + l.smVendas + l.smOutros, 0);
+    const novosTotal = linhas.reduce((s, l) => s + l.novosClientes, 0);
+    const cac = novosTotal > 0 ? smTotal / novosTotal : 0;
+    const ticket = novos > 0 ? entrada / novos : 0;
+    return (
+      <>
+        <CalculoBox
+          linhas={[
+            `Implantação que o cliente quita no ato: ${formatBRL(noAto)}`,
+            `(+) 1ª mensalidade (preço médio de venda): ${formatBRL(mensalidade)}`,
+            `(=) Ticket de entrada: ${formatBRL(ticket)}`,
+            `Implantação contratada por cliente (valor cheio, com o desconto da forma): ${novos > 0 ? formatBRL(contratada / novos) : "—"}`,
+            `CAC do período: ${formatBRL(cac)} → ${ticket >= cac ? "a entrada cobre o CAC na venda" : `faltam ${formatBRL(cac - ticket)} pra cobrir o CAC`}`,
+          ]}
+        />
+        <p className="mb-3 text-[12px] text-text-muted">
+          Implantação é serviço profissional: receita única, reconhecida na venda. Por isso ela não entra em MRR, ARR, preço médio de
+          venda nem ARPA — mas é o caixa do mês 1, e é com esse valor que o CAC se compara. Só produtos com implantação cadastrada
+          aparecem aqui.
+        </p>
+        <Table
+          head={["Mês", "Clientes novos", "Implantação no ato", "1ª mensalidade", "Ticket de entrada"]}
+          rows={linhas
+            .filter((l) => l.novosComEntrada > 0)
+            .map((l) => {
+              const mens = l.novosComPmv > 0 ? l.pmvPonderado / l.novosComPmv : 0;
+              const tot = l.entradaPonderada / l.novosComEntrada;
+              return [
+                formatMes(l.mes_referencia),
+                Math.round(l.novosComEntrada).toLocaleString("pt-BR"),
+                formatBRL(tot - mens),
+                formatBRL(mens),
+                formatBRL(tot),
+              ];
+            })}
+          total={["Média do período", Math.round(novos).toLocaleString("pt-BR"), formatBRL(noAto), formatBRL(mensalidade), formatBRL(ticket)]}
+        />
+      </>
+    );
+  }
+
   if (indicador === "cac") {
     const totalNovos = linhas.reduce((s, l) => s + l.novosClientes, 0);
     const totalMarketing = linhas.reduce((s, l) => s + l.smMarketing, 0);
