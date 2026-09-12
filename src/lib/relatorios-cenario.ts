@@ -106,6 +106,150 @@ export type Agregado = {
   composicao: Record<string, number>;
 };
 
+/** Um mês zerado, com todos os campos do Agregado — usado pela agregação e pelo recorte por produto. */
+export function agregadoVazio(mes: string): Agregado {
+  return {
+        mes_referencia: mes,
+        receita: 0,
+        ebitdaProdutos: 0,
+        clientes: 0,
+        custosEmpresa: 0,
+        ebitda: 0,
+        cogs: 0,
+        novosClientes: 0,
+        cacPonderado: 0,
+        churnPonderado: 0,
+        ltvPonderado: 0,
+        custoCLT: 0,
+        impostoMensal: 0,
+        aliquotaEfetivaImposto: null,
+        regimeTributario: "simples",
+        creditoTributos: 0,
+        irpjCsll: 0,
+        custosCreditaveis: 0,
+        receitaImplementacao: 0,
+        cogsImplementacao: 0,
+        smMarketing: 0,
+        smVendas: 0,
+        smOutros: 0,
+        opexPd: 0,
+        opexGa: 0,
+        gaTaxasFiliacao: 0,
+        smFeirasEventos: 0,
+        novosAcoes: 0,
+        pmvPonderado: 0,
+        novosComPmv: 0,
+        pmvPonderadoBase: 0,
+        clientesComPmv: 0,
+        alocacaoSdr: 0,
+        alocacaoVendedor: 0,
+        alocacaoCoordenador: 0,
+        alocacaoSuporte: 0,
+        alocacaoOutros: 0,
+        empresaSm: 0,
+        empresaPd: 0,
+        empresaGa: 0,
+        alocacaoFixa: 0,
+        alocacaoVariavel: 0,
+        empresaCogs: 0,
+        empresaMarketingLancado: 0,
+        empresaVendasLancado: 0,
+        empresaMarca: 0,
+        alocacaoSm: 0,
+        equipePorProduto: {},
+        demandaDescoberta: { sdr: 0, vendedor: 0 },
+        composicao: {},
+      } satisfies Agregado;
+}
+
+
+/** Uma linha mensal da simulação de um produto — o que o motor gravou em simulacao_mensal. */
+export type LinhaSimProduto = {
+  mes_referencia: string;
+  receita_bruta?: number | null;
+  receita_implementacao?: number | null;
+  ebitda?: number | null;
+  cogs?: number | null;
+  clientes_ativos?: number | null;
+  novos_clientes?: number | null;
+  churn_pct?: number | null;
+  ltv?: number | null;
+  cac_all_in?: number | null;
+  preco_medio_venda?: number | null;
+  novos_acoes?: number | null;
+  sm_marketing?: number | null;
+  sm_vendas?: number | null;
+  sm_outros?: number | null;
+  opex_pd?: number | null;
+  opex_ga?: number | null;
+};
+
+/**
+ * Recorta as linhas mensais para UM produto, no mesmo formato do consolidado — assim todas as telas
+ * de indicador funcionam com o filtro por produto sem lógica própria.
+ *
+ * O que é do produto vem da simulação dele (receita, COGS, S&M, P&D, G&A, clientes, churn, LTV, PMV)
+ * mais a equipe comercial que a alocação deixou nele. Duas coisas não são de um produto e por isso
+ * mudam de tratamento:
+ *  - custos da empresa (feiras, campanhas, CRM, estrutura, equipe não atribuída) ficam FORA;
+ *  - o imposto é rateado pela fatia do produto na receita do mês, porque o DAS/IVA é calculado sobre
+ *    o faturamento da empresa inteira.
+ * O EBITDA é recalculado com essas partes, então é o resultado do produto — não o consolidado.
+ */
+export function linhasDoProduto(
+  linhas: Agregado[],
+  produtoId: string,
+  nomeProduto: string,
+  simRows: LinhaSimProduto[],
+): Agregado[] {
+  const porMes = new Map<string, LinhaSimProduto>();
+  for (const r of simRows) porMes.set(r.mes_referencia, r);
+  const sufixo = `|${nomeProduto}`;
+  return linhas.map((l) => {
+    const r = porMes.get(l.mes_referencia);
+    const n = (v: number | null | undefined) => Number(v ?? 0);
+    const a = agregadoVazio(l.mes_referencia);
+    a.receita = n(r?.receita_bruta);
+    a.receitaImplementacao = n(r?.receita_implementacao);
+    a.ebitdaProdutos = n(r?.ebitda);
+    a.cogs = n(r?.cogs);
+    a.clientes = n(r?.clientes_ativos);
+    a.novosClientes = n(r?.novos_clientes);
+    a.novosAcoes = n(r?.novos_acoes);
+    a.smMarketing = n(r?.sm_marketing);
+    a.smVendas = n(r?.sm_vendas);
+    a.smOutros = n(r?.sm_outros);
+    a.opexPd = n(r?.opex_pd);
+    a.opexGa = n(r?.opex_ga);
+    // Equipe comercial alocada neste produto (SDR, vendedor) — entra em Vendas, como no consolidado.
+    const equipe = l.equipePorProduto[produtoId] ?? 0;
+    a.smVendas += equipe;
+    a.alocacaoSm = equipe;
+    // Imposto rateado pela fatia do produto na receita do mês.
+    const fatia = l.receita > 0 ? a.receita / l.receita : 0;
+    a.impostoMensal = l.impostoMensal * fatia;
+    a.irpjCsll = l.irpjCsll * fatia;
+    a.aliquotaEfetivaImposto = l.aliquotaEfetivaImposto;
+    a.regimeTributario = l.regimeTributario;
+    if (r?.churn_pct != null) a.churnPonderado = Number(r.churn_pct) * a.clientes;
+    if (r?.ltv != null) a.ltvPonderado = Number(r.ltv) * a.clientes;
+    if (r?.cac_all_in != null) a.cacPonderado = Number(r.cac_all_in) * a.novosClientes;
+    if (r?.preco_medio_venda != null) {
+      const pmv = Number(r.preco_medio_venda);
+      a.pmvPonderado = pmv * a.novosClientes;
+      a.novosComPmv = a.novosClientes;
+      a.pmvPonderadoBase = pmv * a.clientes;
+      a.clientesComPmv = a.clientes;
+    }
+    // Composição: as chaves do consolidado terminam com o nome do produto.
+    for (const [chave, valor] of Object.entries(l.composicao)) {
+      if (chave.endsWith(sufixo)) a.composicao[chave] = valor;
+    }
+    a.ebitda = a.receita - a.cogs - a.impostoMensal - a.smMarketing - a.smVendas - a.smOutros - a.opexPd - a.opexGa;
+    return a;
+  });
+}
+
 export type GrupoDre = "cogs" | "sm" | "pd" | "ga";
 
 function compor(atual: Agregado, grupo: GrupoDre, origem: string, rotulo: string, valor: number, produto = "") {
@@ -697,60 +841,7 @@ export async function agregarPorCenario(
   const porMes = new Map<string, Agregado>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const row of (simRows ?? []) as any[]) {
-    const atual =
-      porMes.get(row.mes_referencia) ??
-      ({
-        mes_referencia: row.mes_referencia,
-        receita: 0,
-        ebitdaProdutos: 0,
-        clientes: 0,
-        custosEmpresa: 0,
-        ebitda: 0,
-        cogs: 0,
-        novosClientes: 0,
-        cacPonderado: 0,
-        churnPonderado: 0,
-        ltvPonderado: 0,
-        custoCLT: 0,
-        impostoMensal: 0,
-        aliquotaEfetivaImposto: null,
-        regimeTributario: "simples",
-        creditoTributos: 0,
-        irpjCsll: 0,
-        custosCreditaveis: 0,
-        receitaImplementacao: 0,
-        cogsImplementacao: 0,
-        smMarketing: 0,
-        smVendas: 0,
-        smOutros: 0,
-        opexPd: 0,
-        opexGa: 0,
-        gaTaxasFiliacao: 0,
-        smFeirasEventos: 0,
-        novosAcoes: 0,
-        pmvPonderado: 0,
-        novosComPmv: 0,
-        pmvPonderadoBase: 0,
-        clientesComPmv: 0,
-        alocacaoSdr: 0,
-        alocacaoVendedor: 0,
-        alocacaoCoordenador: 0,
-        alocacaoSuporte: 0,
-        alocacaoOutros: 0,
-        empresaSm: 0,
-        empresaPd: 0,
-        empresaGa: 0,
-        alocacaoFixa: 0,
-        alocacaoVariavel: 0,
-        empresaCogs: 0,
-        empresaMarketingLancado: 0,
-        empresaVendasLancado: 0,
-        empresaMarca: 0,
-        alocacaoSm: 0,
-        equipePorProduto: {},
-        demandaDescoberta: { sdr: 0, vendedor: 0 },
-        composicao: {},
-      } satisfies Agregado);
+    const atual = porMes.get(row.mes_referencia) ?? agregadoVazio(row.mes_referencia);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
     atual.clientes += Number(row.clientes_ativos);

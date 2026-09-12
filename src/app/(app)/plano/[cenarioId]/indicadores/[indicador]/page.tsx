@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { agregarPorCenario, computeMetricas, fluxoTir, recortarPeriodo, type Agregado } from "@/lib/relatorios-cenario";
+import {
+  agregarPorCenario,
+  computeMetricas,
+  fluxoTir,
+  linhasDoProduto,
+  recortarPeriodo,
+  type Agregado,
+  type LinhaSimProduto,
+} from "@/lib/relatorios-cenario";
 import { indicadorPorKey } from "@/lib/indicadores";
 
 function formatBRL(v: number) {
@@ -47,24 +55,21 @@ export default async function PlanoIndicadorDetalhePage({
   const { data: simProduto } = produtoSel
     ? await supabase
         .from("simulacao_mensal")
-        .select("mes_referencia, novos_clientes, sm_marketing, sm_vendas, sm_outros")
+        .select(
+          "mes_referencia, receita_bruta, receita_implementacao, ebitda, cogs, clientes_ativos, novos_clientes, churn_pct, ltv, cac_all_in, preco_medio_venda, novos_acoes, sm_marketing, sm_vendas, sm_outros, opex_pd, opex_ga",
+        )
         .eq("cenario_id", cenarioId)
         .eq("produto_id", produtoSel)
     : { data: [] };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const porMesProduto = new Map(((simProduto ?? []) as any[]).map((r) => [r.mes_referencia, r]));
-  const linhasProduto = produtoSel
-    ? linhas.map((l) => {
-        const r = porMesProduto.get(l.mes_referencia);
-        return {
-          mes: l.mes_referencia,
-          novos: Number(r?.novos_clientes ?? 0),
-          canais: Number(r?.sm_marketing ?? 0) + Number(r?.sm_vendas ?? 0) + Number(r?.sm_outros ?? 0),
-          equipe: l.equipePorProduto[produtoSel] ?? 0,
-        };
-      })
-    : [];
   const nomeProdutoSel = produtosDoCenario.find((p) => p.id === produtoSel)?.nome ?? null;
+  // Mesmas linhas mensais, recortadas pro produto — todos os indicadores passam a funcionar com o
+  // filtro sem código próprio (inclusive a composição de COGS, S&M, P&D e G&A).
+  const linhasExibidas =
+    produtoSel && nomeProdutoSel
+      ? linhasDoProduto(linhas, produtoSel, nomeProdutoSel, (simProduto ?? []) as LinhaSimProduto[])
+      : linhas;
+  // Capital e retorno são da empresa, não de um produto: nesses dois o filtro não se aplica.
+  const filtroPorProduto = def.key !== "tir" && def.key !== "retorno_investimento";
 
   return (
     <div>
@@ -82,7 +87,7 @@ export default async function PlanoIndicadorDetalhePage({
         <p className="mt-2 max-w-2xl text-[12.5px] text-text-muted">{def.formula}</p>
       </div>
 
-      {def.key === "cac" && produtosDoCenario.length > 1 && (
+      {filtroPorProduto && produtosDoCenario.length > 1 && (
         <div className="mb-4 flex flex-wrap items-center gap-1.5 text-[11.5px]">
           <span className="text-text-faint">Produto:</span>
           {[{ id: null as string | null, nome: "Todos (consolidado)" }, ...produtosDoCenario].map((p) => {
@@ -102,18 +107,30 @@ export default async function PlanoIndicadorDetalhePage({
         </div>
       )}
 
+      {produtoSel && (
+        <div className="mb-4 rounded-lg border border-dashed border-border bg-bg px-4 py-2.5 text-[11.5px] text-text-muted">
+          Só o que é <strong>deste produto</strong>: a simulação dele (receita, COGS, S&amp;M, P&amp;D e G&amp;A) mais a equipe comercial
+          que a alocação deixou nele. Ficam de fora os custos da empresa — feiras, campanhas, CRM, estrutura e a equipe não atribuída a
+          produto. O imposto é rateado pela fatia do produto na receita do mês, porque o DAS e o IVA são calculados sobre o faturamento
+          da empresa inteira. Por isso o EBITDA aqui é o resultado do produto, e a soma dos produtos não fecha com o consolidado.
+        </div>
+      )}
+
       {linhas.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
           <p className="text-sm text-text-muted">Nenhum dado calculado nesse período — recalcule a projeção em Produtos primeiro.</p>
         </div>
       ) : (
         <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-          {def.key === "cac" && produtoSel ? (
-            <TabelaCacProduto nome={nomeProdutoSel ?? "produto"} linhas={linhasProduto} />
-          ) : def.key === "cogs" || def.key === "sm" || def.key === "pd" || def.key === "ga" ? (
-            <ComposicaoGrupo grupo={def.key} linhas={linhas} cenarioId={cenarioId} />
+          {def.key === "cogs" || def.key === "sm" || def.key === "pd" || def.key === "ga" ? (
+            <ComposicaoGrupo grupo={def.key} linhas={linhasExibidas} cenarioId={cenarioId} />
           ) : (
-            <TabelaIndicador indicador={def.key} linhas={linhas} totalInvestido={resumo.totalInvestido} capitalNovoPorMes={resumo.aportes.capitalNovoPorMes} />
+            <TabelaIndicador
+              indicador={def.key}
+              linhas={linhasExibidas}
+              totalInvestido={resumo.totalInvestido}
+              capitalNovoPorMes={resumo.aportes.capitalNovoPorMes}
+            />
           )}
         </div>
       )}
@@ -665,62 +682,6 @@ function CalculoBox({ linhas }: { linhas: string[] }) {
         ))}
       </div>
     </div>
-  );
-}
-
-/**
- * CAC de um produto só. O que é atribuível a ele: canais de parceiro e mídia lançados na simulação
- * do produto, mais a equipe comercial que a alocação deixou nele. Marketing e vendas da empresa
- * ficam de fora de propósito — não dá pra dizer que uma feira ou o CRM é "do Skills".
- */
-function TabelaCacProduto({
-  nome,
-  linhas,
-}: {
-  nome: string;
-  linhas: { mes: string; novos: number; canais: number; equipe: number }[];
-}) {
-  const novos = linhas.reduce((s, l) => s + l.novos, 0);
-  const canais = linhas.reduce((s, l) => s + l.canais, 0);
-  const equipe = linhas.reduce((s, l) => s + l.equipe, 0);
-  const total = canais + equipe;
-  return (
-    <>
-      <CalculoBox
-        linhas={[
-          `Canais e mídia do ${nome}: ${formatBRL(canais)}`,
-          `(+) Equipe comercial alocada nele: ${formatBRL(equipe)}`,
-          `(=) Custo de aquisição do produto: ${formatBRL(total)}`,
-          `(÷) Novos clientes do ${nome}: ${Math.round(novos).toLocaleString("pt-BR")}`,
-          `CAC = ${formatBRL(total)} ÷ ${Math.round(novos).toLocaleString("pt-BR")} = ${novos > 0 ? formatBRL(total / novos) : "—"}`,
-        ]}
-      />
-      <p className="mb-3 text-[12px] text-text-muted">
-        Só o que é do produto: canais de parceiro e mídia da simulação dele, mais a equipe comercial que a alocação deixou nele —
-        rateada pela demanda que cada produto gera. Marketing e vendas da empresa (feiras, campanhas, agência, CRM) não entram aqui;
-        veja o consolidado em &quot;Todos&quot;.
-      </p>
-      <Table
-        head={["Mês", "Novos clientes", "Canais e mídia", "Equipe comercial", "CAC do mês"]}
-        rows={linhas.map((l) => {
-          const custo = l.canais + l.equipe;
-          return [
-            formatMes(l.mes),
-            Math.round(l.novos).toLocaleString("pt-BR"),
-            formatBRL(l.canais),
-            formatBRL(l.equipe),
-            l.novos > 0 ? formatBRL(custo / l.novos) : "—",
-          ];
-        })}
-        total={[
-          "Total do período",
-          Math.round(novos).toLocaleString("pt-BR"),
-          formatBRL(canais),
-          formatBRL(equipe),
-          novos > 0 ? formatBRL(total / novos) : "—",
-        ]}
-      />
-    </>
   );
 }
 
