@@ -1010,6 +1010,10 @@ export async function agregarPorCenario(
       const produtoRefId = c.parametros?.produto_referencia_id as string | undefined;
       const faseReferencia = produtoRefId ? faseDoProdutoNoMes(fasesPorProduto.get(produtoRefId) ?? [], mesDate) : null;
       const valor = custoEmpresaNoMes(c as CustoEmpresaInput, mesDate, atual.receita, atual.clientes, faseReferencia);
+      // Pró-labore e folha própria lançados como custo da empresa contam na "folha" do Fator R
+      // (LC 123, art. 18 §24 inclui pró-labore): sem isso o app subestimava a folha e podia manter a
+      // empresa no Anexo V (15,5%) num ano em que ela já cairia no III (6%).
+      if (valor > 0 && c.parametros?.folha === true) atual.custoCLT += valor;
       custosEmpresa += valor;
       if (valor !== 0 && c.plano_contas) {
         const sub = subgrupoDeConta(c.plano_contas.codigo, c.plano_contas.tipo);

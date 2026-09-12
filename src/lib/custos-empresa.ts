@@ -24,6 +24,8 @@ export type ParametrosCustoEmpresa = {
   // de cada produto no mês; "manual" usa os percentuais fixados em rateio_manual (0 a 1, somando
   // até 1 — o que sobra fica sem atribuição a nenhum produto, só no total da empresa).
   rateio_modo?: "auto_clientes" | "auto_receita" | "manual";
+  /** Conta como folha de salários no Fator R do Simples (pró-labore, CLT próprio). */
+  folha?: boolean;
   rateio_manual?: Record<string, number>;
 };
 
