@@ -268,8 +268,10 @@ export default async function PlanoCustosPage({
   const periodoIni = resumo.linhasPeriodo[0]?.mes_referencia ?? "";
   const periodoFim = resumo.linhasPeriodo[resumo.linhasPeriodo.length - 1]?.mes_referencia ?? "";
   const equipePorProduto: Record<string, number> = {};
+  const marketingPorProduto: Record<string, number> = {};
   for (const l of resumo.linhasPeriodo) {
     for (const [pid, v] of Object.entries(l.equipePorProduto)) equipePorProduto[pid] = (equipePorProduto[pid] ?? 0) + v;
+    for (const [pid, v] of Object.entries(l.marketingPorProduto)) marketingPorProduto[pid] = (marketingPorProduto[pid] ?? 0) + v;
   }
   const cacProdutos = (produtosCenario ?? [])
     .map((p) => {
@@ -277,10 +279,23 @@ export default async function PlanoCustosPage({
       const novos = rows.reduce((s, r) => s + Number(r.novos_clientes ?? 0), 0);
       const canais = rows.reduce((s, r) => s + Number(r.sm_marketing ?? 0) + Number(r.sm_vendas ?? 0) + Number(r.sm_outros ?? 0), 0);
       const equipe = equipePorProduto[p.id] ?? 0;
-      return { id: p.id, nome: p.nome, novos, canais, equipe, cac: novos > 0 ? (canais + equipe) / novos : null };
+      const marketing = marketingPorProduto[p.id] ?? 0;
+      return {
+        id: p.id,
+        nome: p.nome,
+        novos,
+        canais,
+        marketing,
+        equipe,
+        cac: novos > 0 ? (canais + marketing + equipe) / novos : null,
+      };
     })
-    .filter((x) => x.novos > 0 || x.canais + x.equipe > 0);
-  const smEmpresa = resumo.linhasPeriodo.reduce((s, l) => s + l.empresaSm + (l.equipePorProduto[""] ?? 0), 0);
+    .filter((x) => x.novos > 0 || x.canais + x.marketing + x.equipe > 0);
+  // Só o que sobrou sem produto: ação de marketing sem retorno cadastrado e equipe não atribuída.
+  const smEmpresa =
+    (marketingPorProduto[""] ?? 0) +
+    (equipePorProduto[""] ?? 0) +
+    resumo.linhasPeriodo.reduce((s, l) => s + l.empresaVendasLancado, 0);
   const novosPeriodo = cacProdutos.reduce((s, x) => s + x.novos, 0);
 
   // Cobertura do canal direto: a meta de clientes diretos (crescimento das fases) × o que as ações de
@@ -421,8 +436,9 @@ export default async function PlanoCustosPage({
         <div className="mt-6 rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-1 font-heading text-[13px] font-semibold">CAC por produto no período</h2>
           <p className="mb-3 text-[11.5px] text-text-muted">
-            O que é de cada produto: canais de parceiro, mídia do self-service e a equipe comercial que trabalha nele (SDR PJ e vendedor no
-            Mind, SDR as a Service no Price e no Skills, conforme a alocação). Marketing e vendas da empresa ficam numa linha à parte.
+            O que é de cada produto: canais de parceiro, mídia do self-service, o marketing atribuído a ele (ação pelos clientes que
+            promete; custo lançado pelo rateio — por receita quando não há rateio definido) e a equipe comercial que trabalha nele. O que
+            não dá pra atribuir fica na última linha.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[12px]">
@@ -431,6 +447,7 @@ export default async function PlanoCustosPage({
                   <th className="px-2 py-1.5 font-medium">Produto</th>
                   <th className="px-2 py-1.5 text-right font-medium">Novos clientes</th>
                   <th className="px-2 py-1.5 text-right font-medium">Canais e mídia</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Marketing atribuído</th>
                   <th className="px-2 py-1.5 text-right font-medium">Equipe comercial</th>
                   <th className="px-2 py-1.5 text-right font-medium">CAC do produto</th>
                 </tr>
@@ -441,14 +458,17 @@ export default async function PlanoCustosPage({
                     <td className="px-2 py-1.5">{x.nome}</td>
                     <td className="px-2 py-1.5 text-right font-mono">{Math.round(x.novos).toLocaleString("pt-BR")}</td>
                     <td className="px-2 py-1.5 text-right font-mono">{formatBRL(x.canais)}</td>
+                    <td className="px-2 py-1.5 text-right font-mono">{formatBRL(x.marketing)}</td>
                     <td className="px-2 py-1.5 text-right font-mono">{formatBRL(x.equipe)}</td>
                     <td className="px-2 py-1.5 text-right font-mono font-semibold">{x.cac != null ? formatBRL(x.cac) : "—"}</td>
                   </tr>
                 ))}
                 <tr className="border-t border-border-soft text-text-muted">
-                  <td className="px-2 py-1.5">Marketing e vendas da empresa (feiras, campanhas, lançado, CRM)</td>
+                  <td className="px-2 py-1.5">
+                    Não atribuído a produto (ação sem retorno cadastrado, CRM e vendas da empresa)
+                  </td>
                   <td className="px-2 py-1.5 text-right font-mono">—</td>
-                  <td className="px-2 py-1.5 text-right font-mono" colSpan={2}>{formatBRL(smEmpresa)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono" colSpan={3}>{formatBRL(smEmpresa)}</td>
                   <td className="px-2 py-1.5 text-right font-mono">
                     {novosPeriodo > 0 ? `+ ${formatBRL(smEmpresa / novosPeriodo)} por cliente` : "—"}
                   </td>

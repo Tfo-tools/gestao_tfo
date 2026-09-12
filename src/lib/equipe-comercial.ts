@@ -22,7 +22,39 @@ export type AlocacaoEquipe = {
   produto_id?: string | null;
   produto_ids?: string[] | null;
   created_at?: string | null;
+  /** Conversão lead → oportunidade deste modelo em cada produto: { produtoId: 0.03 }. Sem valor,
+   *  vale a taxa do modelo. */
+  conversao_por_produto?: Record<string, number> | null;
+  /** Quanto da demanda esta alocação absorve. */
+  cobertura_modo?: CoberturaModo | null;
+  /** Fatia absorvida quando o modo é "percentual" (0 a 100). */
+  cobertura_pct?: number | null;
 };
+
+/**
+ * Quanto da demanda uma alocação absorve:
+ *  - "demanda": tudo o que a meta pedir (o custo acompanha o volume);
+ *  - "percentual": só uma fatia — o resto chega por marketing/impulsionamento, que é o caso de
+ *    produto intuitivo, fechado pela composição das ações e não por uma delas isolada;
+ *  - "pacote": teto de quantidade × capacidade do modelo.
+ */
+export type CoberturaModo = "demanda" | "percentual" | "pacote";
+
+export const LABEL_COBERTURA: Record<CoberturaModo, string> = {
+  demanda: "Toda a demanda",
+  percentual: "Parte da demanda (%)",
+  pacote: "Teto pelo pacote contratado",
+};
+
+/** Taxa de conversão deste modelo num produto — a da alocação vence a do modelo. */
+export function taxaConversao(a: Pick<AlocacaoEquipe, "conversao_por_produto">, modelo: ModeloEquipe, produtoId: string): number | null {
+  const daAlocacao = a.conversao_por_produto?.[produtoId];
+  if (daAlocacao != null && daAlocacao > 0) return daAlocacao;
+  const p = modelo.parametros;
+  const bot = p.leads_maximos_pacote != null || p.valor_por_lead_trabalhado != null;
+  const t = bot ? p.taxa_qualificacao_estimada || p.taxa_qualificacao : p.taxa_qualificacao;
+  return t && t > 0 ? t : null;
+}
 
 export type ModeloEquipe = {
   id: string;
@@ -76,7 +108,9 @@ export type ItemEquipeMes = {
   demanda: number;
   coberto: number;
   unidades: number;
-  /** Custo atribuído a cada produto, pela parte da demanda que ela cobriu ("" = sem produto). */
+  /** Leads que o modelo precisou trabalhar no mês (só em modelo cobrado por lead). */
+  leads?: number;
+  /** Custo atribuído a cada produto: pelos leads que cada um consome (SDR) ou pela demanda coberta. */
   porProduto: Record<string, number>;
   rotulo: string;
 };
@@ -127,8 +161,32 @@ export function custoEquipeNoMes(params: {
     const alvo = (escopo ?? produtos).filter((p) => restante[p]);
     const disponivelPorProduto = alvo.map((p) => (chave ? Math.max(0, restante[p][chave]) : 0));
     const disponivel = disponivelPorProduto.reduce((s, v) => s + v, 0);
-    const { coberto, cobrado } = volumeCobertoPelaAlocacao(tipo, modelo.parametros, Number(a.quantidade), disponivel);
+    // Cobertura: quanto desta demanda a alocação absorve, antes de qualquer teto de pacote.
+    const modo: CoberturaModo = a.cobertura_modo ?? "demanda";
+    const pct = modo === "percentual" ? Math.min(100, Math.max(0, Number(a.cobertura_pct ?? 100))) / 100 : 1;
+    const alvoDemanda = disponivel * pct;
+    // CLT e pacote fechado são decisões discretas: a quantidade CONTRATADA vale em qualquer modo —
+    // você paga a pessoa mesmo que a demanda caia. Nos modelos cobrados por volume (PJ, agência,
+    // bot), a quantidade só é teto no modo "pacote"; nos outros, o volume é que manda.
+    const discreto = tipo === "clt" || tipo === "empresa_fixo_escopo";
+    const quantidadeTeto = discreto || modo === "pacote" ? Number(a.quantidade) : 0;
+    const { coberto, cobrado } = volumeCobertoPelaAlocacao(tipo, modelo.parametros, quantidadeTeto, alvoDemanda);
     const fator = disponivel > 0 ? Math.min(1, coberto / disponivel) : 0;
+
+    // Leads por produto: cada produto tem sua conversão, então a soma não sai de uma taxa única.
+    let leads: number | undefined;
+    const leadsPorProduto: number[] = alvo.map(() => 0);
+    if (chave === "sdr") {
+      let total = 0;
+      alvo.forEach((p, i) => {
+        const oportunidades = disponivelPorProduto[i] * fator;
+        const taxa = taxaConversao(a, modelo, p);
+        const l = taxa && taxa > 0 ? oportunidades / taxa : 0;
+        leadsPorProduto[i] = l;
+        total += l;
+      });
+      if (total > 0) leads = total;
+    }
 
     let vendas = 0;
     let receitaNovasVendas = 0;
@@ -144,15 +202,22 @@ export function custoEquipeNoMes(params: {
 
     const contexto =
       chave === "sdr"
-        ? { reunioes: coberto }
+        ? { reunioes: coberto, ...(leads != null ? { leads } : {}) }
         : chave === "vendedor"
           ? { reunioes: coberto, vendas, receitaNovasVendas }
           : {};
     const { custoMensal, unidades } = custoMensalModelo(tipo, modelo.parametros, cobrado, contexto);
 
     const porProduto: Record<string, number> = {};
+    const totalLeads = leadsPorProduto.reduce((s, v) => s + v, 0);
     const consumoTotal = disponivel * fator;
-    if (consumoTotal > 0) {
+    if (chave === "sdr" && totalLeads > 0) {
+      // Quem consome mais lead paga mais: é o lead que gera o custo no modelo cobrado por volume.
+      alvo.forEach((p, i) => {
+        const parte = leadsPorProduto[i] / totalLeads;
+        if (parte > 0) porProduto[p] = (porProduto[p] ?? 0) + custoMensal * parte;
+      });
+    } else if (consumoTotal > 0) {
       alvo.forEach((p, i) => {
         const parte = (disponivelPorProduto[i] * fator) / consumoTotal;
         if (parte > 0) porProduto[p] = (porProduto[p] ?? 0) + custoMensal * parte;
@@ -173,6 +238,7 @@ export function custoEquipeNoMes(params: {
       coberto,
       unidades,
       porProduto,
+      leads,
       rotulo: `${modelo.nome ?? a.cargo} — ${a.cargo}`,
     });
   }

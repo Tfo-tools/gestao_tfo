@@ -37,6 +37,9 @@ function montarParametrosEscalonado(formData: FormData): ResultadoParametros {
 
 function montarRateio(formData: FormData): Record<string, unknown> {
   const rateio_modo = String(formData.get("rateio_modo") || "");
+  // "Só de um produto" chega como rateio manual com 100% no produto escolhido.
+  const exclusivo = String(formData.get("rateio_exclusivo") || "");
+  if (exclusivo) return { rateio_modo: "manual", rateio_manual: { [exclusivo]: 1 } };
   if (rateio_modo !== "auto_clientes" && rateio_modo !== "auto_receita" && rateio_modo !== "manual") return {};
   if (rateio_modo === "auto_clientes" || rateio_modo === "auto_receita") return { rateio_modo };
 

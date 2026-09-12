@@ -506,7 +506,10 @@ function MatrizPorProduto({
 
 function EditarCompartilhadoForm({ cenarioId, produtos, custo }: { cenarioId: string; produtos: Produto[]; custo: CustoEmpresaRow }) {
   const [state, formAction, pending] = useActionState(atualizarCustoEmpresa, initialState);
-  const [rateioModo, setRateioModo] = useState<"auto_clientes" | "auto_receita" | "manual">(custo.parametros.rateio_modo ?? (rateioPorReceita(custo.parametros, custo.tipo_custo as TipoCustoEmpresa) ? "auto_receita" : "auto_clientes"));
+  // Rateio manual com 100% num produto só é, na prática, custo exclusivo dele.
+  const manuais = Object.entries(custo.parametros.rateio_manual ?? {}).filter(([, v]) => Number(v) > 0);
+  const exclusivoAtual = manuais.length === 1 && Number(manuais[0][1]) >= 0.999 ? manuais[0][0] : null;
+  const [rateioModo, setRateioModo] = useState<"auto_clientes" | "auto_receita" | "manual" | "exclusivo">(exclusivoAtual ? "exclusivo" : (custo.parametros.rateio_modo ?? (rateioPorReceita(custo.parametros, custo.tipo_custo as TipoCustoEmpresa) ? "auto_receita" : "auto_clientes")));
 
   return (
     <form action={formAction} className="flex flex-col gap-2.5">
@@ -524,13 +527,14 @@ function EditarCompartilhadoForm({ cenarioId, produtos, custo }: { cenarioId: st
           <label className="mb-1 block text-[10.5px] text-text-faint">Rateio</label>
           <select
             value={rateioModo}
-            onChange={(e) => setRateioModo(e.target.value as "auto_clientes" | "auto_receita" | "manual")}
+            onChange={(e) => setRateioModo(e.target.value as "auto_clientes" | "auto_receita" | "manual" | "exclusivo")}
             name="rateio_modo"
             className="input w-[170px]"
           >
             <option value="auto_clientes">Automático (clientes ativos)</option>
             <option value="auto_receita">Automático (receita do produto)</option>
             <option value="manual">Manual, por produto</option>
+            <option value="exclusivo">Só de um produto</option>
           </select>
         </div>
       </div>
@@ -549,6 +553,21 @@ function EditarCompartilhadoForm({ cenarioId, produtos, custo }: { cenarioId: st
               />
             </div>
           ))}
+        </div>
+      )}
+      {/* "Só de um produto" é o rateio manual com 100% num produto — o jeito de dizer que a verba é
+          exclusiva dele (ex: mídia só do Skills) em vez de dividir entre todos. */}
+      {rateioModo === "exclusivo" && (
+        <div className="rounded-lg bg-bg p-2.5">
+          <input type="hidden" name="rateio_modo" value="manual" />
+          <label className="mb-1 block text-[10px] text-text-faint">Produto que carrega 100% deste custo</label>
+          <select name="rateio_exclusivo" className="input w-[220px]" defaultValue={exclusivoAtual ?? produtos[0]?.id}>
+            {produtos.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
@@ -593,7 +612,7 @@ function NovoCustoMatrizForm({ cenarioId, produtos, planoContas }: { cenarioId: 
 function NovoCustoCompartilhadoForm({ cenarioId, produtos, planoContas }: { cenarioId: string; produtos: Produto[]; planoContas: PlanoContas[] }) {
   const [state, formAction, pending] = useActionState(criarCustoEmpresa, initialState);
   const [tipoCusto, setTipoCusto] = useState<TipoCustoEmpresa>("fixo");
-  const [rateioModo, setRateioModo] = useState<"auto_clientes" | "auto_receita" | "manual">("auto_clientes");
+  const [rateioModo, setRateioModo] = useState<"auto_clientes" | "auto_receita" | "manual" | "exclusivo">("auto_clientes");
   const formRef = useRef<HTMLFormElement>(null);
 
   return (
@@ -658,10 +677,11 @@ function NovoCustoCompartilhadoForm({ cenarioId, produtos, planoContas }: { cena
 
         <div>
           <label className="mb-1 block text-[10.5px] text-text-faint">Rateio entre produtos</label>
-          <select value={rateioModo} onChange={(e) => setRateioModo(e.target.value as "auto_clientes" | "auto_receita" | "manual")} name="rateio_modo" className="input w-[190px]">
+          <select value={rateioModo} onChange={(e) => setRateioModo(e.target.value as "auto_clientes" | "auto_receita" | "manual" | "exclusivo")} name="rateio_modo" className="input w-[190px]">
             <option value="auto_clientes">Automático (clientes ativos)</option>
             <option value="auto_receita">Automático (receita do produto)</option>
             <option value="manual">Manual, por produto</option>
+            <option value="exclusivo">Só de um produto</option>
           </select>
         </div>
 
@@ -678,6 +698,21 @@ function NovoCustoCompartilhadoForm({ cenarioId, produtos, planoContas }: { cena
               <input name={`rateio_manual_${p.id}`} type="number" step="0.1" className="input w-[90px]" />
             </div>
           ))}
+        </div>
+      )}
+      {/* "Só de um produto" é o rateio manual com 100% num produto — o jeito de dizer que a verba é
+          exclusiva dele (ex: mídia só do Skills) em vez de dividir entre todos. */}
+      {rateioModo === "exclusivo" && (
+        <div className="rounded-lg bg-bg p-2.5">
+          <input type="hidden" name="rateio_modo" value="manual" />
+          <label className="mb-1 block text-[10px] text-text-faint">Produto que carrega 100% deste custo</label>
+          <select name="rateio_exclusivo" className="input w-[220px]" defaultValue={produtos[0]?.id}>
+            {produtos.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 

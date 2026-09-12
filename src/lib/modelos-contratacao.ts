@@ -75,6 +75,12 @@ export type ContextoCusto = {
   receitaNovasVendas?: number;
   /** Pessoas/unidades no mês — o teto de ligações combinado é por pessoa. */
   unidades?: number;
+  /**
+   * Leads já calculados fora, quando cada produto tem sua própria taxa de conversão: o Skills
+   * converte mais fácil que o Price com o mesmo bot, então a soma dos leads não sai de uma taxa
+   * única. Quando vem preenchido, substitui o cálculo interno por taxa.
+   */
+  leads?: number;
 };
 
 /** Bot de SDR (IA): cobra por lead e escala em pacotes — não tem teto de ligações por pessoa. */
@@ -85,6 +91,7 @@ function ehBotDeLeads(parametros: ParametrosModelo): boolean {
 /** Ligações necessárias pra agendar as reuniões do mês, na eficiência deste modelo. Respeita o
  *  teto combinado: com PJ dá pra contratar produtividade menor e pagar menos. */
 function ligacoesDoMes(parametros: ParametrosModelo, contexto: ContextoCusto): number {
+  if (contexto.leads != null) return contexto.leads;
   if (contexto.ligacoes != null) return contexto.ligacoes;
   const reunioes = contexto.reunioes ?? 0;
   // No bot, a oportunidade é o lead QUALIFICADO — a mesma taxa que ele usa pra cobrar o

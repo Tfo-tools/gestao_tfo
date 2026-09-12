@@ -5,7 +5,14 @@ import { criarAlocacaoModelo, editarAlocacaoModelo, excluirAlocacaoModelo, type 
 import { leadsParaReunioes } from "@/lib/modelos-contratacao";
 import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
 import { cargoChave, type CargoChave, type DemandaProdutoMes } from "@/lib/necessidade-contratacao";
-import { custoEquipeNoMes, demandaDoCargo, produtosDaAlocacao, type ModeloEquipe } from "@/lib/equipe-comercial";
+import {
+  custoEquipeNoMes,
+  demandaDoCargo,
+  produtosDaAlocacao,
+  LABEL_COBERTURA,
+  type CoberturaModo,
+  type ModeloEquipe,
+} from "@/lib/equipe-comercial";
 import { InfoTooltip } from "@/components/info-tooltip";
 
 type Modelo = { id: string; cargo: string; tipo_modelo: string; nome: string; categoria?: "pd" | "sm" | "ga"; parametros: ParametrosModelo };
@@ -19,6 +26,9 @@ type Alocacao = {
   produto_id?: string | null;
   produto_ids?: string[] | null;
   created_at?: string | null;
+  conversao_por_produto?: Record<string, number> | null;
+  cobertura_modo?: CoberturaModo | null;
+  cobertura_pct?: number | null;
 };
 type Produto = { id: string; nome: string };
 
@@ -337,23 +347,99 @@ function precisaQuantidade(tipo: string): boolean {
   return tipo === "clt" || tipo === "empresa_fixo_escopo";
 }
 
-function EscolhaProdutos({ produtos, marcados }: { produtos: Produto[]; marcados?: string[] | null }) {
+function EscolhaProdutos({
+  produtos,
+  marcados,
+  conversao,
+  taxaPadrao,
+}: {
+  produtos: Produto[];
+  marcados?: string[] | null;
+  conversao?: Record<string, number> | null;
+  /** Taxa do modelo, usada como placeholder quando o produto não tem taxa própria. */
+  taxaPadrao?: number | null;
+}) {
   if (produtos.length <= 1) return null;
   return (
     <div className="flex flex-col">
       <label className="mb-0.5 flex items-center text-[9.5px] text-text-faint">
-        Produtos
-        <InfoTooltip texto="Em quais produtos esta alocação trabalha. Ex: SDR PJ e vendedor só no Fashion Mind; SDR as a Service (bot) só no Price e no Skills. Sem nenhum marcado, vale para todos. Uma reunião nunca é cobrada por duas alocações: as presas a produto cobrem primeiro, as gerais ficam com o resto." />
+        Produtos e conversão de cada um
+        <InfoTooltip texto="Em quais produtos esta alocação trabalha e com que conversão em cada um. Ex: SDR PJ e vendedor só no Fashion Mind; o bot no Price e no Skills — e o Skills converte melhor, porque é mais fácil de entender sozinho. A conversão é lead → oportunidade: quanto melhor, menos leads para o mesmo resultado, e mais barato. Em branco, vale a taxa do modelo. Sem produto marcado, a alocação vale para todos." />
       </label>
-      <div className="flex h-[34px] items-center gap-2.5 rounded-md border border-border px-2">
+      <div className="flex flex-wrap items-center gap-3 rounded-md border border-border px-2 py-1.5">
         {produtos.map((p) => (
-          <label key={p.id} className="flex items-center gap-1 text-[11.5px]">
+          <span key={p.id} className="flex items-center gap-1 text-[11.5px]">
             <input type="checkbox" name="produto_ids" value={p.id} defaultChecked={marcados?.includes(p.id) ?? false} />
             {nomeCurto(p.nome)}
-          </label>
+            <input
+              name={`conversao_${p.id}`}
+              type="number"
+              step="0.1"
+              min="0"
+              max="100"
+              defaultValue={conversao?.[p.id] != null ? Number((conversao[p.id] * 100).toFixed(3)) : undefined}
+              placeholder={taxaPadrao ? (taxaPadrao * 100).toFixed(1) : "%"}
+              title={`Conversão lead → oportunidade do ${p.nome} com este modelo (%)`}
+              className="input w-[62px] px-1.5 py-0.5 text-[11px]"
+            />
+            <span className="text-text-faint">%</span>
+          </span>
         ))}
       </div>
     </div>
+  );
+}
+
+/** Quanto da demanda a alocação absorve — substitui o campo de quantidade, que só faz sentido no
+ *  modo "pacote" e em contrato discreto (CLT). */
+function EscolhaCobertura({
+  modeloSelecionado,
+  cargo,
+  modo,
+  setModo,
+  pct,
+  quantidade,
+}: {
+  modeloSelecionado?: Modelo;
+  cargo: string;
+  modo: CoberturaModo;
+  setModo: (m: CoberturaModo) => void;
+  pct?: number | null;
+  quantidade?: number;
+}) {
+  const discreto = modeloSelecionado ? precisaQuantidade(modeloSelecionado.tipo_modelo) : false;
+  return (
+    <>
+      <div>
+        <label className="mb-0.5 flex items-center text-[9.5px] text-text-faint">
+          Cobertura da demanda
+          <InfoTooltip texto="Toda a demanda: a alocação cobre tudo o que a meta pedir e o custo acompanha o volume. Parte da demanda: ela absorve só a fatia que você informar — o resto chega por marketing e impulsionamento, que é o caso de produto intuitivo, fechado pela composição das ações e não por uma isolada. Teto pelo pacote: limita em quantidade × capacidade do modelo, e o que passar fica como esforço próprio, sem custo." />
+        </label>
+        <select name="cobertura_modo" value={modo} onChange={(e) => setModo(e.target.value as CoberturaModo)} className="input w-[190px]">
+          {(Object.keys(LABEL_COBERTURA) as CoberturaModo[]).map((k) => (
+            <option key={k} value={k}>
+              {LABEL_COBERTURA[k]}
+            </option>
+          ))}
+        </select>
+      </div>
+      {modo === "percentual" && (
+        <div>
+          <label className="mb-0.5 block text-[9.5px] text-text-faint">% da demanda</label>
+          <input name="cobertura_pct" type="number" min="0" max="100" step="1" defaultValue={pct ?? 60} className="input w-[90px]" />
+        </div>
+      )}
+      {(modo === "pacote" || discreto) && (
+        <div>
+          <label className="mb-0.5 flex items-center text-[9.5px] text-text-faint">
+            {discreto ? "Qtd. contratada" : "Qtd. do pacote"}
+            <InfoTooltip texto={ajudaQuantidade(cargo, modeloSelecionado)} />
+          </label>
+          <input name="quantidade" type="number" min="0" step="1" defaultValue={quantidade ?? 1} className="input w-[110px]" required />
+        </div>
+      )}
+      {modo !== "pacote" && !discreto && <input type="hidden" name="quantidade" value={quantidade ?? 0} />}
+    </>
   );
 }
 
@@ -376,6 +462,7 @@ function AlocacaoModelo({
   const modeloById = new Map(modelos.map((m) => [m.id, m]));
   const [modeloSelecionadoId, setModeloSelecionadoId] = useState("");
   const [formKey, setFormKey] = useState(0);
+  const [coberturaModo, setCoberturaModo] = useState<CoberturaModo>("demanda");
   const modeloSelecionado = modeloById.get(modeloSelecionadoId);
 
   return (
@@ -431,23 +518,14 @@ function AlocacaoModelo({
               </option>
             ))}
           </select>
-          <EscolhaProdutos produtos={produtos} />
-          <div>
-            <label className="mb-0.5 flex items-center text-[9.5px] text-text-faint">
-              {modeloSelecionado && !precisaQuantidade(modeloSelecionado.tipo_modelo) ? "Qtd. (0 = toda a demanda)" : "Qtd."}
-              <InfoTooltip texto={ajudaQuantidade(cargo, modeloSelecionado)} />
-            </label>
-            <input
-              key={modeloSelecionadoId}
-              name="quantidade"
-              type="number"
-              min="0"
-              step="1"
-              defaultValue={modeloSelecionado && !precisaQuantidade(modeloSelecionado.tipo_modelo) ? 0 : 1}
-              className="input w-[110px]"
-              required
-            />
-          </div>
+          <EscolhaProdutos produtos={produtos} taxaPadrao={modeloSelecionado ? taxaDoModelo(modeloSelecionado.parametros) : null} />
+          <EscolhaCobertura
+            modeloSelecionado={modeloSelecionado}
+            cargo={cargo}
+            modo={coberturaModo}
+            setModo={setCoberturaModo}
+            quantidade={modeloSelecionado && precisaQuantidade(modeloSelecionado.tipo_modelo) ? 1 : 0}
+          />
           <div>
             <label className="mb-0.5 block text-[9.5px] text-text-faint">Início</label>
             <input name="data_inicio" type="date" className="input w-[130px]" />
@@ -494,6 +572,7 @@ function LinhaAlocacao({
 }) {
   const [editando, setEditando] = useState(false);
   const [state, formAction, pending] = useActionState(editarAlocacaoModelo, initialState);
+  const [coberturaModo, setCoberturaModo] = useState<CoberturaModo>(a.cobertura_modo ?? "demanda");
   const capacidade = modelo?.parametros.capacidade_unidade_mes;
 
   if (!editando) {
@@ -503,11 +582,21 @@ function LinhaAlocacao({
           {a.quantidade > 0 ? <span className="font-mono font-semibold">{a.quantidade}× </span> : null}
           {modelo?.nome ?? "modelo removido"}
           <span className="ml-1 rounded-full bg-primary-soft px-1.5 py-0.5 text-[10px] text-primary-deep">{escopoLabel(a, produtos)}</span>
-          {a.quantidade > 0 && capacidade ? (
-            <span className="text-text-faint"> · cobre até {(a.quantidade * capacidade).toFixed(0)}/mês</span>
-          ) : a.quantidade === 0 ? (
-            <span className="text-text-faint"> · acompanha a demanda</span>
-          ) : null}
+          {a.cobertura_modo === "percentual" ? (
+            <span className="text-text-faint"> · cobre {Number(a.cobertura_pct ?? 0).toFixed(0)}% da demanda</span>
+          ) : a.cobertura_modo === "pacote" && capacidade ? (
+            <span className="text-text-faint"> · teto de {(a.quantidade * capacidade).toFixed(0)}/mês</span>
+          ) : (
+            <span className="text-text-faint"> · toda a demanda</span>
+          )}
+          {a.conversao_por_produto && Object.keys(a.conversao_por_produto).length > 0 && (
+            <span className="text-text-faint">
+              {" · conversão "}
+              {Object.entries(a.conversao_por_produto)
+                .map(([pid, t]) => `${nomeCurto(produtos.find((p) => p.id === pid)?.nome ?? "?")} ${(t * 100).toFixed(1)}%`)
+                .join(", ")}
+            </span>
+          )}
           <span className="text-text-faint"> · {a.data_inicio ?? "início aberto"} → {a.data_fim ?? "sem fim"}</span>
         </span>
         <span className="flex items-center gap-2">
@@ -528,14 +617,20 @@ function LinhaAlocacao({
     >
       <input type="hidden" name="id" value={a.id} />
       <span className="mb-1.5 text-[12px]">{modelo?.nome ?? "modelo removido"}</span>
-      <EscolhaProdutos produtos={produtos} marcados={produtosDaAlocacao(a)} />
-      <div>
-        <label className="mb-0.5 flex items-center text-[9.5px] text-text-faint">
-          {modelo && precisaQuantidade(modelo.tipo_modelo) ? "Qtd." : "Qtd. (0 = toda a demanda)"}
-          <InfoTooltip texto={ajudaQuantidade(a.cargo, modelo)} />
-        </label>
-        <input name="quantidade" type="number" min="0" step="1" defaultValue={a.quantidade} className="input w-[110px]" required />
-      </div>
+      <EscolhaProdutos
+        produtos={produtos}
+        marcados={produtosDaAlocacao(a)}
+        conversao={a.conversao_por_produto}
+        taxaPadrao={modelo ? taxaDoModelo(modelo.parametros) : null}
+      />
+      <EscolhaCobertura
+        modeloSelecionado={modelo}
+        cargo={a.cargo}
+        modo={coberturaModo}
+        setModo={setCoberturaModo}
+        pct={a.cobertura_pct}
+        quantidade={a.quantidade}
+      />
       <div>
         <label className="mb-0.5 block text-[9.5px] text-text-faint">Início</label>
         <input name="data_inicio" type="date" defaultValue={a.data_inicio ?? ""} className="input w-[130px]" />

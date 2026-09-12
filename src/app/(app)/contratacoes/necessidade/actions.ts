@@ -11,6 +11,30 @@ function produtosDoForm(formData: FormData): string[] | null {
   return ids.length > 0 ? ids : null;
 }
 
+/** Conversão lead → oportunidade por produto (a tela pede em %, o banco guarda fração). */
+function conversaoDoForm(formData: FormData): Record<string, number> | null {
+  const taxas: Record<string, number> = {};
+  for (const [nome, valor] of formData.entries()) {
+    if (!nome.startsWith("conversao_")) continue;
+    const produtoId = nome.slice("conversao_".length);
+    const n = Number(String(valor).replace(",", "."));
+    if (Number.isFinite(n) && n > 0) taxas[produtoId] = n / 100;
+  }
+  return Object.keys(taxas).length > 0 ? taxas : null;
+}
+
+/** Quanto da demanda a alocação absorve: toda, uma fatia em %, ou o teto do pacote contratado. */
+function coberturaDoForm(formData: FormData): { cobertura_modo: string; cobertura_pct: number | null } {
+  const modo = String(formData.get("cobertura_modo") || "demanda");
+  const valido = modo === "demanda" || modo === "percentual" || modo === "pacote" ? modo : "demanda";
+  const pctRaw = formData.get("cobertura_pct");
+  const pct = pctRaw !== null && pctRaw !== "" ? Number(String(pctRaw).replace(",", ".")) : null;
+  return {
+    cobertura_modo: valido,
+    cobertura_pct: valido === "percentual" && pct != null && Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : null,
+  };
+}
+
 /** Alocar uma equipe muda o S&M, e com ele o CAC e o EBITDA das telas de plano. Sem revalidar
  *  essas rotas a pessoa aloca o SDR e continua vendo o CAC antigo, achando que não funcionou. */
 function revalidarTelasAfetadas() {
@@ -46,6 +70,8 @@ export async function criarAlocacaoModelo(
     data_inicio,
     data_fim,
     produto_ids: produtosDoForm(formData),
+    conversao_por_produto: conversaoDoForm(formData),
+    ...coberturaDoForm(formData),
   });
 
   if (error) {
@@ -76,7 +102,15 @@ export async function editarAlocacaoModelo(_prevState: ActionState, formData: Fo
   const supabase = await createClient();
   const { error } = await supabase
     .from("alocacao_modelo_contratacao")
-    .update({ quantidade, data_inicio, data_fim, produto_ids: produtosDoForm(formData), produto_id: null })
+    .update({
+      quantidade,
+      data_inicio,
+      data_fim,
+      produto_ids: produtosDoForm(formData),
+      produto_id: null,
+      conversao_por_produto: conversaoDoForm(formData),
+      ...coberturaDoForm(formData),
+    })
     .eq("id", id);
   if (error) return { error: "Não foi possível salvar a alteração." };
 
