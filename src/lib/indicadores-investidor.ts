@@ -188,6 +188,18 @@ export function indicadoresInvestidor(input: {
   capitalNovo: number;
   aportesTotal: number;
   retornoEquity?: { moic: number | null; tirPct: number | null } | null;
+  /** Retorno projetado da rodada (valor de saída × fatia) — ver simularRetornoInvestidor. */
+  retornoSimulado?: {
+    moic: number | null;
+    roiPct: number | null;
+    tirAnualPct: number | null;
+    valorEmpresaNaSaida: number;
+    valorParticipacao: number;
+    equityPct: number;
+    multiplo: number;
+    base: "arr" | "ebitda";
+    anos: number | null;
+  } | null;
 }): IndicadorInvestidor[] {
   const { mensal, anual, metricas, capitalNovo, aportesTotal } = input;
   if (mensal.length === 0) return [];
@@ -265,6 +277,7 @@ export function indicadoresInvestidor(input: {
     // Retorno
     { grupo: "Retorno do investimento novo", nome: "Capital novo considerado", valor: capitalNovo, formato: "brl", calculo: "Investimento ainda não aplicado. Fomento e parcelas já recebidas ficam fora.", referencia: "—", leitura: null },
     { grupo: "Retorno do investimento novo", nome: "Capital recuperado pelo EBITDA", valor: capitalNovo > 0 ? metricas.investimentoRecuperado / capitalNovo : null, formato: "pct", calculo: "EBITDA acumulado do período ÷ capital novo.", referencia: "—", leitura: null },
+    { grupo: "Retorno do investimento novo", nome: "Payback do capital (meses)", valor: capitalNovo > 0 ? metricas.paybackMeses : null, formato: "meses", calculo: "Meses entre a entrada do capital e o mês em que o caixa acumulado (EBITDA − IRPJ/CSLL) cobre o aporte.", referencia: "Pré-seed/seed: até 36 meses é comum.", leitura: null },
     { grupo: "Retorno do investimento novo", nome: "Mês de recuperação do capital novo", valor: capitalNovo > 0 ? (metricas.paybackMes ? formatarMesAno(metricas.paybackMes) : "não recuperado no período") : "sem capital novo vinculado", formato: "texto", calculo: "Primeiro mês em que o EBITDA acumulado ≥ capital novo.", referencia: "—", leitura: null },
   ];
   lista.push({
@@ -279,6 +292,48 @@ export function indicadoresInvestidor(input: {
     referencia: "Compare com a taxa mínima de atratividade do investidor.",
     leitura: null,
   });
+  const sim = input.retornoSimulado;
+  if (sim) {
+    const baseTexto = sim.base === "arr" ? "ARR (MRR × 12)" : "EBITDA dos últimos 12 meses";
+    lista.push(
+      {
+        grupo: "Retorno do investimento novo",
+        nome: "Valor da empresa na saída (projetado)",
+        valor: sim.valorEmpresaNaSaida,
+        formato: "brl",
+        calculo: `${sim.multiplo.toLocaleString("pt-BR")}× ${baseTexto} do último mês do período. Múltiplo e base são premissas — ajuste na simulação da rodada, em Relatórios.`,
+        referencia: "SaaS B2B: 3–8× ARR conforme crescimento e retenção; 8–15× EBITDA em negócios maduros.",
+        leitura: null,
+      },
+      {
+        grupo: "Retorno do investimento novo",
+        nome: "Participação do investidor na saída",
+        valor: sim.valorParticipacao,
+        formato: "brl",
+        calculo: `Valor da empresa na saída × ${sim.equityPct.toFixed(1).replace(".", ",")}% (capital ÷ valuation pós-money).`,
+        referencia: "Compare com a taxa mínima de atratividade do investidor.",
+        leitura: null,
+      },
+      {
+        grupo: "Retorno do investimento novo",
+        nome: "MOIC projetado da rodada",
+        valor: sim.moic,
+        formato: "x",
+        calculo: "Participação na saída ÷ capital aportado — quantas vezes o investidor recebe de volta.",
+        referencia: "Venture: 3x+ no horizonte da rodada.",
+        leitura: null,
+      },
+      {
+        grupo: "Retorno do investimento novo",
+        nome: "TIR do investidor (a.a., com saída)",
+        valor: sim.tirAnualPct != null ? sim.tirAnualPct / 100 : "informe capital e prazo",
+        formato: sim.tirAnualPct != null ? "pct" : "texto",
+        calculo: `MOIC elevado a 1 ÷ ${sim.anos != null ? sim.anos.toFixed(1).replace(".", ",") : "?"} anos, menos 1. É o retorno de quem entra na rodada — diferente da TIR do projeto, que credita todo o caixa da empresa ao aporte.`,
+        referencia: "Taxa mínima de atratividade de venture: 30–50% a.a.",
+        leitura: null,
+      },
+    );
+  }
   if (input.retornoEquity?.moic != null) {
     lista.push({ grupo: "Retorno do investimento novo", nome: "MOIC do investidor (equity)", valor: input.retornoEquity.moic, formato: "x", calculo: "Valor da participação na última reavaliação ÷ valor investido (cadastro de valuation em Fomento).", referencia: "—", leitura: null });
   }

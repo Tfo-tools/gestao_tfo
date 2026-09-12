@@ -11,6 +11,7 @@ import {
   type ProgramaAporte,
 } from "@/lib/relatorios-cenario";
 import { ExportarInvestidor } from "./exportar-investidor";
+import { SimuladorRetorno } from "./simulador-retorno";
 import { carregarOrcamentoProgramas, LABEL_CATEGORIA_USO, somaPorCategoria, type LinhaOrcamento } from "@/lib/orcamento-programa";
 import type { FocoInvestimento } from "@/lib/indicadores-investidor";
 import { grupoDeConta, GRUPO_TOOLTIP as GRUPO_TOOLTIP_DRE } from "@/lib/grupo-dre";
@@ -424,6 +425,28 @@ export async function RelatorioPlanos({
   const inicioSel = inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "");
   const fimSel = fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "");
 
+  // Base do valor de saída na simulação de retorno: ARR (MRR × 12) do último mês do período e
+  // EBITDA dos últimos 12 meses, já depois de IRPJ/CSLL.
+  const { data: mrrRows } = cenarioId
+    ? await supabase.from("simulacao_mensal").select("mes_referencia, mrr").eq("cenario_id", cenarioId)
+    : { data: [] };
+  const mrrPorMes = new Map<string, number>();
+  for (const r of (mrrRows ?? []) as { mes_referencia: string; mrr: number | null }[]) {
+    mrrPorMes.set(r.mes_referencia, (mrrPorMes.get(r.mes_referencia) ?? 0) + Number(r.mrr ?? 0));
+  }
+  const mesSaida = linhasPeriodo[linhasPeriodo.length - 1]?.mes_referencia ?? "";
+  const arrNaSaida = mesSaida ? (mrrPorMes.get(mesSaida) ?? 0) * 12 : 0;
+  const ebitdaNaSaida = linhasPeriodo.slice(-12).reduce((s, l) => s + l.ebitda - l.irpjCsll, 0);
+  const rodada = ((programasComValuation ?? []) as { nome?: string; valor_total: number; valuation_post_money: number | null; data_aporte: string | null }[])[0] ?? null;
+  const capitalPadrao = rodada ? Number(rodada.valor_total) : resumo.totalInvestido;
+  const equityPadrao =
+    rodada && rodada.valuation_post_money ? (Number(rodada.valor_total) / Number(rodada.valuation_post_money)) * 100 : 10;
+  const mesAportePadrao =
+    (rodada?.data_aporte ? `${String(rodada.data_aporte).slice(0, 7)}-01` : null) ??
+    metricas.mesCapital ??
+    linhasPeriodo[0]?.mes_referencia ??
+    "";
+
   const semDados = resumo.linhas.length === 0;
 
   return (
@@ -482,6 +505,21 @@ export async function RelatorioPlanos({
             inicio={inicioSel}
             fim={fimSel}
           />
+          {capitalPadrao > 0 && mesSaida && (
+            <SimuladorRetorno
+              capitalPadrao={capitalPadrao}
+              equityPadrao={equityPadrao}
+              mesAportePadrao={mesAportePadrao}
+              mesSaida={mesSaida}
+              arrNaSaida={arrNaSaida}
+              ebitdaNaSaida={ebitdaNaSaida}
+              paybackMes={metricas.paybackMes}
+              paybackMeses={metricas.paybackMeses}
+              capitalRecuperadoPct={metricas.roiPct}
+              tirProjetoPct={metricas.tirAnualPct}
+              nomeRodada={resumo.aportes.programas.find((p) => p.entraNoRetorno)?.nome ?? null}
+            />
+          )}
           <IndicadoresPeriodo
             metricas={metricas}
             totalAportesPeriodo={totalAportesPeriodo}
@@ -595,13 +633,13 @@ function MetricasInvestidor({
         />
         <Metrica
           href={hrefDetalhe("tir")}
-          label={metricas.tirBase === "capital_novo" ? "TIR do capital novo" : "TIR do projeto"}
+          label="TIR do projeto (empresa)"
           valor={metricas.tirAnualPct != null ? `${metricas.tirAnualPct.toFixed(1)}% a.a.` : "não se aplica"}
           detalhe={
             metricas.tirAnualPct != null
               ? metricas.tirBase === "capital_novo"
-                ? "capital novo sai no aporte, volta como EBITDA"
-                : "fluxo de EBITDA do período (queima = investimento)"
+                ? "fluxo da empresa — o retorno do investidor está na simulação da rodada"
+                : "fluxo de caixa do período (queima = investimento)"
               : "o fluxo não tem saída e retorno no período"
           }
         />
@@ -611,7 +649,7 @@ function MetricasInvestidor({
           valor={retornoInvestidor.temValuation && retornoInvestidor.roiPct != null ? `${retornoInvestidor.roiPct.toFixed(0)}%` : "sem valuation cadastrado"}
           detalhe={
             retornoInvestidor.temValuation
-              ? `MOIC ${retornoInvestidor.moic?.toFixed(2)}x${retornoInvestidor.tirPct != null ? ` · TIR ${retornoInvestidor.tirPct.toFixed(1)}% a.a.` : ""}`
+              ? `MOIC ${retornoInvestidor.moic?.toFixed(2)}x${retornoInvestidor.tirPct != null ? ` · TIR ${retornoInvestidor.tirPct.toFixed(1)}% a.a.` : " · sem reavaliação: veja a simulação da rodada"}`
               : "cadastre o valuation em Fomento pra calcular"
           }
         />

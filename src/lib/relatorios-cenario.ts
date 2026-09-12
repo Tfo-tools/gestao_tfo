@@ -271,6 +271,10 @@ export type Metricas = {
   breakEvenMes: string | null;
   breakEvenClientes: number | null;
   paybackMes: string | null;
+  /** Meses entre a entrada do capital e o payback — é assim que o investidor lê ("paga em 26 meses"). */
+  paybackMeses: number | null;
+  /** Mês em que o capital novo entra (1ª parcela) — base do payback em meses. */
+  mesCapital: string | null;
   investimentoRecuperado: number;
   roiPct: number | null;
   /** Preço médio de venda (mensalidade de tabela) ponderado pelas vendas do período. */
@@ -379,6 +383,9 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
   let breakEvenClientes: number | null = null;
   let acumuladoPayback = 0;
   let paybackMes: string | null = null;
+  // O capital entra no mês da 1ª parcela; sem data, no 1º mês do período.
+  const mesesComCapital = capitalNovoPorMes ? [...capitalNovoPorMes.entries()].filter(([, v]) => v > 0).map(([m]) => m).sort() : [];
+  const mesCapital = mesesComCapital[0] ?? (totalInvestido > 0 ? (linhas[0]?.mes_referencia ?? null) : null);
 
   for (const [i, l] of linhas.entries()) {
     acumulado += l.ebitda;
@@ -425,6 +432,15 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
     breakEvenMes,
     breakEvenClientes,
     paybackMes,
+    paybackMeses:
+      paybackMes && mesCapital
+        ? Math.max(
+            0,
+            (Number(paybackMes.slice(0, 4)) - Number(mesCapital.slice(0, 4))) * 12 +
+              (Number(paybackMes.slice(5, 7)) - Number(mesCapital.slice(5, 7))),
+          )
+        : null,
+    mesCapital,
     investimentoRecuperado: acumuladoPayback,
     roiPct: totalInvestido > 0 ? (acumuladoPayback / totalInvestido) * 100 : null,
     ...precoETir(linhas, totalInvestido, capitalNovoPorMes),

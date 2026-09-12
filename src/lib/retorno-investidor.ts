@@ -105,3 +105,65 @@ export function agregarRetornoProgramas(retornos: { retorno: RetornoPrograma; va
       : null;
   return { temValuation: true, moic, roiPct, tirPct, valorInvestidoTotal, valorParticipacaoTotal };
 }
+
+// ───────────────── Simulação de retorno do investidor (com valor de saída) ─────────────────
+// O retorno por equity acima só enxerga o que já aconteceu (aporte + reavaliações). Enquanto não
+// há reavaliação, a participação vale exatamente o que foi paga e o ROI dá 0% — que é correto como
+// histórico e inútil pra apresentar uma rodada. O investidor decide olhando o valor PROJETADO da
+// participação na saída: quanto a empresa deve valer no fim do plano (múltiplo de ARR ou de EBITDA)
+// × a fatia dele. É o que esta simulação calcula — e por isso todos os parâmetros são editáveis.
+
+export type BaseSaida = "arr" | "ebitda";
+
+export type SimulacaoRetornoInput = {
+  /** Capital aportado na rodada (editável — não precisa ser o valor do programa cadastrado). */
+  valorInvestido: number;
+  /** Mês do aporte ("AAAA-MM-01"). */
+  mesAporte: string;
+  /** Fatia do investidor depois da rodada, em % (500 mil ÷ pós-money de 5 mi = 10%). */
+  equityPct: number;
+  /** Múltiplo de saída aplicado sobre a base escolhida. */
+  multiploSaida: number;
+  baseSaida: BaseSaida;
+  /** ARR (MRR × 12) e EBITDA anualizado do mês de saída — de onde sai o valor da empresa. */
+  arrNaSaida: number;
+  ebitdaNaSaida: number;
+  /** Mês da saída ("AAAA-MM-01") — normalmente o fim do período projetado. */
+  mesSaida: string;
+};
+
+export type SimulacaoRetorno = {
+  valorEmpresaNaSaida: number;
+  valorParticipacao: number;
+  /** Quantas vezes o capital volta (2,5x = recebe 2,5 vezes o que colocou). */
+  moic: number | null;
+  roiPct: number | null;
+  /** TIR anualizada do fluxo do investidor: sai o aporte, volta a participação na saída. */
+  tirAnualPct: number | null;
+  anos: number | null;
+  baseValor: number;
+};
+
+function mesesEntreIso(de: string, ate: string): number {
+  const a = new Date(de.slice(0, 7) + "-01T00:00:00");
+  const b = new Date(ate.slice(0, 7) + "-01T00:00:00");
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+}
+
+/** Retorno projetado da rodada: valor de saída × fatia, contra o capital aportado. */
+export function simularRetornoInvestidor(input: SimulacaoRetornoInput): SimulacaoRetorno {
+  const { valorInvestido, mesAporte, equityPct, multiploSaida, baseSaida, arrNaSaida, ebitdaNaSaida, mesSaida } = input;
+  const baseValor = baseSaida === "ebitda" ? ebitdaNaSaida : arrNaSaida;
+  // Empresa com EBITDA negativo não se avalia por múltiplo de EBITDA — o valor de saída fica zero
+  // e a simulação mostra isso em vez de inventar um número.
+  const valorEmpresaNaSaida = Math.max(0, baseValor) * Math.max(0, multiploSaida);
+  const valorParticipacao = valorEmpresaNaSaida * (Math.max(0, equityPct) / 100);
+  if (valorInvestido <= 0) {
+    return { valorEmpresaNaSaida, valorParticipacao, moic: null, roiPct: null, tirAnualPct: null, anos: null, baseValor };
+  }
+  const moic = valorParticipacao / valorInvestido;
+  const meses = Math.max(0, mesesEntreIso(mesAporte, mesSaida));
+  const anos = meses / 12;
+  const tirAnualPct = anos > 0 && moic > 0 ? (Math.pow(moic, 1 / anos) - 1) * 100 : null;
+  return { valorEmpresaNaSaida, valorParticipacao, moic, roiPct: (moic - 1) * 100, tirAnualPct, anos, baseValor };
+}

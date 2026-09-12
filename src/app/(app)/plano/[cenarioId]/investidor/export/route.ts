@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { agregarPorCenario, computeMetricas, recortarPeriodo } from "@/lib/relatorios-cenario";
 import { carregarOrcamentoProgramas, LABEL_CATEGORIA_USO, somaPorCategoria } from "@/lib/orcamento-programa";
 import { clientesTotaisAcao, custoTotalAcao, type AcaoMarketing } from "@/lib/acoes-marketing";
-import { calcularRetornoPrograma, agregarRetornoProgramas } from "@/lib/retorno-investidor";
+import { calcularRetornoPrograma, agregarRetornoProgramas, simularRetornoInvestidor } from "@/lib/retorno-investidor";
 import {
   FOCOS_INVESTIMENTO,
   formatarMesAno,
@@ -95,6 +95,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   // Retorno do investidor por equity (MOIC/TIR) — só quando houver valuation cadastrado.
   const idsNaoFomento = resumo.aportes.programas.filter((p) => p.tipo !== "fomento").map((p) => p.id);
   let retornoEquity: { moic: number | null; tirPct: number | null } | null = null;
+  let programasRodada: { valor_total: number; valuation_post_money: number | null; data_aporte: string | null }[] = [];
   if (idsNaoFomento.length > 0) {
     const [{ data: progs }, { data: reav }] = await Promise.all([
       supabase.from("programas_investimento").select("id, valor_total, valuation_post_money, data_aporte").in("id", idsNaoFomento),
@@ -112,9 +113,58 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       })),
     );
     if (agregado.temValuation) retornoEquity = { moic: agregado.moic, tirPct: agregado.tirPct };
+    programasRodada = (progs ?? []).map((p) => ({
+      valor_total: Number(p.valor_total ?? 0),
+      valuation_post_money: p.valuation_post_money != null ? Number(p.valuation_post_money) : null,
+      data_aporte: p.data_aporte,
+    }));
   }
 
-  const indicadores = indicadoresInvestidor({ mensal, anual, metricas, capitalNovo: resumo.totalInvestido, aportesTotal, retornoEquity });
+  // Retorno projetado da rodada: valor de saída (múltiplo de ARR ou EBITDA no fim do período) ×
+  // participação. Os parâmetros vêm da URL (mesma simulação da tela) ou da rodada cadastrada.
+  const rodadaCadastrada = programasRodada[0] ?? null;
+  const numParam = (chave: string, padrao: number) => {
+    const v = searchParams.get(chave);
+    const n = v != null && v !== "" ? Number(v.replace(",", ".")) : NaN;
+    return Number.isFinite(n) ? n : padrao;
+  };
+  const capitalSim = numParam("capital", rodadaCadastrada ? Number(rodadaCadastrada.valor_total) : resumo.totalInvestido);
+  const equitySim = numParam(
+    "equity",
+    rodadaCadastrada?.valuation_post_money ? (Number(rodadaCadastrada.valor_total) / Number(rodadaCadastrada.valuation_post_money)) * 100 : 10,
+  );
+  const multiploSim = numParam("multiplo", 5);
+  const baseSim = searchParams.get("base") === "ebitda" ? "ebitda" : "arr";
+  const mesSaidaSim = mensal[mensal.length - 1]?.mes ?? "";
+  const simulado =
+    capitalSim > 0 && mesSaidaSim
+      ? simularRetornoInvestidor({
+          valorInvestido: capitalSim,
+          mesAporte: searchParams.get("aporte")
+            ? `${searchParams.get("aporte")}-01`
+            : rodadaCadastrada?.data_aporte
+              ? `${String(rodadaCadastrada.data_aporte).slice(0, 7)}-01`
+              : (metricas.mesCapital ?? mensal[0]?.mes ?? mesSaidaSim),
+          equityPct: equitySim,
+          multiploSaida: multiploSim,
+          baseSaida: baseSim,
+          arrNaSaida: (mrrPorMes.get(mesSaidaSim) ?? 0) * 12,
+          ebitdaNaSaida: mensal.slice(-12).reduce((s, m) => s + m.ebitda, 0),
+          mesSaida: mesSaidaSim,
+        })
+      : null;
+
+  const indicadores = indicadoresInvestidor({
+    mensal,
+    anual,
+    metricas,
+    capitalNovo: resumo.totalInvestido,
+    aportesTotal,
+    retornoEquity,
+    retornoSimulado: simulado
+      ? { ...simulado, equityPct: equitySim, multiplo: multiploSim, base: baseSim as "arr" | "ebitda" }
+      : null,
+  });
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "TFO-Gestão";
