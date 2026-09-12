@@ -7,6 +7,7 @@ import {
   atualizarStatusPrograma,
   atualizarValuationPrograma,
   confirmarValorAprovado,
+  alterarValorProposto,
   criarCenarioParaPrograma,
   criarParcela,
   criarReavaliacao,
@@ -147,7 +148,10 @@ export function ProgramaCard({
               aprovação do investidor (pode vir menor)
             </span>
           </div>
-          <ConfirmarValorForm programaId={programa.id} />
+          <div className="flex flex-wrap items-end gap-4">
+            <AlterarPropostoForm programaId={programa.id} atual={Number(programa.valor_proposto)} />
+            <ConfirmarValorForm programaId={programa.id} />
+          </div>
         </div>
       ) : (
         <div className="mb-4 grid grid-cols-3 gap-3">
@@ -424,6 +428,25 @@ function ConfirmarValorForm({ programaId }: { programaId: string }) {
         {pending ? "…" : "Confirmar aprovação"}
       </button>
       {state.error && <p className="text-[11px] text-danger">{state.error}</p>}
+    </form>
+  );
+}
+
+/** O pedido pode mudar antes da aprovação (a tese do aporte muda): edita o proposto no lugar. */
+function AlterarPropostoForm({ programaId, atual }: { programaId: string; atual: number }) {
+  const [state, formAction, pending] = useActionState(alterarValorProposto, confirmarValorInitial);
+  return (
+    <form action={formAction} className="flex items-end gap-2">
+      <input type="hidden" name="id" value={programaId} />
+      <div>
+        <label className="mb-1 block text-[10px] text-text-faint">Valor solicitado (R$)</label>
+        <input name="valor_proposto" type="number" step="0.01" min="0" defaultValue={atual} required className="input w-[160px]" />
+      </div>
+      <button type="submit" disabled={pending} className="rounded-lg border border-border px-3 py-2 text-[11.5px] font-medium text-primary-deep disabled:opacity-60">
+        {pending ? "…" : "Alterar pedido"}
+      </button>
+      {state.error && <p className="text-[11px] text-danger">{state.error}</p>}
+      {state.success && <p className="text-[11px] text-success">Pedido alterado.</p>}
     </form>
   );
 }

@@ -71,6 +71,23 @@ export async function confirmarValorAprovado(
   return { error: null, success: true };
 }
 
+/** Altera o valor PEDIDO enquanto o programa ainda não foi aprovado — a tese do aporte muda
+ *  (ex: R$500k → R$800k) e a planilha do investidor precisa seguir o pedido atual. */
+export async function alterarValorProposto(_prevState: ActionState, formData: FormData): Promise<ActionState> {
+  const id = String(formData.get("id") || "");
+  const valor_proposto = Number(formData.get("valor_proposto") || 0);
+  if (!id || !valor_proposto) return { error: "Informe o valor solicitado." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("programas_investimento").update({ valor_proposto }).eq("id", id);
+  if (error) return { error: "Não foi possível alterar o valor solicitado." };
+
+  revalidatePath("/fomento");
+  revalidatePath("/relatorios");
+  revalidatePath("/plano", "layout");
+  return { error: null, success: true };
+}
+
 export async function excluirPrograma(id: string) {
   const supabase = await createClient();
   await supabase.from("programas_investimento").delete().eq("id", id);

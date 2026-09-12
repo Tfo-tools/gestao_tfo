@@ -416,6 +416,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   linhaRes("MRR ao fim do ano", (a) => a.mrrFinal, { total: "ultimo" });
   linhaRes("ARR ao fim do ano", (a) => a.arrFinal, { total: "ultimo", negrito: true });
   linhaRes("Crescimento do ARR no ano", (a) => a.crescimentoArr, { fmt: PCT });
+  linhaRes("Receita de software (assinaturas)", (a) => a.receitaSoftware, { total: "soma", recuo: true });
+  if (anual.some((a) => a.receitaImplantacao > 0))
+    linhaRes("Receita de serviços de implantação", (a) => a.receitaImplantacao, { total: "soma", recuo: true });
   linhaRes("Receita total", (a) => a.receita, { total: "soma", negrito: true });
   secaoRes("CUSTOS FIXOS");
   for (const k of CATEGORIAS_FIXAS) linhaRes(LABEL_FOCO[k], (a) => a[k], { total: "soma", foco: focos.has(k), recuo: true });
@@ -437,7 +440,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     linhaRes("Resultado depois de IRPJ/CSLL", (a) => a.ebitda - a.irpjCsll, { total: "soma" });
   }
   linhaRes("Margem EBITDA", (a) => a.margemEbitda, { fmt: PCT });
-  linhaRes("Margem bruta", (a) => a.margemBruta, { fmt: PCT });
+  linhaRes("Margem bruta (blended)", (a) => a.margemBruta, { fmt: PCT });
+  // DRE segregada: o SaaS puro (> 80%) separado dos serviços de implantação — é o que prova a
+  // escalabilidade do modelo pra banca, sem a implantação puxar a média pra baixo.
+  linhaRes("Margem bruta de software", (a) => a.margemBrutaSoftware, { fmt: PCT, recuo: true, negrito: true });
+  if (anual.some((a) => a.receitaImplantacao > 0))
+    linhaRes("Margem dos serviços de implantação", (a) => a.margemImplantacao, { fmt: PCT, recuo: true });
   linhaRes("Regra dos 40 (crescimento ARR + margem EBITDA)", (a) => a.regra40, { fmt: PCT });
   linhaRes("Burn multiple (queima ÷ ARR novo)", (a) => a.burnMultiple, { fmt: '0.0"x"' });
   secaoRes("CAIXA");

@@ -32,6 +32,10 @@ export type LinhaMensalInvestidor = {
   perdidos: number;
   mrr: number;
   receita: number;
+  /** Receita de serviços de implantação (cobrança única) — o resto da receita é software. */
+  receitaImplantacao: number;
+  /** Custo de entregar a implantação (horas das etapas × clientes novos). */
+  custoImplantacao: number;
   impostos: number;
   operacao: number;
   marketing: number;
@@ -60,6 +64,10 @@ export type LinhaAnualInvestidor = Omit<LinhaMensalInvestidor, "mes" | "clientes
   mrrFinal: number;
   arrFinal: number;
   margemBruta: number | null;
+  /** DRE segregada: software (recorrente) e serviços de implantação, cada um com a sua margem. */
+  receitaSoftware: number;
+  margemBrutaSoftware: number | null;
+  margemImplantacao: number | null;
   margemEbitda: number | null;
   caixaFinal: number;
   /** ARR de dezembro (ou do último mês) vs. o do ano anterior. */
@@ -107,6 +115,8 @@ export function linhasMensaisInvestidor(
       perdidos: extras.perdidosPorMes.get(l.mes_referencia) ?? 0,
       mrr: extras.mrrPorMes.get(l.mes_referencia) ?? 0,
       receita: l.receita,
+      receitaImplantacao: l.receitaImplementacao ?? 0,
+      custoImplantacao: l.cogsImplementacao ?? 0,
       impostos,
       operacao,
       marketing,
@@ -127,7 +137,7 @@ export function linhasMensaisInvestidor(
   });
 }
 
-const SOMAVEIS = ["novos", "irpjCsll", "novosAcoes", "perdidos", "receita", "impostos", "operacao", "marketing", "feirasEventos", "vendas", "outrosSm", "produto", "estrutura", "variaveis", "fixos", "custosTotais", "ebitda", "aportes"] as const;
+const SOMAVEIS = ["novos", "irpjCsll", "novosAcoes", "perdidos", "receita", "receitaImplantacao", "custoImplantacao", "impostos", "operacao", "marketing", "feirasEventos", "vendas", "outrosSm", "produto", "estrutura", "variaveis", "fixos", "custosTotais", "ebitda", "aportes"] as const;
 
 export function resumoAnualInvestidor(mensal: LinhaMensalInvestidor[]): LinhaAnualInvestidor[] {
   const porAno = new Map<string, LinhaMensalInvestidor[]>();
@@ -154,6 +164,21 @@ export function resumoAnualInvestidor(mensal: LinhaMensalInvestidor[]): LinhaAnu
       mrrFinal: ultimo.mrr,
       arrFinal,
       margemBruta: soma.receita - soma.impostos > 0 ? (soma.receita - soma.operacao - soma.impostos) / (soma.receita - soma.impostos) : null,
+      // Software = receita − implantação; seu COGS = operação − custo da implantação. Os impostos
+      // sobre a receita são rateados na proporção de cada linha.
+      ...(() => {
+        const receitaSoftware = soma.receita - soma.receitaImplantacao;
+        const impostosSoftware = soma.receita > 0 ? soma.impostos * (receitaSoftware / soma.receita) : 0;
+        const liquidaSoftware = receitaSoftware - impostosSoftware;
+        const cogsSoftware = soma.operacao - soma.custoImplantacao;
+        const impostosImpl = soma.impostos - impostosSoftware;
+        const liquidaImpl = soma.receitaImplantacao - impostosImpl;
+        return {
+          receitaSoftware,
+          margemBrutaSoftware: liquidaSoftware > 0 ? (liquidaSoftware - cogsSoftware) / liquidaSoftware : null,
+          margemImplantacao: liquidaImpl > 0 ? (liquidaImpl - soma.custoImplantacao) / liquidaImpl : null,
+        };
+      })(),
       margemEbitda,
       caixaFinal: ultimo.caixaAcumulado,
       crescimentoArr,
@@ -263,7 +288,16 @@ export function indicadoresInvestidor(input: {
     { grupo: "Receita e crescimento", nome: "Crescimento mensal do MRR — 12 primeiros meses de receita", valor: cmgr12, formato: "pct", calculo: "Crescimento médio composto do MRR entre o 1º mês com receita recorrente e 12 meses depois.", referencia: "Bom 10–15% a.m. · Alto > 20% a.m. · Atenção < 5% a.m.", leitura: faixa(cmgr12, (v) => v > 0.2, (v) => v >= 0.05) },
     { grupo: "Receita e crescimento", nome: "Crescimento mensal do MRR — período todo", valor: cmgrPeriodo, formato: "pct", calculo: "Crescimento médio composto do MRR do 1º mês com receita até o fim do período.", referencia: "Desacelera com a maturidade — compare com o ARR ano a ano (aba Resumo anual).", leitura: null },
     // Eficiência
-    { grupo: "Margens e unit economics", nome: "Margem bruta", valor: margemBrutaPct, formato: "pct", calculo: "(Receita líquida − COGS) ÷ Receita líquida, onde receita líquida = receita − impostos sobre a receita (DAS no Simples; ISS/PIS/COFINS/CBS/IBS depois). É a base do benchmark de SaaS. COGS inclui infraestrutura, APIs/LLM, suporte/CS, gateway e implementação.", referencia: "Bom 70–75% · Alto > 80%", leitura: faixa(margemBrutaPct, (v) => v > 0.8, (v) => v >= 0.7) },
+    {
+      grupo: "Margens e unit economics",
+      nome: "Margem bruta de software (SaaS puro)",
+      valor: metricas.margemBrutaAssinatura != null ? metricas.margemBrutaAssinatura / 100 : null,
+      formato: "pct",
+      calculo: "Só a receita recorrente (assinaturas), líquida de impostos, menos o COGS sem a implantação (infra, APIs/LLM, suporte/CS, gateway). É a margem que prova a escalabilidade do software — a implantação é serviço profissional e tem margem própria, abaixo.",
+      referencia: "SaaS B2B: > 80% é referência de escalabilidade",
+      leitura: faixa(metricas.margemBrutaAssinatura != null ? metricas.margemBrutaAssinatura / 100 : null, (v) => v > 0.8, (v) => v >= 0.7),
+    },
+    { grupo: "Margens e unit economics", nome: "Margem bruta (blended, com implantação)", valor: margemBrutaPct, formato: "pct", calculo: "(Receita líquida − COGS) ÷ Receita líquida, onde receita líquida = receita − impostos sobre a receita (DAS no Simples; ISS/PIS/COFINS/CBS/IBS depois). É a base do benchmark de SaaS. COGS inclui infraestrutura, APIs/LLM, suporte/CS, gateway e implementação.", referencia: "Bom 70–75% · Alto > 80%", leitura: faixa(margemBrutaPct, (v) => v > 0.8, (v) => v >= 0.7) },
     { grupo: "Margens e unit economics", nome: "P&D em % da receita", valor: receita > 0 ? mensal.reduce((s, m) => s + m.produto, 0) / receita : null, formato: "pct", calculo: "Custos de produto e tecnologia (P&D) do período ÷ receita do período.", referencia: "SaaS em crescimento: 15–25% · Atenção < 8% (produto sem time pra evoluir)", leitura: faixa(receita > 0 ? mensal.reduce((s, m) => s + m.produto, 0) / receita : null, (v) => v >= 0.15, (v) => v >= 0.08) },
     { grupo: "Margens e unit economics", nome: "S&M em % da receita", valor: receita > 0 ? sm / receita : null, formato: "pct", calculo: "Marketing + vendas + outros S&M do período ÷ receita do período.", referencia: "Tração: 30–50% · Atenção < 10% (meta de clientes sem verba pra sustentar)", leitura: faixa(receita > 0 ? sm / receita : null, (v) => v >= 0.2 && v <= 0.6, (v) => v >= 0.1) },
     { grupo: "Margens e unit economics", nome: "Margem EBITDA do período", valor: metricas.margemOperacional != null ? metricas.margemOperacional / 100 : null, formato: "pct", calculo: "EBITDA acumulado ÷ receita acumulada.", referencia: "—", leitura: null },
