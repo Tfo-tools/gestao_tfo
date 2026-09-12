@@ -299,3 +299,10 @@ Ideia confirmada, escopo ainda não iniciado:
   varridos por `cenario_id.is.null`, então um produto global sem fase no outro cenário derrubava o
   lote inteiro com "Cadastre pelo menos uma fase" (foi o que a Consultoria fez no Batch 13). Agora o
   recálculo percorre só os produtos do cenário e devolve `foraDoCenario` para o resto.
+
+## Pró-labore das sócias e sociedade (decisão de 12/09/2026)
+
+- Pró-labore é **igual pras três** (salário de sustentabilidade, não salário de mercado): R$ 6.000 em 2027, R$ 8.000 a partir de 2028. Vanessa e Emyli começam com a entrada do capital do Batch 13 (jan/2027); Rayssa ao entrar na sociedade (mar/2027, alteração contratual R$ 437 em 2.3.5). Até jan/2027 a Vanessa vive da bolsa do Centelha — não é custo da empresa.
+- Lançados em `custos_empresa` (2.3.1, tipo fixo, dois itens por sócia — 2027 e 2028 em diante) com `parametros.folha = true`, que soma na folha do Fator R.
+- O que difere entre as sócias é a **distribuição de lucros**: Rayssa 8%; Vanessa e Emyli dividem o restante 50/50. Se entrar investidor, a diluição sai de Vanessa e Emyli.
+- Contabilidade: R$ 149 (contrato atual, 1 pró-labore incluso) até fev/2027; depois modelo de mercado escalonado por receita (349 / 469 / 889 / 1 salário mínimo), guardado em `modelos_custo_mercado`.
