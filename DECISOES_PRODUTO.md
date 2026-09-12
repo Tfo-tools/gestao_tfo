@@ -272,3 +272,9 @@ Ideia confirmada, escopo ainda não iniciado:
   planilha do investidor sem ser apagado — dá para ligar, olhar o resultado e decidir se apresenta.
   Na planilha vira a seção "Tração antes do produto", antes da captação, com a nota de que está fora
   da projeção.
+- **Atalho de Indicadores e acesso direto aos cenários.** `/indicadores` é rota de topo: mostra os
+  indicadores do plano com SELETOR de cenário na própria tela (troca por `?cenario=`), ao contrário de
+  `/plano/[cenarioId]/indicadores`, onde o cenário está preso na rota e o seletor fica escondido por
+  `ocultarSeletorCenario`. No menu, Cenários ganhou subitens recolhidos com "+": cada cenário leva a
+  `/plano/<id>` sem passar pela tela de criação. Os subitens abrem sozinhos quando a tela atual já é de
+  um plano. A lista de cenários desce do layout por props, porque a Sidebar é componente de cliente.

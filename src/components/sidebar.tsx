@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   IconHome,
@@ -18,8 +18,13 @@ import {
   IconCheckSquare,
   IconSettings,
   IconCalendar,
+  IconGauge,
+  IconPlus,
+  IconMinus,
 } from "./nav-icons";
 import { signOut } from "@/app/(app)/actions";
+
+export type CenarioMenu = { id: string; nome: string; is_base: boolean };
 
 type NavLink = {
   kind: "link";
@@ -30,56 +35,75 @@ type NavLink = {
   /** Pra itens que apontam pra mesma rota com querystrings diferentes (ex: /relatorios?aba=real
    * vs. /relatorios?aba=planos) — sem isso os dois ficariam "ativos" ao mesmo tempo. */
   matchQuery?: { key: string; value: string; default?: string };
+  /** Subitens recolhidos, abertos pelo "+" ao lado do item. Usado pelos cenários, pra chegar
+   * direto no plano sem passar pela tela de criação. */
+  filhos?: { href: string; label: string; detalhe?: string }[];
 };
 type NavEmBreve = { kind: "em-breve"; label: string; icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement };
 type NavEntry = NavLink | NavEmBreve;
 
-const GRUPOS: { titulo: string; items: NavEntry[] }[] = [
-  {
-    titulo: "",
-    items: [
-      { kind: "link", href: "/", label: "Visão Geral", icon: IconHome },
-      { kind: "link", href: "/tarefas", label: "Tarefas", icon: IconCheckSquare },
-      { kind: "link", href: "/agenda", label: "Agenda", icon: IconCalendar },
-    ],
-  },
-  {
-    titulo: "Realizado",
-    items: [
-      { kind: "link", href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
-      { kind: "link", href: "/contratacoes/realizado", label: "Contratações", icon: IconUsers },
-      { kind: "em-breve", label: "Vendas", icon: IconShoppingCart },
-      { kind: "link", href: "/ativos", label: "Ativos", icon: IconArchive },
-      {
-        kind: "link",
-        href: "/relatorios?aba=real",
-        label: "Relatórios",
-        icon: IconBarChart,
-        matchQuery: { key: "aba", value: "real", default: "real" },
-      },
-      { kind: "em-breve", label: "Prestação de Contas", icon: IconFile },
-    ],
-  },
-  {
-    titulo: "Planos",
-    items: [
-      { kind: "link", href: "/fomento", label: "Captação de Investimentos e Fomentos", icon: IconTrendingUp },
-      { kind: "link", href: "/cenarios", label: "Cenários", icon: IconLayers },
-      { kind: "link", href: "/produtos", label: "Produtos", icon: IconBox },
-    ],
-  },
-];
+function montarGrupos(cenarios: CenarioMenu[]): { titulo: string; items: NavEntry[] }[] {
+  return [
+    {
+      titulo: "",
+      items: [
+        { kind: "link", href: "/", label: "Visão Geral", icon: IconHome },
+        { kind: "link", href: "/tarefas", label: "Tarefas", icon: IconCheckSquare },
+        { kind: "link", href: "/agenda", label: "Agenda", icon: IconCalendar },
+      ],
+    },
+    {
+      titulo: "Realizado",
+      items: [
+        { kind: "link", href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
+        { kind: "link", href: "/contratacoes/realizado", label: "Contratações", icon: IconUsers },
+        { kind: "em-breve", label: "Vendas", icon: IconShoppingCart },
+        { kind: "link", href: "/ativos", label: "Ativos", icon: IconArchive },
+        {
+          kind: "link",
+          href: "/relatorios?aba=real",
+          label: "Relatórios",
+          icon: IconBarChart,
+          matchQuery: { key: "aba", value: "real", default: "real" },
+        },
+        { kind: "em-breve", label: "Prestação de Contas", icon: IconFile },
+      ],
+    },
+    {
+      titulo: "Planos",
+      items: [
+        { kind: "link", href: "/fomento", label: "Captação de Investimentos e Fomentos", icon: IconTrendingUp },
+        { kind: "link", href: "/indicadores", label: "Indicadores", icon: IconGauge },
+        {
+          kind: "link",
+          href: "/cenarios",
+          label: "Cenários",
+          icon: IconLayers,
+          filhos: cenarios.map((c) => ({
+            href: `/plano/${c.id}`,
+            label: c.nome,
+            detalhe: c.is_base ? "base" : undefined,
+          })),
+        },
+        { kind: "link", href: "/produtos", label: "Produtos", icon: IconBox },
+      ],
+    },
+  ];
+}
 
-export function Sidebar({ nome, email }: { nome: string; email: string }) {
+export function Sidebar({ nome, email, cenarios = [] }: { nome: string; email: string; cenarios?: CenarioMenu[] }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [aberto, setAberto] = useState(false);
+  // Os subitens começam recolhidos, mas já abertos quando a tela atual é de um plano — senão ela
+  // ficaria navegando num cenário sem ver onde está.
+  const [expandido, setExpandido] = useState<Record<string, boolean>>(() => ({ "/cenarios": pathname.startsWith("/plano/") }));
 
-  // Fecha o menu sempre que a navegação muda — sem isso o drawer ficaria aberto por cima da
-  // tela nova depois de tocar num link no celular.
-  useEffect(() => {
-    setAberto(false);
-  }, [pathname, searchParams]);
+  const grupos = montarGrupos(cenarios);
+
+  // No celular o drawer fecha no próprio clique do link (ver `fecharNoCelular`) — sem isso ele
+  // ficaria aberto por cima da tela nova.
+  const fecharNoCelular = () => setAberto(false);
 
   function isActive(item: NavLink): boolean {
     const [base] = item.href.split("?");
@@ -127,7 +151,7 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
       </div>
 
       <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-3.5">
-        {GRUPOS.map((grupo, gi) => (
+        {grupos.map((grupo, gi) => (
           <div key={gi} className="flex flex-col gap-0.5">
             {grupo.titulo && (
               <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/35">{grupo.titulo}</div>
@@ -146,17 +170,56 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
                 );
               }
               const active = isActive(item);
+              const filhos = item.filhos ?? [];
+              // Nome próprio: `aberto` já é o estado do drawer no celular, e sombrear confunde.
+              const subAberto = expandido[item.href] ?? false;
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] transition-colors ${
-                    active ? "bg-cream/20 font-semibold text-cream" : "text-white/70 hover:bg-white/5"
-                  }`}
-                >
-                  <Icon width={18} height={18} strokeWidth={active ? 2.1 : 1.8} className={active ? "text-cream" : "text-white/55"} />
-                  {item.label}
-                </Link>
+                <div key={item.href} className="flex flex-col gap-0.5">
+                  <div
+                    className={`flex items-center rounded-lg pr-1.5 transition-colors ${
+                      active ? "bg-cream/20" : "hover:bg-white/5"
+                    }`}
+                  >
+                    <Link
+                      href={item.href}
+                      onClick={fecharNoCelular}
+                      className={`flex flex-1 items-center gap-3 px-3 py-2.5 text-[13.5px] ${
+                        active ? "font-semibold text-cream" : "text-white/70"
+                      }`}
+                    >
+                      <Icon width={18} height={18} strokeWidth={active ? 2.1 : 1.8} className={active ? "text-cream" : "text-white/55"} />
+                      {item.label}
+                    </Link>
+                    {filhos.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandido((e) => ({ ...e, [item.href]: !subAberto }))}
+                        aria-label={subAberto ? `Recolher ${item.label}` : `Expandir ${item.label}`}
+                        aria-expanded={subAberto}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/45 hover:bg-white/10 hover:text-white/80"
+                      >
+                        {subAberto ? <IconMinus width={13} height={13} /> : <IconPlus width={13} height={13} />}
+                      </button>
+                    )}
+                  </div>
+                  {subAberto &&
+                    filhos.map((f) => {
+                      const filhoAtivo = pathname === f.href || pathname.startsWith(`${f.href}/`);
+                      return (
+                        <Link
+                          key={f.href}
+                          href={f.href}
+                          onClick={fecharNoCelular}
+                          className={`ml-[26px] flex items-center gap-2 rounded-lg border-l border-white/10 py-1.5 pl-3.5 pr-3 text-[12.5px] transition-colors ${
+                            filhoAtivo ? "font-semibold text-cream" : "text-white/60 hover:bg-white/5 hover:text-white/85"
+                          }`}
+                        >
+                          {f.label}
+                          {f.detalhe && <span className="text-[9.5px] uppercase tracking-wide text-white/35">{f.detalhe}</span>}
+                        </Link>
+                      );
+                    })}
+                </div>
               );
             })}
           </div>
@@ -166,6 +229,7 @@ export function Sidebar({ nome, email }: { nome: string; email: string }) {
       <div className="mt-auto px-3.5">
         <Link
           href="/configuracoes"
+          onClick={fecharNoCelular}
           className="mt-2 flex items-center gap-3 rounded-lg border-t border-white/8 px-3 pt-4 pb-2.5 text-[13.5px] text-white/55 hover:text-white/80"
         >
           <IconSettings width={18} height={18} />
