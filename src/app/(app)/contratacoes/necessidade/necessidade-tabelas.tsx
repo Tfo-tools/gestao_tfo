@@ -61,6 +61,27 @@ function taxaDoModelo(p: ParametrosModelo): number | null {
   return t && t > 0 ? t : null;
 }
 
+/**
+ * O que a quantidade significa depende do tipo de contrato — e é a dúvida mais comum da tela:
+ * em modelos cobrados por uso, 0 quer dizer "cubra toda a necessidade do mês"; acima de 0 é teto.
+ */
+function ajudaQuantidade(cargo: string, modelo?: Modelo): string {
+  const unidade = cargoChave(cargo) === "suporte" ? "horas" : "reuniões";
+  const capacidade = modelo?.parametros.capacidade_unidade_mes;
+  const porUnidade = capacidade ? ` Cada unidade cobre até ${capacidade.toLocaleString("pt-BR")} ${unidade}/mês.` : "";
+  if (!modelo) return `0 = cobre toda a necessidade do mês. Acima de 0 vira teto, e o que a meta pedir além disso fica como esforço próprio, sem custo.`;
+  if (precisaQuantidade(modelo.tipo_modelo)) {
+    return `Aqui a quantidade é o que você CONTRATOU: ${modelo.tipo_modelo === "clt" ? "pessoas" : "pacotes"} inteiros, pagos mesmo que a demanda do mês caia.${porUnidade} O que passar da capacidade contratada fica como esforço próprio, sem custo.`;
+  }
+  const teto = porUnidade || " É a capacidade do modelo × a quantidade.";
+  return (
+    `Modelo cobrado pelo volume trabalhado. 0 = acompanha toda a demanda do mês: não há teto, e o custo segue o volume — ` +
+    `o bot compra quantos pacotes de leads precisar, o PJ é pago pelas reuniões que fizer. ` +
+    `Um número acima de 0 vira teto.${teto} O que a meta pedir além do teto aparece como esforço próprio na coluna "Alocado" ` +
+    `e não gera custo — é você e sua sócia cobrindo.`
+  );
+}
+
 function escopoLabel(a: Alocacao, produtos: Produto[]): string {
   const ids = produtosDaAlocacao(a);
   if (!ids) return "todos os produtos";
@@ -412,8 +433,9 @@ function AlocacaoModelo({
           </select>
           <EscolhaProdutos produtos={produtos} />
           <div>
-            <label className="mb-0.5 block text-[9.5px] text-text-faint">
-              {modeloSelecionado && !precisaQuantidade(modeloSelecionado.tipo_modelo) ? "Qtd. (0 = demanda)" : "Qtd."}
+            <label className="mb-0.5 flex items-center text-[9.5px] text-text-faint">
+              {modeloSelecionado && !precisaQuantidade(modeloSelecionado.tipo_modelo) ? "Qtd. (0 = toda a demanda)" : "Qtd."}
+              <InfoTooltip texto={ajudaQuantidade(cargo, modeloSelecionado)} />
             </label>
             <input
               key={modeloSelecionadoId}
@@ -508,7 +530,10 @@ function LinhaAlocacao({
       <span className="mb-1.5 text-[12px]">{modelo?.nome ?? "modelo removido"}</span>
       <EscolhaProdutos produtos={produtos} marcados={produtosDaAlocacao(a)} />
       <div>
-        <label className="mb-0.5 block text-[9.5px] text-text-faint">Qtd. (0 = demanda)</label>
+        <label className="mb-0.5 flex items-center text-[9.5px] text-text-faint">
+          {modelo && precisaQuantidade(modelo.tipo_modelo) ? "Qtd." : "Qtd. (0 = toda a demanda)"}
+          <InfoTooltip texto={ajudaQuantidade(a.cargo, modelo)} />
+        </label>
         <input name="quantidade" type="number" min="0" step="1" defaultValue={a.quantidade} className="input w-[110px]" required />
       </div>
       <div>
