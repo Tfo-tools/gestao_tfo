@@ -96,6 +96,7 @@ export function CustosCategoriaCard({
   receitaPorProduto = {},
   derivados = [],
   atalhos = [],
+  comecarAberto = false,
   painel,
 }: {
   categoria: string;
@@ -116,10 +117,12 @@ export function CustosCategoriaCard({
   /** Telas onde o custo deste grupo é configurado de fato (ex: equipe comercial em Necessidade de
    *  Contratação). Aparecem no topo do card pra ninguém procurar o lançamento no lugar errado. */
   atalhos?: { label: string; descricao: string; href: string }[];
+  /** Abre o card já expandido — usado quando o atalho de outra tela aponta pra ele (?card=…). */
+  comecarAberto?: boolean;
   /** Painel de configuração específico do grupo (ex: regras de escala do COGS), acima dos lançamentos. */
   painel?: React.ReactNode;
 }) {
-  const [aberto, setAberto] = useState(false);
+  const [aberto, setAberto] = useState(comecarAberto);
   const [isPending, startTransition] = useTransition();
 
   const totalMes =

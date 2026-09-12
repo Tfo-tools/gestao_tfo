@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { agregarPorCenario, computeMetricas } from "@/lib/relatorios-cenario";
 import { MetasHeader } from "../../metas-header";
+import { RecalcularProjecao } from "../recalcular-projecao";
 import { CATEGORIAS_LANCAMENTO, categoriaDeConta, labelCategoriaNegocio } from "@/lib/categoria-negocio";
 import type { CustoDerivado } from "./custos-derivados";
 import { CogsPremissasForm, type ProdutoCogs, type PerfilHora } from "./cogs-premissas-form";
@@ -26,8 +27,17 @@ function formatBRL(v: number) {
 // é custo de empresa mesmo — continua na lista simples de sempre.
 const CATEGORIAS_MATRIZ = new Set(["csp", "marketing", "vendas", "desenvolvimento", "marca"]);
 
-export default async function PlanoCustosPage({ params }: { params: Promise<{ cenarioId: string }> }) {
+export default async function PlanoCustosPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ cenarioId: string }>;
+  // ?card=marketing abre esse card já expandido; a âncora #card-marketing rola até ele. É o que
+  // faz o atalho de um indicador cair exatamente no lugar onde se edita o número.
+  searchParams?: Promise<{ card?: string }>;
+}) {
   const { cenarioId } = await params;
+  const { card: cardAberto } = (await searchParams) ?? {};
   const supabase = await createClient();
 
   const [{ data: cenario }, { data: produtos }, { data: planoContas }] = await Promise.all([
@@ -337,6 +347,11 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
 
       <AvisoTelaGrande />
 
+      {/* Ajusta o custo no card, recalcula aqui mesmo e olha a tabela — o ciclo da tela de Vendas. */}
+      <div className="mb-4 flex items-center justify-end">
+        <RecalcularProjecao cenarioId={cenarioId} />
+      </div>
+
       <MetasHeader
         metas={cenario}
         atuais={{
@@ -365,8 +380,8 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
           const contasDaCategoria = (planoContas ?? []).filter((c) => categoriaDeConta(c) === chave);
 
           return (
+            <div key={chave} id={`card-${chave}`} className="scroll-mt-24">
             <CustosCategoriaCard
-              key={chave}
               categoria={chave}
               label={labelCategoriaNegocio(chave)}
               cenarioId={cenarioId}
@@ -391,7 +406,9 @@ export default async function PlanoCustosPage({ params }: { params: Promise<{ ce
                   </>
                 ) : undefined
               }
+              comecarAberto={chave === cardAberto}
             />
+            </div>
           );
         })}
       </div>

@@ -20,11 +20,22 @@ export type IndicadorDef = {
   formula: string;
   /** Cada link recebe o cenário atual pra montar a URL — assim nunca abre a tela "solta", sem
    * saber de qual plano se trata. */
-  editarLinks: { label: string; href: (cenarioId: string) => string }[];
+  /** `periodo` é a query do recorte atual ("inicio=…&fim=…"), pra não perder o filtro ao navegar. */
+  editarLinks: { label: string; href: (cenarioId: string, periodo?: string) => string }[];
 };
 
 const hrefVendas = (cenarioId: string) => (cenarioId ? `/plano/${cenarioId}/vendas` : "/cenarios");
 const hrefPlanoCustos = (cenarioId: string) => (cenarioId ? `/plano/${cenarioId}/custos` : "/cenarios");
+/** Junta a query do período com o que a URL já tem. */
+const comPeriodo = (url: string, periodo?: string) =>
+  periodo ? (url.includes("?") ? `${url}&${periodo}` : `${url}?${periodo}`) : url;
+/**
+ * Atalho que abre o Plano de Custos JÁ no card certo, expandido e com o período preservado:
+ * ?card=marketing abre o card, #card-marketing rola até ele. É o mesmo ciclo da tela de Vendas —
+ * ajusta, recalcula ali e olha a tabela sem procurar onde era.
+ */
+const hrefCard = (card: string) => (cenarioId: string, periodo?: string) =>
+  cenarioId ? `${comPeriodo(`/plano/${cenarioId}/custos?card=${card}`, periodo)}#card-${card}` : "/cenarios";
 const hrefContratacoes = (cenarioId: string) => (cenarioId ? `/contratacoes?cenario=${cenarioId}` : "/contratacoes");
 const hrefFomento = () => "/fomento";
 
@@ -55,7 +66,7 @@ export const INDICADORES: IndicadorDef[] = [
     titulo: "Margem bruta",
     formula:
       "(Receita líquida − COGS) ÷ Receita líquida, no período selecionado. Receita líquida = receita − impostos sobre a receita (DAS enquanto está no Simples; ISS + PIS/COFINS ou CBS/IBS, líquidos de crédito, depois). É a mesma base do benchmark de SaaS (70–85%).",
-    editarLinks: [{ label: "Plano de Custos (custos COGS do produto)", href: hrefPlanoCustos }],
+    editarLinks: [{ label: "Plano de Custos → CSP (COGS do produto)", href: hrefCard("csp") }],
   },
   {
     key: "cac",
@@ -63,8 +74,9 @@ export const INDICADORES: IndicadorDef[] = [
     formula:
       "Fully-loaded: (Marketing + Vendas + Outros S&M — mídia, ferramentas, folha comercial própria e compartilhada, comissões, terceirizados) ÷ novos clientes adquiridos, no período selecionado.",
     editarLinks: [
-      { label: "Custos COGS (equipe comercial)", href: hrefContratacoes },
-      { label: "Plano de Custos (marketing)", href: hrefPlanoCustos },
+      { label: "Equipe comercial: SDR e vendedor", href: (cenarioId: string) => `/contratacoes/necessidade?cenario=${cenarioId}&cargo=sdr` },
+      { label: "Plano de Custos → Marketing", href: hrefCard("marketing") },
+      { label: "Plano de Custos → Vendas", href: hrefCard("vendas") },
     ],
   },
   {
@@ -112,7 +124,7 @@ export const INDICADORES: IndicadorDef[] = [
     titulo: "COGS — o que entra na linha",
     formula:
       "Custo de entregar o serviço: regras de COGS de cada produto (infra, LLM, suporte reativo e CS proativo em horas × custo/hora, software, gateway), custo das etapas de implementação × clientes novos, e custos lançados em contas 1.1.x. Nada de aquisição de cliente entra aqui.",
-    editarLinks: [{ label: "Plano de Custos (card CSP)", href: hrefPlanoCustos }],
+    editarLinks: [{ label: "Plano de Custos → CSP", href: hrefCard("csp") }],
   },
   {
     key: "sm",
@@ -121,6 +133,8 @@ export const INDICADORES: IndicadorDef[] = [
       "Tudo o que traz cliente: mídia do self-service, fechamento/comissão/crédito pagos a parceiros, equipe comercial alocada (SDR, vendedor, coordenador), feiras e eventos, e custos da empresa em contas 2.1.x. É o numerador do CAC.",
     editarLinks: [
       { label: "Canais de aquisição (Vendas)", href: hrefVendas },
+      { label: "Plano de Custos → Marketing", href: hrefCard("marketing") },
+      { label: "Plano de Custos → Vendas", href: hrefCard("vendas") },
       { label: "Equipe comercial (Necessidade de Contratação)", href: (cenarioId: string) => `/contratacoes/necessidade?cenario=${cenarioId}` },
     ],
   },
@@ -128,14 +142,17 @@ export const INDICADORES: IndicadorDef[] = [
     key: "pd",
     titulo: "P&D — o que entra na linha",
     formula: "Desenvolvimento de produto: custos da empresa em contas 2.2.x, equipe alocada de P&D e contratações por produto.",
-    editarLinks: [{ label: "Plano de Custos (Desenvolvimento)", href: hrefPlanoCustos }],
+    editarLinks: [{ label: "Plano de Custos → Desenvolvimento", href: hrefCard("desenvolvimento") }],
   },
   {
     key: "ga",
     titulo: "G&A — o que entra na linha",
     formula:
       "Estrutura: custos da empresa em contas 2.3.x e 2.4.x (marca), filiação mensal às associações parceiras (fora do CAC) e equipe alocada de G&A.",
-    editarLinks: [{ label: "Plano de Custos", href: hrefPlanoCustos }],
+    editarLinks: [
+      { label: "Plano de Custos → Estrutura", href: hrefCard("estrutura_escritorio") },
+      { label: "Plano de Custos → Taxas e serviços", href: hrefCard("taxas") },
+    ],
   },
 ];
 
