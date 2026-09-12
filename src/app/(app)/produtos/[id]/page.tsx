@@ -8,6 +8,8 @@ import { NiveisModulo } from "./niveis-modulo";
 import { TipoPrecificacaoToggle } from "./tipo-precificacao-toggle";
 import { DatasProduto } from "./datas-produto";
 import { ImplementacaoProduto, type CanalImplementacao } from "./implementacao-produto";
+import { StatusProdutoControle } from "@/app/(app)/produtos/status-produto";
+import type { StatusProduto } from "@/lib/fases-produto";
 
 // Salvar a implementação recalcula a projeção do produto nos cenários — leva alguns segundos.
 export const maxDuration = 60;
@@ -27,7 +29,7 @@ export default async function ProdutoDetailPage({
     supabase
       .from("produtos")
       .select(
-        "id, nome, descricao, data_inicio_desenvolvimento, data_lancamento_estimada, tipo_precificacao, tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento",
+        "id, nome, descricao, status, data_inicio_desenvolvimento, data_lancamento_estimada, tipo_precificacao, tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento",
       )
       .eq("id", id)
       .single(),
@@ -133,6 +135,10 @@ export default async function ProdutoDetailPage({
         dataInicioDesenvolvimento={produto.data_inicio_desenvolvimento}
         dataLancamentoEstimada={produto.data_lancamento_estimada}
       />
+
+      <div className="mt-5">
+        <StatusProdutoControle produtoId={id} status={(produto.status ?? "planejado") as StatusProduto} nome={produto.nome} />
+      </div>
 
       <div className="mt-5 flex flex-col gap-5">
         <ImplementacaoProduto

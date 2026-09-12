@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { criarProduto, type ActionState } from "./actions";
 
 const initialState: ActionState = { error: null };
@@ -8,10 +8,6 @@ const initialState: ActionState = { error: null };
 export function NovoProdutoForm({ cenarioId, cenarioNome }: { cenarioId?: string; cenarioNome?: string }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(criarProduto, initialState);
-
-  useEffect(() => {
-    if (state.success) setOpen(false);
-  }, [state.success]);
 
   if (!open) {
     return (
@@ -30,7 +26,15 @@ export function NovoProdutoForm({ cenarioId, cenarioNome }: { cenarioId?: string
   return (
     <div className="rounded-xl border border-primary-fill bg-surface p-6">
       <h2 className="mb-4 font-heading text-sm font-semibold">Novo produto</h2>
-      <form action={formAction} className="flex flex-col gap-3.5">
+      <form
+        action={async (fd) => {
+          // Fecha no próprio submit bem-sucedido. Antes era um efeito observando state.success, que
+          // disparava setState em cascata a cada render do estado da action.
+          await formAction(fd);
+          if (!fd.get("__manter_aberto")) setOpen(false);
+        }}
+        className="flex flex-col gap-3.5"
+      >
         <div>
           <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">Nome</label>
           <input name="nome" type="text" required className="input" placeholder="Ex: Fashion Trend" />
@@ -54,15 +58,14 @@ export function NovoProdutoForm({ cenarioId, cenarioNome }: { cenarioId?: string
           </div>
         </div>
 
-        {cenarioId && (
-          <label className="flex items-start gap-2 rounded-lg bg-bg p-3 text-[12px] text-text-muted">
-            <input type="checkbox" name="somente_este_cenario" className="mt-0.5" />
-            <span>
-              Aplicar só ao cenário <b>{cenarioNome ?? "atual"}</b> — pra testar uma ideia sem comprometer o Plano Base.
-              Deixe desmarcado pra valer em todos os cenários.
-            </span>
-          </label>
-        )}
+        {/* Todo produto nasce disponível para qualquer cenário, com status "planejado". Onde ele
+            entra é decidido depois: o Base absorve o que estiver aprovado ou iniciado, e os demais
+            cenários escolhem à mão. O cenário abaixo é só a origem — se não for o Base, o produto
+            já entra na seleção dele, que é onde você está trabalhando. */}
+        <p className="rounded-lg border border-border-soft bg-bg px-3 py-2 text-[11px] text-text-muted">
+          Nasce como <strong>planejado</strong> e disponível para qualquer cenário. O Base passa a incluí-lo quando
+          você aprová-lo{cenarioNome ? `; em ${cenarioNome} ele já entra na seleção` : ""}.
+        </p>
         <input type="hidden" name="cenario_id" value={cenarioId ?? ""} />
 
         {state.error && (

@@ -4,6 +4,8 @@ import { NovoProdutoForm } from "./novo-produto-form";
 import { FasesMatriz, type ProdutoFases } from "./fases-matriz";
 import { FASES } from "@/lib/fases";
 import { AvisoTelaGrande } from "@/components/aviso-tela-grande";
+import { SeloStatus } from "./status-produto";
+import type { StatusProduto } from "@/lib/fases-produto";
 
 export default async function ProdutosPage({
   searchParams,
@@ -19,34 +21,35 @@ export default async function ProdutosPage({
 
   const { data: produtos } = await supabase
     .from("produtos")
-    .select("id, nome, descricao, data_inicio_desenvolvimento, data_lancamento_estimada, cenario_id")
-    .or(`cenario_id.is.null${cenarioAtual ? `,cenario_id.eq.${cenarioAtual}` : ""}`)
+    .select("id, nome, descricao, status, data_inicio_desenvolvimento, data_lancamento_estimada")
     .order("nome");
 
-  const produtosFases: ProdutoFases[] = cenarioAtual
-    ? await Promise.all(
-        (produtos ?? []).map(async (produto) => {
-          const { data: fases } = await supabase
-            .from("fases_produto")
-            .select("fase, data_inicio, data_fim")
-            .eq("produto_id", produto.id)
-            .eq("cenario_id", cenarioAtual);
+  // As datas de fase são do produto: uma consulta só, sem filtro de cenário. A tela tem de ler da
+  // mesma fonte em que grava — senão mostraria a data antiga enquanto o motor usa a nova.
+  const { data: todasAsFases } = await supabase
+    .from("produto_fases")
+    .select("produto_id, fase, data_inicio, data_fim");
 
-          const faseByValue = new Map((fases ?? []).map((f) => [f.fase, f]));
+  const fasesPorProduto = new Map<string, Map<string, { data_inicio: string | null; data_fim: string | null }>>();
+  for (const f of (todasAsFases ?? []) as { produto_id: string; fase: string; data_inicio: string | null; data_fim: string | null }[]) {
+    const doProduto = fasesPorProduto.get(f.produto_id) ?? new Map();
+    doProduto.set(f.fase, { data_inicio: f.data_inicio, data_fim: f.data_fim });
+    fasesPorProduto.set(f.produto_id, doProduto);
+  }
 
-          return {
-            id: produto.id,
-            nome: produto.nome,
-            fases: FASES.map((f, i) => ({
-              fase: f.value,
-              label: f.label,
-              ordem: i + 1,
-              dados: faseByValue.get(f.value) ?? null,
-            })),
-          };
-        }),
-      )
-    : [];
+  const produtosFases: ProdutoFases[] = (produtos ?? []).map((produto) => {
+    const doProduto = fasesPorProduto.get(produto.id) ?? new Map();
+    return {
+      id: produto.id,
+      nome: produto.nome,
+      fases: FASES.map((f, i) => ({
+        fase: f.value,
+        label: f.label,
+        ordem: i + 1,
+        dados: doProduto.get(f.value) ?? null,
+      })),
+    };
+  });
 
   return (
     <div>
@@ -77,8 +80,8 @@ export default async function ProdutosPage({
           <div>
             <p className="text-[13px] font-semibold text-primary-deep">Confirme os planos e módulos de cada produto</p>
             <p className="mt-0.5 text-[11.5px] text-primary-deep/80">
-              Os planos e módulos daqui valem só pra este cenário — quando estiver tudo certo, siga pra planejar
-              crescimento e churn.
+              Os planos e módulos daqui valem para este cenário; as datas das fases são do produto e valem em todos.
+              Quando estiver tudo certo, siga pra planejar crescimento e churn.
             </p>
           </div>
           <Link
@@ -103,11 +106,7 @@ export default async function ProdutosPage({
           >
             <div className="flex items-center gap-2">
               <div className="font-heading text-[15px] font-semibold">{p.nome}</div>
-              {p.cenario_id && (
-                <span className="rounded bg-cream px-1.5 py-0.5 text-[9.5px] font-semibold text-cream-deep">
-                  só nesse cenário
-                </span>
-              )}
+              <SeloStatus status={(p.status ?? "planejado") as StatusProduto} />
             </div>
             <p className="mt-1.5 text-[12px] text-text-muted">{p.descricao ?? "Sem descrição ainda."}</p>
             <div className="mt-4 flex items-center gap-2 text-[11px] text-text-faint">
@@ -122,12 +121,13 @@ export default async function ProdutosPage({
         ))}
       </div>
 
-      {cenarioAtual && (
+      {(
         <div className="rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-1 font-heading text-[13px] font-semibold">Fases do ciclo de vida</h2>
           <p className="mb-4 text-[11px] text-text-muted">
-            Início e fim de cada fase, lado a lado por produto — todas as fases ficam visíveis pra preencher mais
-            rápido, sem precisar expandir uma por uma. Crescimento, churn, conversão e capacidade ficam em Vendas.
+            Início e fim de cada fase, lado a lado por produto. <strong>Estas datas são do produto</strong>: valem em
+            todos os cenários em que ele estiver vinculado, e ficam congeladas quando o produto passa a iniciado.
+            Crescimento, churn e conversão são de cada cenário e ficam em Vendas.
           </p>
           <AvisoTelaGrande />
           <FasesMatriz cenarioId={cenarioAtual} produtos={produtosFases} />

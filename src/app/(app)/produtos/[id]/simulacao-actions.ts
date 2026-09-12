@@ -5,13 +5,19 @@ import { createClient } from "@/lib/supabase/server";
 import { calcularSimulacao, type SimulacaoInput } from "@/lib/simulacao";
 import { subgrupoDeConta } from "@/lib/subgrupo-conta";
 import type { FaseValue } from "@/lib/fases";
+import { idsDoCenario, produtoEstaNoCenario } from "@/lib/fases-produto";
 import { pontoPartidaDoProduto, type PontoPartida } from "@/lib/ponto-partida";
 import { vendasAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
 
 type PlanoRow = { id: string; nome_plano: string | null; tipo_cobranca: string; preco: number; mix_percentual: number | null; reajuste_anual_pct: number | null };
 type PlanoFaseRow = { plano_id: string; fase: string; preco: number };
 
-export type SimulacaoActionState = { error: string | null; success?: boolean };
+export type SimulacaoActionState = {
+  error: string | null;
+  success?: boolean;
+  /** Cenário não simula este produto — não é falha, só não há o que calcular. */
+  foraDoCenario?: boolean;
+};
 
 export async function recalcularSimulacao(
   produtoId: string,
@@ -19,7 +25,7 @@ export async function recalcularSimulacao(
 ): Promise<SimulacaoActionState> {
   const supabase = await createClient();
 
-  const [{ data: produto }, { data: fases }, { data: planos }] = await Promise.all([
+  const [{ data: produto }, { data: fases }, { data: planos }, { data: datasFases }, noCenario] = await Promise.all([
     supabase
       .from("produtos")
       .select(
@@ -37,10 +43,19 @@ export async function recalcularSimulacao(
       .select("id, nome_plano, tipo_cobranca, preco, mix_percentual, reajuste_anual_pct")
       .eq("produto_id", produtoId)
       .eq("cenario_id", cenarioId),
+    // Datas de fase são do PRODUTO: as mesmas em todo cenário onde ele está vinculado.
+    supabase.from("produto_fases").select("fase, data_inicio, data_fim").eq("produto_id", produtoId),
+    produtoEstaNoCenario(supabase, produtoId, cenarioId),
   ]);
 
   if (!produto) {
     return { error: "Produto não encontrado." };
+  }
+  if (!noCenario) {
+    // Não é erro: este cenário não simula este produto. Antes, um produto global sem fase no
+    // cenário fazia o recálculo inteiro reportar falha — foi o que aconteceu com a Consultoria.
+    await supabase.from("simulacao_mensal").delete().eq("produto_id", produtoId).eq("cenario_id", cenarioId);
+    return { error: null, foraDoCenario: true };
   }
   if (!fases || fases.length === 0) {
     return { error: "Cadastre pelo menos uma fase em Produtos antes de calcular." };
@@ -188,6 +203,12 @@ export async function recalcularSimulacao(
   }
 
   const faseValueById = new Map(fases.map((f) => [f.id as string, f.fase as FaseValue]));
+  const datasPorFase = new Map(
+    ((datasFases ?? []) as { fase: string; data_inicio: string | null; data_fim: string | null }[]).map((d) => [
+      d.fase as FaseValue,
+      d,
+    ]),
+  );
   const regimeAliquota = new Map((regimes ?? []).map((r) => [r.id, Number(r.aliquota_total_efetiva)]));
 
   const precosPorFaseByPlano = new Map<string, Partial<Record<FaseValue, number>>>();
@@ -230,8 +251,10 @@ export async function recalcularSimulacao(
     vendasAcoes,
     fases: fases.map((f) => ({
       fase: f.fase as FaseValue,
-      data_inicio: f.data_inicio,
-      data_fim: f.data_fim,
+      // Data: do produto. Taxa: do cenário. É a separação que a tela de produto e a de cenário
+      // refletem — mudar a data no produto vale para todos os cenários vinculados.
+      data_inicio: datasPorFase.get(f.fase as FaseValue)?.data_inicio ?? f.data_inicio,
+      data_fim: datasPorFase.get(f.fase as FaseValue)?.data_fim ?? f.data_fim,
       taxa_crescimento_mensal: f.taxa_crescimento_mensal,
       taxa_churn_mensal: f.taxa_churn_mensal,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -417,10 +440,10 @@ export async function recalcularSimulacao(
  * projeção antiga (ou nenhuma) até alguém clicar em "Recalcular projeção". */
 export async function recalcularTodosProdutos(cenarioId: string): Promise<{ falhas: string[] }> {
   const supabase = await createClient();
-  const { data: produtos } = await supabase
-    .from("produtos")
-    .select("id, nome")
-    .or(`cenario_id.is.null,cenario_id.eq.${cenarioId}`);
+  // Só o que o cenário simula: no Base, todo produto aprovado ou iniciado; nos demais, a seleção
+  // explícita. O que está fora não é recalculado nem conta como falha.
+  const ids = await idsDoCenario(supabase, cenarioId);
+  const { data: produtos } = ids.length > 0 ? await supabase.from("produtos").select("id, nome").in("id", ids) : { data: [] };
   const falhas: string[] = [];
   for (const p of produtos ?? []) {
     const r = await recalcularSimulacao(p.id, cenarioId);

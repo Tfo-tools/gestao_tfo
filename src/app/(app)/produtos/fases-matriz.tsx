@@ -17,6 +17,10 @@ export type ProdutoFases = {
 
 const initialState: CurvaActionState = { error: null };
 
+/**
+ * As datas são dado do PRODUTO: gravadas uma vez, valem em todos os cenários vinculados.
+ * O `cenarioId` aqui não é chave de nada — serve só pra action saber qual tela revalidar.
+ */
 export function FasesMatriz({ cenarioId, produtos }: { cenarioId: string; produtos: ProdutoFases[] }) {
   if (produtos.length === 0) {
     return <p className="text-[13px] text-text-muted">Nenhum produto cadastrado ainda.</p>;
@@ -64,10 +68,11 @@ function FaseSecao({
 
   return (
     <div className="rounded-lg border border-border-soft overflow-hidden">
-      <div className="bg-primary-soft px-4 py-2.5">
+      <div className="flex items-center justify-between bg-primary-soft px-4 py-2.5">
         <span className="text-[12.5px] font-semibold">
           {ordem}. {label}
         </span>
+        <span className="text-[10px] text-primary-deep/70">vale em todos os cenários</span>
       </div>
 
       <form

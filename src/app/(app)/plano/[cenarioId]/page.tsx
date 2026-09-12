@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ProdutosDoCenario } from "./produtos-do-cenario";
+import type { StatusProduto } from "@/lib/fases-produto";
 import { createClient } from "@/lib/supabase/server";
 import { agregarPorCenario, computeMetricas } from "@/lib/relatorios-cenario";
 import { MetasHeader } from "../metas-header";
@@ -32,7 +34,8 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
   const [{ count: produtosCount }, { count: fasesCount }, { count: custosFixosCount }, { count: custosVariaveisCount }, { count: custosEmpresaCount }, { count: contratacoesCount }, { count: programasCount }] =
     await Promise.all([
       supabase.from("produtos").select("id", { count: "exact", head: true }),
-      supabase.from("fases_produto").select("id", { count: "exact", head: true }).eq("cenario_id", cenarioId).not("data_inicio", "is", null),
+      // As datas de fase são do produto agora: a contagem não filtra por cenário.
+      supabase.from("produto_fases").select("id", { count: "exact", head: true }).not("data_inicio", "is", null),
       supabase
         .from("plano_custos_fixos")
         .select("id, fases_produto!inner(cenario_id)", { count: "exact", head: true })
@@ -45,6 +48,19 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
       supabase.from("contratacoes").select("id", { count: "exact", head: true }).eq("cenario_id", cenarioId),
       supabase.from("cenario_programas").select("programa_id", { count: "exact", head: true }).eq("cenario_id", cenarioId),
     ]);
+
+  // Quais produtos este cenário simula: no Base, por status; nos demais, por seleção explícita.
+  const [{ data: produtosTodos }, { data: vinculos }] = await Promise.all([
+    supabase.from("produtos").select("id, nome, status").order("nome"),
+    supabase.from("produto_cenario").select("produto_id").eq("cenario_id", cenarioId),
+  ]);
+  const selecionados = new Set(((vinculos ?? []) as { produto_id: string }[]).map((v) => v.produto_id));
+  const produtosDoCenario = ((produtosTodos ?? []) as { id: string; nome: string; status: StatusProduto }[]).map((p) => ({
+    id: p.id,
+    nome: p.nome,
+    status: p.status ?? "planejado",
+    selecionado: selecionados.has(p.id),
+  }));
 
   return (
     <div>
@@ -89,7 +105,11 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
       />
       <MetasForm cenarioId={cenarioId} metas={cenario} />
 
-      <div className="flex flex-col gap-3">
+      <div className="mt-5">
+        <ProdutosDoCenario cenarioId={cenarioId} ehBase={cenario.is_base === true} produtos={produtosDoCenario} />
+      </div>
+
+      <div className="mt-5 flex flex-col gap-3">
         <LinhaPlano
           href={`/plano/${cenarioId}/vendas`}
           titulo="Vendas"

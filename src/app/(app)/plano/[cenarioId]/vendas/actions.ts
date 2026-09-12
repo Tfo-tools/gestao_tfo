@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { capturarPontoPartida, type PontoPartida } from "@/lib/ponto-partida";
+import { datasTravadas, type StatusProduto } from "@/lib/fases-produto";
 import { recalcularTodosProdutos } from "@/app/(app)/produtos/[id]/simulacao-actions";
 
 export type CurvaActionState = { error: string | null; success?: boolean };
@@ -70,17 +71,31 @@ export async function salvarFasesDatas(
 
   const supabase = await createClient();
 
+  // Datas de fase são dado do PRODUTO: gravadas uma vez e válidas em todos os cenários vinculados.
+  // O cenario_id aqui serve só para saber qual tela revalidar.
+  const { data: statusRows } = await supabase
+    .from("produtos")
+    .select("id, nome, status")
+    .in("id", linhas.map((l) => l.produto_id));
+  const travado = ((statusRows ?? []) as { id: string; nome: string; status: StatusProduto }[]).find((p) =>
+    datasTravadas(p.status) && linhas.some((l) => l.produto_id === p.id),
+  );
+  if (travado) {
+    return {
+      error: `${travado.nome} está iniciado: as datas das fases estão congeladas. Volte o status para aprovado se precisar ajustar.`,
+    };
+  }
+
   for (const linha of linhas) {
-    const { error } = await supabase.from("fases_produto").upsert(
+    const { error } = await supabase.from("produto_fases").upsert(
       {
         produto_id: linha.produto_id,
-        cenario_id,
         fase,
         data_inicio: linha.data_inicio,
         data_fim: linha.data_fim,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "produto_id,cenario_id,fase" },
+      { onConflict: "produto_id,fase" },
     );
 
     if (error) {

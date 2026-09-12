@@ -278,3 +278,24 @@ Ideia confirmada, escopo ainda não iniciado:
   `ocultarSeletorCenario`. No menu, Cenários ganhou subitens recolhidos com "+": cada cenário leva a
   `/plano/<id>` sem passar pela tela de criação. Os subitens abrem sozinhos quando a tela atual já é de
   um plano. A lista de cenários desce do layout por props, porque a Sidebar é componente de cliente.
+- **Fase e plano: o que é do produto e o que é do cenário.** As DATAS de início/fim de cada fase são
+  do produto (`produto_fases`, uma linha por produto+fase): editar muda em todos os cenários
+  vinculados por construção, porque existe um único lugar que as guarda. As TAXAS — crescimento,
+  churn e conversão — seguem por cenário em `fases_produto`, `fases_trimestres` e `premissas_funil`.
+  `fases_produto` NÃO foi deduplicada de propósito: ela é a âncora com CASCADE de `premissas_funil`,
+  `fases_trimestres`, `plano_custos_fixos`, `plano_custos_variaveis` e `equipe_alocada` — apagar as
+  linhas do cenário não-base levaria conversão e churn junto. Migração conferida linha a linha: as 36
+  linhas antigas batem com as datas novas nos dois cenários, então o recálculo dá o mesmo resultado.
+  Backups em `backup_refactor_20260912_*`.
+- **Status do produto é global, não por cenário**: `planejado → aprovado → iniciado`, mais
+  `descartado`. É o ciclo da decisão de negócio. O Base é o plano da empresa e **absorve
+  automaticamente** todo produto aprovado ou iniciado; os demais cenários existem para captar
+  investimento ou desenhar produto novo, então a escolha é explícita (`produto_cenario`) e pode
+  incluir produto ainda planejado ou deixar de fora um já aprovado. Produto iniciado tem as datas das
+  fases congeladas e não pode ser rebaixado para planejado/descartado — o que já gera receita não
+  volta a ser hipótese. Todo produto nasce global e planejado: `produtos.cenario_id` e o campo
+  "só nesse cenário" deixaram de ser usados na criação.
+- **Produto fora do cenário é ignorado sem erro.** Era a causa do erro de recálculo: `produtos` eram
+  varridos por `cenario_id.is.null`, então um produto global sem fase no outro cenário derrubava o
+  lote inteiro com "Cadastre pelo menos uma fase" (foi o que a Consultoria fez no Batch 13). Agora o
+  recálculo percorre só os produtos do cenário e devolve `foraDoCenario` para o resto.

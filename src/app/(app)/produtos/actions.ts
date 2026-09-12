@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { FASES } from "@/lib/fases";
+import { datasTravadas, type StatusProduto } from "@/lib/fases-produto";
 import { recalcularSimulacao } from "./[id]/simulacao-actions";
 
 export type ActionState = { error: string | null; success?: boolean; mensagem?: string };
@@ -34,6 +35,24 @@ export async function salvarFase(
 
   const supabase = await createClient();
 
+  // As DATAS são do produto: uma linha por produto+fase, válida em todos os cenários vinculados.
+  // Bloqueadas quando o produto já foi iniciado — o que começou não tem início em aberto.
+  const { data: produtoRow } = await supabase.from("produtos").select("status").eq("id", produto_id).single();
+  const status = (produtoRow?.status ?? "planejado") as StatusProduto;
+  const datas = { data_inicio: str("data_inicio"), data_fim: str("data_fim") };
+  const mexeuNasDatas = formData.has("data_inicio") || formData.has("data_fim");
+
+  if (mexeuNasDatas && datasTravadas(status)) {
+    return { error: "Produto iniciado: as datas das fases estão congeladas. Volte o status para aprovado se precisar ajustar." };
+  }
+  if (mexeuNasDatas) {
+    const { error: dataError } = await supabase
+      .from("produto_fases")
+      .upsert({ produto_id, fase, ...datas, updated_at: new Date().toISOString() }, { onConflict: "produto_id,fase" });
+    if (dataError) return { error: "Não foi possível salvar as datas da fase." };
+  }
+
+  // As TAXAS são do cenário: é nelas que Base e os demais cenários divergem de verdade.
   const { data: faseRow, error } = await supabase
     .from("fases_produto")
     .upsert(
@@ -41,8 +60,6 @@ export async function salvarFase(
         produto_id,
         cenario_id,
         fase,
-        data_inicio: str("data_inicio"),
-        data_fim: str("data_fim"),
         taxa_crescimento_mensal: pct("taxa_crescimento_mensal"),
         taxa_churn_mensal: pct("taxa_churn_mensal"),
         observacoes: str("observacoes"),
@@ -450,28 +467,41 @@ export async function criarProduto(
   const descricao = String(formData.get("descricao") || "").trim() || null;
   const data_inicio_desenvolvimento = String(formData.get("data_inicio_desenvolvimento") || "") || null;
   const data_lancamento_estimada = String(formData.get("data_lancamento_estimada") || "") || null;
-  const somenteEsteCenario = formData.get("somente_este_cenario") === "on";
-  const cenario_id = somenteEsteCenario ? String(formData.get("cenario_id") || "") || null : null;
+  // Nasce disponível para qualquer cenário. Se veio de um cenário não-base, já entra na seleção
+  // dele — é onde a pessoa estava trabalhando —, mas sem virar "produto daquele cenário".
+  const cenarioDeOrigem = String(formData.get("cenario_id") || "") || null;
 
   if (!nome) {
     return { error: "Dê um nome para o produto." };
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("produtos").insert({
-    nome,
-    descricao,
-    data_inicio_desenvolvimento,
-    data_lancamento_estimada,
-    cenario_id,
-  });
+  const { data: criado, error } = await supabase
+    .from("produtos")
+    .insert({
+      nome,
+      descricao,
+      data_inicio_desenvolvimento,
+      data_lancamento_estimada,
+      status: "planejado",
+    })
+    .select("id")
+    .single();
 
-  if (error) {
+  if (error || !criado) {
     return {
-      error: error.message.includes("duplicate")
+      error: error?.message.includes("duplicate")
         ? "Já existe um produto com esse nome."
         : "Não foi possível criar o produto.",
     };
+  }
+
+  if (cenarioDeOrigem) {
+    const { data: cenario } = await supabase.from("cenarios").select("is_base").eq("id", cenarioDeOrigem).single();
+    // No Base a entrada é por status, então não há o que vincular: planejado ainda não entra no plano.
+    if (cenario?.is_base === false) {
+      await supabase.from("produto_cenario").insert({ cenario_id: cenarioDeOrigem, produto_id: criado.id });
+    }
   }
 
   revalidatePath("/produtos");
