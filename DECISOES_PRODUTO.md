@@ -306,3 +306,12 @@ Ideia confirmada, escopo ainda não iniciado:
 - Lançados em `custos_empresa` (2.3.1, tipo fixo, dois itens por sócia — 2027 e 2028 em diante) com `parametros.folha = true`, que soma na folha do Fator R.
 - O que difere entre as sócias é a **distribuição de lucros**: Rayssa 8%; Vanessa e Emyli dividem o restante 50/50. Se entrar investidor, a diluição sai de Vanessa e Emyli.
 - Contabilidade: R$ 149 (contrato atual, 1 pró-labore incluso) até fev/2027; depois modelo de mercado escalonado por receita (349 / 469 / 889 / 1 salário mínimo), guardado em `modelos_custo_mercado`.
+
+## Custo de operar em escala — igual nos três cenários (13/09/2026)
+
+Base, Batch 13 Otimista (ex-"Batch 13") e Batch 13 Realista carregam a mesma estrutura de reinvestimento; o que difere entre eles é só crescimento/churn (Realista = taxas × 0,82 e churn × 1,20) e o vínculo com programas:
+- **Marketing recorrente (2.1.1)**: 12% da receita em 2028, 15% de 2029 em diante (antes: 8% fixo).
+- **G&A de escala (2.3.1)**: CS + financeiro + operações, escalonado por clientes — R$ 15 mil/mês acima de 500, R$ 35 mil acima de 1.500. CLT (`folha: true`).
+- **P&D pelo estudo de mercado**: complemento de 10% na fase Centelha; lote R$ 75 mil da Fase 2 (ago–dez/2027) + dev sênior PJ R$ 11 mil + conectores/nuvem R$ 1 mil (set–dez/2027); equipe de escala R$ 30/38/45 mil por clientes de 2028 em diante. Substitui a "Equipe técnica permanente" 20/30/40k.
+
+Motivo: TIR de 70% e margem EBITDA de ~50% em 2030 não são defensáveis numa SaaS que triplica a receita ao ano — a banca lê como time subdimensionado. Meta: margem 10–20% e TIR na casa de 40%.

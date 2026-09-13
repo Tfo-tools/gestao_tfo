@@ -14,31 +14,63 @@ import { ExportarInvestidor } from "./exportar-investidor";
 import { SimuladorRetorno } from "./simulador-retorno";
 import { ReceitasHistoricas } from "./receitas-historicas-card";
 import type { ReceitaHistorica } from "@/lib/receitas-historicas";
-import { carregarOrcamentoProgramas, LABEL_CATEGORIA_USO, somaPorCategoria, type LinhaOrcamento } from "@/lib/orcamento-programa";
+import {
+  carregarOrcamentoProgramas,
+  LABEL_CATEGORIA_USO,
+  somaPorCategoria,
+  type LinhaOrcamento,
+} from "@/lib/orcamento-programa";
 import type { FocoInvestimento } from "@/lib/indicadores-investidor";
-import { grupoDeConta, GRUPO_TOOLTIP as GRUPO_TOOLTIP_DRE } from "@/lib/grupo-dre";
-import { calcularRetornoPrograma, agregarRetornoProgramas } from "@/lib/retorno-investidor";
+import {
+  grupoDeConta,
+  GRUPO_TOOLTIP as GRUPO_TOOLTIP_DRE,
+} from "@/lib/grupo-dre";
+import {
+  calcularRetornoPrograma,
+  agregarRetornoProgramas,
+} from "@/lib/retorno-investidor";
 
 function formatBRL(v: number) {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+  return v.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
 }
 
 function formatMes(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", {
+    month: "short",
+    year: "numeric",
+  });
 }
 
-function buildPath(values: number[], width: number, height: number, min: number, max: number) {
+function buildPath(
+  values: number[],
+  width: number,
+  height: number,
+  min: number,
+  max: number,
+) {
   const range = max - min || 1;
   const step = values.length > 1 ? width / (values.length - 1) : width;
   return values
-    .map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - ((v - min) / range) * height).toFixed(1)}`)
+    .map(
+      (v, i) =>
+        `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - ((v - min) / range) * height).toFixed(1)}`,
+    )
     .join(" ");
 }
 
 export default async function RelatoriosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ aba?: string; cenario?: string; inicio?: string; fim?: string }>;
+  searchParams: Promise<{
+    aba?: string;
+    cenario?: string;
+    inicio?: string;
+    fim?: string;
+  }>;
 }) {
   const { aba, cenario, inicio, fim } = await searchParams;
   // "Real" só é acessível pelo menu Realizado, "Planos" só pelo menu Construção de Cenários —
@@ -48,7 +80,11 @@ export default async function RelatoriosPage({
   return (
     <div>
       <div className="mb-6">
-        <h1 className="font-heading text-[22px] font-semibold">{abaAtual === "real" ? "Relatórios — Realizado" : "Relatórios — Construção de Cenários"}</h1>
+        <h1 className="font-heading text-[22px] font-semibold">
+          {abaAtual === "real"
+            ? "Relatórios — Realizado"
+            : "Relatórios — Construção de Cenários"}
+        </h1>
         <p className="mt-1 text-[13px] text-text-muted">
           {abaAtual === "real"
             ? "O que de fato está acontecendo na empresa — custos e vendas já realizados"
@@ -56,7 +92,11 @@ export default async function RelatoriosPage({
         </p>
       </div>
 
-      {abaAtual === "real" ? <RelatorioReal /> : <RelatorioPlanos cenario={cenario} inicio={inicio} fim={fim} />}
+      {abaAtual === "real" ? (
+        <RelatorioReal />
+      ) : (
+        <RelatorioPlanos cenario={cenario} inicio={inicio} fim={fim} />
+      )}
     </div>
   );
 }
@@ -80,7 +120,11 @@ async function RelatorioReal() {
   const supabase = await createClient();
 
   const [{ data: despesas }, { data: receitasReais }] = await Promise.all([
-    supabase.from("despesas").select("data_gasto, valor_total, plano_contas_id, plano_contas:plano_contas_id(codigo, conta, tipo)"),
+    supabase
+      .from("despesas")
+      .select(
+        "data_gasto, valor_total, plano_contas_id, plano_contas:plano_contas_id(codigo, conta, tipo)",
+      ),
     // Nenhuma tabela de receita realizada existe ainda — fica pronto pro dia em que houver vendas reais.
     Promise.resolve({ data: [] as { data_venda: string; valor: number }[] }),
   ]);
@@ -92,7 +136,18 @@ async function RelatorioReal() {
 
   // Mesma cascata de DRE da aba Planos: Receita (–) Impostos (=) Receita líquida (–) COGS (=) Lucro
   // bruto (–) S&M (–) P&D (–) G&A (=) EBITDA — pra manter as duas telas comparáveis, mesmo sem receita lançada.
-  let cogsMes = 0, cogsAcum = 0, smMes = 0, smAcum = 0, pdMes = 0, pdAcum = 0, gaMes = 0, gaAcum = 0, marcaMes = 0, marcaAcum = 0, outrasMes = 0, outrasAcum = 0;
+  let cogsMes = 0,
+    cogsAcum = 0,
+    smMes = 0,
+    smAcum = 0,
+    pdMes = 0,
+    pdAcum = 0,
+    gaMes = 0,
+    gaAcum = 0,
+    marcaMes = 0,
+    marcaAcum = 0,
+    outrasMes = 0,
+    outrasAcum = 0;
   for (const d of despesasTyped) {
     const conta = d.plano_contas;
     if (!conta) continue;
@@ -120,8 +175,13 @@ async function RelatorioReal() {
     }
   }
 
-  const receitaMes = (receitasReais ?? []).filter((r) => r.data_venda.startsWith(mesAtual)).reduce((s, r) => s + r.valor, 0);
-  const receitaAcumulada = (receitasReais ?? []).reduce((s, r) => s + r.valor, 0);
+  const receitaMes = (receitasReais ?? [])
+    .filter((r) => r.data_venda.startsWith(mesAtual))
+    .reduce((s, r) => s + r.valor, 0);
+  const receitaAcumulada = (receitasReais ?? []).reduce(
+    (s, r) => s + r.valor,
+    0,
+  );
 
   // Sem série mensal de receita real ainda (Vendas não está implementada), o DAS fica em zero —
   // a linha aparece pela estrutura, calcula de verdade assim que houver receita real lançada.
@@ -130,14 +190,21 @@ async function RelatorioReal() {
   const margemBrutaMes = receitaMes - cogsMes - impostosMes;
   const margemBrutaAcum = receitaAcumulada - cogsAcum - impostosAcum;
   const ebitdaMes = margemBrutaMes - smMes - pdMes - gaMes - marcaMes;
-  const ebitdaAcumulado = margemBrutaAcum - smAcum - pdAcum - gaAcum - marcaAcum;
+  const ebitdaAcumulado =
+    margemBrutaAcum - smAcum - pdAcum - gaAcum - marcaAcum;
 
   return (
     <>
       <div className="mb-5 rounded-xl border border-border bg-surface p-6">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="font-heading text-sm font-semibold">Demonstrativo de Resultado — Real</h2>
-          {receitaAcumulada === 0 && <span className="text-[11px] text-text-faint">receita ainda não lançada — período pré-operacional</span>}
+          <h2 className="font-heading text-sm font-semibold">
+            Demonstrativo de Resultado — Real
+          </h2>
+          {receitaAcumulada === 0 && (
+            <span className="text-[11px] text-text-faint">
+              receita ainda não lançada — período pré-operacional
+            </span>
+          )}
         </div>
         <table className="mt-4 w-full border-collapse text-[12.5px]">
           <thead>
@@ -148,7 +215,11 @@ async function RelatorioReal() {
             </tr>
           </thead>
           <tbody>
-            <LinhaDreReal label="Receita Operacional Bruta" mes={receitaMes} acumulado={receitaAcumulada} />
+            <LinhaDreReal
+              label="Receita Operacional Bruta"
+              mes={receitaMes}
+              acumulado={receitaAcumulada}
+            />
             <LinhaDreReal
               label="(–) Impostos sobre a receita"
               mes={impostosMes}
@@ -156,7 +227,12 @@ async function RelatorioReal() {
               negativo
               tooltip="DAS do Simples Nacional (depois de sair do Simples: ISS + PIS/COFINS ou CBS/IBS) — calculado de verdade assim que houver receita real lançada mês a mês (tela Vendas)."
             />
-            <LinhaDreReal label="(=) Receita líquida" mes={receitaMes - impostosMes} acumulado={receitaAcumulada - impostosAcum} total />
+            <LinhaDreReal
+              label="(=) Receita líquida"
+              mes={receitaMes - impostosMes}
+              acumulado={receitaAcumulada - impostosAcum}
+              total
+            />
             <LinhaDreReal
               label="(–) Custo dos Serviços Prestados (COGS)"
               mes={cogsMes}
@@ -165,7 +241,12 @@ async function RelatorioReal() {
               tooltip={GRUPO_TOOLTIP.COGS}
               href="/relatorios/linha?grupo=cogs"
             />
-            <LinhaDreReal label="(=) Lucro bruto" mes={margemBrutaMes} acumulado={margemBrutaAcum} total />
+            <LinhaDreReal
+              label="(=) Lucro bruto"
+              mes={margemBrutaMes}
+              acumulado={margemBrutaAcum}
+              total
+            />
             <LinhaDreReal
               label="(–) Vendas e Marketing (S&M)"
               mes={smMes}
@@ -200,43 +281,63 @@ async function RelatorioReal() {
             />
             <tr className="border-t-2 border-text bg-wine-soft">
               <td className="flex items-center px-2 py-2.5 font-bold">
-                <Link href="/relatorios/linha" className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
+                <Link
+                  href="/relatorios/linha"
+                  className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                >
                   (=) EBITDA real — ver detalhamento →
                 </Link>
                 <InfoTooltip texto="EBITDA = lucro antes de juros, impostos, depreciação e amortização — aqui calculado só com o que já foi de fato faturado e gasto, sem projeção." />
               </td>
-              <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaMes < 0 ? "text-danger" : "text-success"}`}>{formatBRL(ebitdaMes)}</td>
-              <td className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
+              <td
+                className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaMes < 0 ? "text-danger" : "text-success"}`}
+              >
+                {formatBRL(ebitdaMes)}
+              </td>
+              <td
+                className={`px-2 py-2.5 text-right font-mono font-bold ${ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}
+              >
                 {formatBRL(ebitdaAcumulado)}
               </td>
             </tr>
             {outrasAcum !== 0 && (
               <tr className="border-t border-border-soft">
                 <td className="flex items-center px-2 py-2.5 text-text-faint">
-                  Outras despesas (financeiro/ativos) <span className="ml-1">— fora da DRE operacional</span>
+                  Outras despesas (financeiro/ativos){" "}
+                  <span className="ml-1">— fora da DRE operacional</span>
                 </td>
-                <td className="px-2 py-2.5 text-right font-mono text-text-faint">{formatBRL(outrasMes)}</td>
-                <td className="px-2 py-2.5 text-right font-mono text-text-faint">{formatBRL(outrasAcum)}</td>
+                <td className="px-2 py-2.5 text-right font-mono text-text-faint">
+                  {formatBRL(outrasMes)}
+                </td>
+                <td className="px-2 py-2.5 text-right font-mono text-text-faint">
+                  {formatBRL(outrasAcum)}
+                </td>
               </tr>
             )}
           </tbody>
         </table>
 
         {despesasTyped.length === 0 && (
-          <p className="mt-4 text-[13px] text-text-muted">Nenhuma despesa lançada ainda — cadastre em Custos → Lançamentos.</p>
+          <p className="mt-4 text-[13px] text-text-muted">
+            Nenhuma despesa lançada ainda — cadastre em Custos → Lançamentos.
+          </p>
         )}
       </div>
 
       {receitaAcumulada > 0 ? (
         <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-heading text-sm font-semibold">Indicadores e receita reais</h2>
+          <h2 className="mb-1 font-heading text-sm font-semibold">
+            Indicadores e receita reais
+          </h2>
           <p className="text-[12px] text-text-muted">
-            CAC, LTV, churn e o gráfico de receita real aparecem aqui assim que a tela de Vendas estiver disponível.
+            CAC, LTV, churn e o gráfico de receita real aparecem aqui assim que
+            a tela de Vendas estiver disponível.
           </p>
         </div>
       ) : (
         <p className="mb-5 text-[12px] text-text-faint">
-          Indicadores (CAC, LTV, churn) e gráfico de receita real aparecem aqui quando houver vendas reais lançadas.
+          Indicadores (CAC, LTV, churn) e gráfico de receita real aparecem aqui
+          quando houver vendas reais lançadas.
         </p>
       )}
 
@@ -263,10 +364,15 @@ function LinhaDreReal({
   href?: string;
 }) {
   return (
-    <tr className={`border-t border-border-soft ${total ? "bg-bg font-semibold" : ""}`}>
+    <tr
+      className={`border-t border-border-soft ${total ? "bg-bg font-semibold" : ""}`}
+    >
       <td className="flex items-center px-2 py-2.5">
         {href ? (
-          <Link href={href} className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
+          <Link
+            href={href}
+            className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+          >
             {label} →
           </Link>
         ) : (
@@ -274,11 +380,17 @@ function LinhaDreReal({
         )}
         {tooltip && <InfoTooltip texto={tooltip} />}
       </td>
-      <td className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}>
+      <td
+        className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}
+      >
         {negativo ? `− ${formatBRL(Math.abs(mes))}` : formatBRL(mes)}
       </td>
-      <td className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}>
-        {negativo ? `− ${formatBRL(Math.abs(acumulado))}` : formatBRL(acumulado)}
+      <td
+        className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}
+      >
+        {negativo
+          ? `− ${formatBRL(Math.abs(acumulado))}`
+          : formatBRL(acumulado)}
       </td>
     </tr>
   );
@@ -289,22 +401,37 @@ function TopCustosChart({ despesas }: { despesas: DespesaGrupoRow[] }) {
   cutoff.setMonth(cutoff.getMonth() - 6);
   const cutoffIso = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-01`;
 
-  const porConta = new Map<string, { id: string; codigo: string; conta: string; valor: number }>();
+  const porConta = new Map<
+    string,
+    { id: string; codigo: string; conta: string; valor: number }
+  >();
   for (const d of despesas) {
-    if (d.data_gasto < cutoffIso || !d.plano_contas_id || !d.plano_contas) continue;
-    const atual = porConta.get(d.plano_contas_id) ?? { id: d.plano_contas_id, codigo: d.plano_contas.codigo, conta: d.plano_contas.conta, valor: 0 };
+    if (d.data_gasto < cutoffIso || !d.plano_contas_id || !d.plano_contas)
+      continue;
+    const atual = porConta.get(d.plano_contas_id) ?? {
+      id: d.plano_contas_id,
+      codigo: d.plano_contas.codigo,
+      conta: d.plano_contas.conta,
+      valor: 0,
+    };
     atual.valor += Number(d.valor_total);
     porConta.set(d.plano_contas_id, atual);
   }
-  const top10 = [...porConta.values()].sort((a, b) => b.valor - a.valor).slice(0, 10);
+  const top10 = [...porConta.values()]
+    .sort((a, b) => b.valor - a.valor)
+    .slice(0, 10);
 
   if (top10.length === 0) return null;
   const max = Math.max(...top10.map((c) => c.valor));
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-1 font-heading text-sm font-semibold">10 maiores custos acumulados — últimos 6 meses</h2>
-      <p className="mb-4 text-[11px] text-text-muted">Clique numa linha pra ver todos os lançamentos dela no extrato</p>
+      <h2 className="mb-1 font-heading text-sm font-semibold">
+        10 maiores custos acumulados — últimos 6 meses
+      </h2>
+      <p className="mb-4 text-[11px] text-text-muted">
+        Clique numa linha pra ver todos os lançamentos dela no extrato
+      </p>
       <div className="flex flex-col gap-2.5">
         {top10.map((c) => (
           <Link
@@ -316,10 +443,15 @@ function TopCustosChart({ despesas }: { despesas: DespesaGrupoRow[] }) {
               <span>
                 {c.codigo} {c.conta}
               </span>
-              <span className="font-mono font-semibold">{formatBRL(c.valor)}</span>
+              <span className="font-mono font-semibold">
+                {formatBRL(c.valor)}
+              </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-border-soft">
-              <div className="h-full rounded-full bg-wine" style={{ width: `${(c.valor / max) * 100}%` }} />
+              <div
+                className="h-full rounded-full bg-wine"
+                style={{ width: `${(c.valor / max) * 100}%` }}
+              />
             </div>
           </Link>
         ))}
@@ -343,9 +475,16 @@ export async function RelatorioPlanos({
 }) {
   const supabase = await createClient();
 
-  const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base, data_inicio, data_fim").order("created_at");
+  const { data: cenarios } = await supabase
+    .from("cenarios")
+    .select("id, nome, is_base, data_inicio, data_fim")
+    .order("created_at");
 
-  const cenarioId = cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
+  const cenarioId =
+    cenario ??
+    (cenarios ?? []).find((c) => c.is_base)?.id ??
+    (cenarios ?? [])[0]?.id ??
+    "";
   const nome = (cenarios ?? []).find((c) => c.id === cenarioId)?.nome ?? "—";
 
   const resumo = await agregarPorCenario(supabase, cenarioId);
@@ -354,13 +493,19 @@ export async function RelatorioPlanos({
   const { data: receitasHistoricas } = cenarioId
     ? await supabase
         .from("receitas_historicas")
-        .select("id, descricao, valor_mensal, data_inicio, data_fim, mostrar, observacoes")
+        .select(
+          "id, descricao, valor_mensal, data_inicio, data_fim, mostrar, observacoes",
+        )
         .eq("cenario_id", cenarioId)
         .order("data_inicio")
     : { data: [] };
 
   const { data: alocacoes } = cenarioId
-    ? await supabase.from("alocacao_investimento").select("*").eq("cenario_id", cenarioId).order("created_at")
+    ? await supabase
+        .from("alocacao_investimento")
+        .select("*")
+        .eq("cenario_id", cenarioId)
+        .order("created_at")
     : { data: [] };
 
   // Aportes/fomentos por mês (data prevista da parcela) — todos os programas vinculados, inclusive
@@ -371,9 +516,16 @@ export async function RelatorioPlanos({
   // Uso do recurso = orçamento proposto de cada programa (Fomento & Investimento → Orçamento).
   // As frentes onde o capital NOVO vai ser aplicado viram o foco padrão da planilha do investidor.
   const orcamento = await carregarOrcamentoProgramas(supabase, programaIds);
-  const idsNovos = new Set(resumo.aportes.programas.filter((p) => p.entraNoRetorno).map((p) => p.id));
-  const orcamentoFoco = orcamento.some((l) => idsNovos.has(l.programa_id)) ? orcamento.filter((l) => idsNovos.has(l.programa_id)) : orcamento;
-  const focosPadrao = orcamentoFoco.length > 0 ? ([...somaPorCategoria(orcamentoFoco).keys()] as FocoInvestimento[]) : null;
+  const idsNovos = new Set(
+    resumo.aportes.programas.filter((p) => p.entraNoRetorno).map((p) => p.id),
+  );
+  const orcamentoFoco = orcamento.some((l) => idsNovos.has(l.programa_id))
+    ? orcamento.filter((l) => idsNovos.has(l.programa_id))
+    : orcamento;
+  const focosPadrao =
+    orcamentoFoco.length > 0
+      ? ([...somaPorCategoria(orcamentoFoco).keys()] as FocoInvestimento[])
+      : null;
   const origemFoco =
     orcamentoFoco.length > 0
       ? `o orçamento proposto de ${[...new Set(orcamentoFoco.map((l) => resumo.aportes.programas.find((p) => p.id === l.programa_id)?.nome))].join(" e ")}`
@@ -389,32 +541,56 @@ export async function RelatorioPlanos({
           .in("id", programaIds)
           .neq("tipo", "fomento")
       : { data: [] };
-  const idsElegiveis = ((programasComValuation ?? []) as { id: string }[]).map((p) => p.id);
+  const idsElegiveis = ((programasComValuation ?? []) as { id: string }[]).map(
+    (p) => p.id,
+  );
   const { data: reavaliacoesRaw } =
     idsElegiveis.length > 0
       ? await supabase
           .from("reavaliacoes_valuation")
-          .select("programa_id, data_referencia, novo_valuation, fator_diluicao")
+          .select(
+            "programa_id, data_referencia, novo_valuation, fator_diluicao",
+          )
           .in("programa_id", idsElegiveis)
       : { data: [] };
-  const reavaliacoesPorPrograma = new Map<string, { data_referencia: string; novo_valuation: number; fator_diluicao: number }[]>();
-  for (const r of (reavaliacoesRaw ?? []) as { programa_id: string; data_referencia: string; novo_valuation: number; fator_diluicao: number }[]) {
+  const reavaliacoesPorPrograma = new Map<
+    string,
+    {
+      data_referencia: string;
+      novo_valuation: number;
+      fator_diluicao: number;
+    }[]
+  >();
+  for (const r of (reavaliacoesRaw ?? []) as {
+    programa_id: string;
+    data_referencia: string;
+    novo_valuation: number;
+    fator_diluicao: number;
+  }[]) {
     const atual = reavaliacoesPorPrograma.get(r.programa_id) ?? [];
     atual.push(r);
     reavaliacoesPorPrograma.set(r.programa_id, atual);
   }
   const retornoInvestidor = agregarRetornoProgramas(
-    ((programasComValuation ?? []) as { id: string; valor_total: number; valuation_post_money: number | null; data_aporte: string | null }[]).map(
-      (p) => ({
-        valorInvestido: Number(p.valor_total),
-        retorno: calcularRetornoPrograma({
-          valor_investido: Number(p.valor_total),
-          valuation_post_money: p.valuation_post_money != null ? Number(p.valuation_post_money) : null,
-          data_aporte: p.data_aporte,
-          reavaliacoes: reavaliacoesPorPrograma.get(p.id) ?? [],
-        }),
+    (
+      (programasComValuation ?? []) as {
+        id: string;
+        valor_total: number;
+        valuation_post_money: number | null;
+        data_aporte: string | null;
+      }[]
+    ).map((p) => ({
+      valorInvestido: Number(p.valor_total),
+      retorno: calcularRetornoPrograma({
+        valor_investido: Number(p.valor_total),
+        valuation_post_money:
+          p.valuation_post_money != null
+            ? Number(p.valuation_post_money)
+            : null,
+        data_aporte: p.data_aporte,
+        reavaliacoes: reavaliacoesPorPrograma.get(p.id) ?? [],
       }),
-    ),
+    })),
   );
 
   // Período de análise: todo o horizonte simulado por padrão, recortado pro intervalo de mês
@@ -423,37 +599,112 @@ export async function RelatorioPlanos({
   // Sem filtro, o recorte é o PERÍODO DO CENÁRIO (data_inicio → data_fim): a simulação começa
   // no desenvolvimento de cada produto, meses antes do plano, e mostrar isso por padrão obrigava
   // a filtrar toda vez pra apresentar. O filtro continua podendo ampliar ou reduzir.
-  const primeiroMes = resumo.periodo.inicio ?? resumo.linhas[0]?.mes_referencia ?? null;
-  const ultimoMes = resumo.periodo.fim ?? resumo.linhas[resumo.linhas.length - 1]?.mes_referencia ?? null;
-  const linhasPeriodo = recortarPeriodo(resumo.linhas, inicio ?? primeiroMes, fim ?? ultimoMes);
+  const primeiroMes =
+    resumo.periodo.inicio ?? resumo.linhas[0]?.mes_referencia ?? null;
+  const ultimoMes =
+    resumo.periodo.fim ??
+    resumo.linhas[resumo.linhas.length - 1]?.mes_referencia ??
+    null;
+  const linhasPeriodo = recortarPeriodo(
+    resumo.linhas,
+    inicio ?? primeiroMes,
+    fim ?? ultimoMes,
+  );
 
-  const metricas = computeMetricas(linhasPeriodo, resumo.totalInvestido, resumo.aportes.capitalNovoPorMes);
+  const metricas = computeMetricas(
+    linhasPeriodo,
+    resumo.totalInvestido,
+    resumo.aportes.capitalNovoPorMes,
+  );
   const mesesDoPeriodo = new Set(linhasPeriodo.map((l) => l.mes_referencia));
   const aportesPeriodoPorPrograma = resumo.aportes.programas
-    .map((p) => ({ ...p, valorPeriodo: p.parcelas.filter((x) => mesesDoPeriodo.has(x.mes)).reduce((s, x) => s + x.valor, 0) }))
+    .map((p) => ({
+      ...p,
+      valorPeriodo: p.parcelas
+        .filter((x) => mesesDoPeriodo.has(x.mes))
+        .reduce((s, x) => s + x.valor, 0),
+    }))
     .filter((p) => p.valorPeriodo > 0);
-  const totalAportesPeriodo = aportesPeriodoPorPrograma.reduce((s, p) => s + p.valorPeriodo, 0);
+  const totalAportesPeriodo = aportesPeriodoPorPrograma.reduce(
+    (s, p) => s + p.valorPeriodo,
+    0,
+  );
+  // DRE em colunas: os 3 últimos anos do período (cada um com suas próprias métricas) + o total.
+  const anosDoPeriodo = [
+    ...new Set(linhasPeriodo.map((l) => l.mes_referencia.slice(0, 4))),
+  ]
+    .sort()
+    .slice(-3);
+  const colunasAno = anosDoPeriodo.map((ano) => {
+    const doAno = linhasPeriodo.filter(
+      (l) => l.mes_referencia.slice(0, 4) === ano,
+    );
+    const mesesAno = new Set(doAno.map((l) => l.mes_referencia));
+    return {
+      ano,
+      meses: doAno.length,
+      metricas: computeMetricas(
+        doAno,
+        resumo.totalInvestido,
+        resumo.aportes.capitalNovoPorMes,
+      ),
+      aportes: resumo.aportes.programas.reduce(
+        (s, p) =>
+          s +
+          p.parcelas
+            .filter((x) => mesesAno.has(x.mes))
+            .reduce((a, x) => a + x.valor, 0),
+        0,
+      ),
+    };
+  });
   const inicioSel = inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "");
   const fimSel = fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "");
 
   // Base do valor de saída na simulação de retorno: ARR (MRR × 12) do último mês do período e
   // EBITDA dos últimos 12 meses, já depois de IRPJ/CSLL.
   const { data: mrrRows } = cenarioId
-    ? await supabase.from("simulacao_mensal").select("mes_referencia, mrr").eq("cenario_id", cenarioId)
+    ? await supabase
+        .from("simulacao_mensal")
+        .select("mes_referencia, mrr")
+        .eq("cenario_id", cenarioId)
     : { data: [] };
   const mrrPorMes = new Map<string, number>();
-  for (const r of (mrrRows ?? []) as { mes_referencia: string; mrr: number | null }[]) {
-    mrrPorMes.set(r.mes_referencia, (mrrPorMes.get(r.mes_referencia) ?? 0) + Number(r.mrr ?? 0));
+  for (const r of (mrrRows ?? []) as {
+    mes_referencia: string;
+    mrr: number | null;
+  }[]) {
+    mrrPorMes.set(
+      r.mes_referencia,
+      (mrrPorMes.get(r.mes_referencia) ?? 0) + Number(r.mrr ?? 0),
+    );
   }
-  const mesSaida = linhasPeriodo[linhasPeriodo.length - 1]?.mes_referencia ?? "";
+  const mesSaida =
+    linhasPeriodo[linhasPeriodo.length - 1]?.mes_referencia ?? "";
   const arrNaSaida = mesSaida ? (mrrPorMes.get(mesSaida) ?? 0) * 12 : 0;
-  const ebitdaNaSaida = linhasPeriodo.slice(-12).reduce((s, l) => s + l.ebitda - l.irpjCsll, 0);
-  const rodada = ((programasComValuation ?? []) as { nome?: string; valor_total: number; valuation_post_money: number | null; data_aporte: string | null }[])[0] ?? null;
-  const capitalPadrao = rodada ? Number(rodada.valor_total) : resumo.totalInvestido;
+  const ebitdaNaSaida = linhasPeriodo
+    .slice(-12)
+    .reduce((s, l) => s + l.ebitda - l.irpjCsll, 0);
+  const rodada =
+    (
+      (programasComValuation ?? []) as {
+        nome?: string;
+        valor_total: number;
+        valuation_post_money: number | null;
+        data_aporte: string | null;
+      }[]
+    )[0] ?? null;
+  const capitalPadrao = rodada
+    ? Number(rodada.valor_total)
+    : resumo.totalInvestido;
   const equityPadrao =
-    rodada && rodada.valuation_post_money ? (Number(rodada.valor_total) / Number(rodada.valuation_post_money)) * 100 : 10;
+    rodada && rodada.valuation_post_money
+      ? (Number(rodada.valor_total) / Number(rodada.valuation_post_money)) * 100
+      : 10;
   const mesAportePadrao =
-    (rodada?.data_aporte ? `${String(rodada.data_aporte).slice(0, 7)}-01` : null) ??
+    (rodada?.data_aporte
+      ? `${String(rodada.data_aporte).slice(0, 7)}-01`
+      : null) ??
     metricas.mesCapital ??
     linhasPeriodo[0]?.mes_referencia ??
     "";
@@ -463,21 +714,35 @@ export async function RelatorioPlanos({
   return (
     <>
       <div className="mb-6 flex items-center justify-between">
-        <p className="text-[13px] text-text-muted">Resultado consolidado (todos os produtos) do cenário selecionado</p>
-        <Link href="/relatorios/mensal" className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep">
+        <p className="text-[13px] text-text-muted">
+          Resultado consolidado (todos os produtos) do cenário selecionado
+        </p>
+        <Link
+          href="/relatorios/mensal"
+          className="rounded-lg border border-border px-3 py-2 text-[12.5px] font-medium text-primary-deep"
+        >
           Detalhamento Mensal por Produto
         </Link>
       </div>
 
-      <form method="get" className="mb-6 grid grid-cols-[1fr_auto_auto_auto] items-end gap-4">
+      <form
+        method="get"
+        className="mb-6 grid grid-cols-[1fr_auto_auto_auto] items-end gap-4"
+      >
         {ocultarSeletorCenario ? (
           <input type="hidden" name="cenario" value={cenarioId} />
         ) : (
           <>
             <input type="hidden" name="aba" value="planos" />
             <div>
-              <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Cenário</label>
-              <select name="cenario" defaultValue={cenarioId} className="input w-full">
+              <label className="mb-1.5 block text-[11px] font-medium text-text-muted">
+                Cenário
+              </label>
+              <select
+                name="cenario"
+                defaultValue={cenarioId}
+                className="input w-full"
+              >
                 {(cenarios ?? []).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nome}
@@ -488,25 +753,51 @@ export async function RelatorioPlanos({
           </>
         )}
         <div>
-          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">De</label>
-          <input type="month" name="inicio" defaultValue={inicioSel} className="input" />
+          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">
+            De
+          </label>
+          <input
+            type="month"
+            name="inicio"
+            defaultValue={inicioSel}
+            className="input"
+          />
         </div>
         <div>
-          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">Até</label>
-          <input type="month" name="fim" defaultValue={fimSel} className="input" />
+          <label className="mb-1.5 block text-[11px] font-medium text-text-muted">
+            Até
+          </label>
+          <input
+            type="month"
+            name="fim"
+            defaultValue={fimSel}
+            className="input"
+          />
         </div>
-        <button type="submit" className="rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
+        <button
+          type="submit"
+          className="rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white"
+        >
           Aplicar
         </button>
       </form>
 
       {semDados ? (
         <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
-          <p className="text-sm text-text-muted">Nenhuma projeção calculada nesse cenário ainda — recalcule em Produtos primeiro.</p>
+          <p className="text-sm text-text-muted">
+            Nenhuma projeção calculada nesse cenário ainda — recalcule em
+            Produtos primeiro.
+          </p>
         </div>
       ) : (
         <>
-          <ExportarInvestidor cenarioId={cenarioId} inicio={inicioSel} fim={fimSel} focosPadrao={focosPadrao} origemFoco={origemFoco} />
+          <ExportarInvestidor
+            cenarioId={cenarioId}
+            inicio={inicioSel}
+            fim={fimSel}
+            focosPadrao={focosPadrao}
+            origemFoco={origemFoco}
+          />
           <MetricasInvestidor
             nome={nome}
             metricas={metricas}
@@ -528,25 +819,40 @@ export async function RelatorioPlanos({
               paybackMeses={metricas.paybackMeses}
               capitalRecuperadoPct={metricas.roiPct}
               tirProjetoPct={metricas.tirAnualPct}
-              nomeRodada={resumo.aportes.programas.find((p) => p.entraNoRetorno)?.nome ?? null}
+              nomeRodada={
+                resumo.aportes.programas.find((p) => p.entraNoRetorno)?.nome ??
+                null
+              }
             />
           )}
           <IndicadoresPeriodo
             metricas={metricas}
+            colunasAno={colunasAno}
             totalAportesPeriodo={totalAportesPeriodo}
             aportesPorPrograma={aportesPeriodoPorPrograma}
             cenarioId={cenarioId}
             inicio={inicioSel}
             fim={fimSel}
           />
-          <UsoDoRecurso programas={resumo.aportes.programas} orcamento={orcamento} />
+          <UsoDoRecurso
+            programas={resumo.aportes.programas}
+            orcamento={orcamento}
+          />
           <ReceitasHistoricas
             cenarioId={cenarioId}
             itens={(receitasHistoricas ?? []) as ReceitaHistorica[]}
             periodo={resumo.periodo}
           />
-          <AlocacaoInvestimento cenarioId={cenarioId} itens={alocacoes ?? []} nomeCenario={nome} />
-          <GraficoReceitaEInvestimento nome={nome} linhasPeriodo={linhasPeriodo} investimentoPorMes={investimentoPorMes} />
+          <AlocacaoInvestimento
+            cenarioId={cenarioId}
+            itens={alocacoes ?? []}
+            nomeCenario={nome}
+          />
+          <GraficoReceitaEInvestimento
+            nome={nome}
+            linhasPeriodo={linhasPeriodo}
+            investimentoPorMes={investimentoPorMes}
+          />
         </>
       )}
     </>
@@ -576,8 +882,13 @@ function MetricasInvestidor({
 
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-1 font-heading text-sm font-semibold">Métricas para investidor — {nome}</h2>
-      <p className="mb-4 text-[11px] text-text-muted">Clique num indicador pra ver o cálculo mês a mês e ajustar os lançamentos por trás dele</p>
+      <h2 className="mb-1 font-heading text-sm font-semibold">
+        Métricas para investidor — {nome}
+      </h2>
+      <p className="mb-4 text-[11px] text-text-muted">
+        Clique num indicador pra ver o cálculo mês a mês e ajustar os
+        lançamentos por trás dele
+      </p>
       <div className="grid grid-cols-4 gap-4">
         <Metrica
           href={hrefDetalhe("meta")}
@@ -588,19 +899,35 @@ function MetricasInvestidor({
         <Metrica
           href={hrefDetalhe("break_even")}
           label="Break-even"
-          valor={metricas.breakEvenMes ? formatMes(metricas.breakEvenMes) : "não atingido"}
-          detalhe={metricas.breakEvenClientes != null ? `com ${metricas.breakEvenClientes.toLocaleString("pt-BR")} clientes` : "no período selecionado"}
+          valor={
+            metricas.breakEvenMes
+              ? formatMes(metricas.breakEvenMes)
+              : "não atingido"
+          }
+          detalhe={
+            metricas.breakEvenClientes != null
+              ? `com ${metricas.breakEvenClientes.toLocaleString("pt-BR")} clientes`
+              : "no período selecionado"
+          }
         />
         <Metrica
           href={hrefDetalhe("margem_operacional")}
           label="Margem operacional"
-          valor={metricas.margemOperacional != null ? `${metricas.margemOperacional.toFixed(0)}%` : "—"}
+          valor={
+            metricas.margemOperacional != null
+              ? `${metricas.margemOperacional.toFixed(0)}%`
+              : "—"
+          }
           detalhe="EBITDA / receita, no período"
         />
         <Metrica
           href={hrefDetalhe("margem_bruta")}
           label="Margem bruta"
-          valor={metricas.margemBruta != null ? `${metricas.margemBruta.toFixed(0)}%` : "—"}
+          valor={
+            metricas.margemBruta != null
+              ? `${metricas.margemBruta.toFixed(0)}%`
+              : "—"
+          }
           detalhe={
             metricas.receitaAcumulada > 0
               ? `lucro bruto ÷ receita líquida${metricas.margemBrutaAssinatura != null ? ` · só assinatura ${metricas.margemBrutaAssinatura.toFixed(0)}%` : ""}`
@@ -622,7 +949,11 @@ function MetricasInvestidor({
         <Metrica
           href={hrefDetalhe("pmv")}
           label="Preço médio de venda"
-          valor={metricas.precoMedioVenda != null ? formatBRL(metricas.precoMedioVenda) : "recalcule a projeção"}
+          valor={
+            metricas.precoMedioVenda != null
+              ? formatBRL(metricas.precoMedioVenda)
+              : "recalcule a projeção"
+          }
           detalhe={
             metricas.arpaRecorrente != null
               ? `mensalidade de tabela · ARPA recorrente ${formatBRL(metricas.arpaRecorrente)}`
@@ -634,7 +965,11 @@ function MetricasInvestidor({
         <Metrica
           href={hrefDetalhe("ticket_entrada")}
           label="Ticket de entrada (mês 1)"
-          valor={metricas.ticketEntrada != null ? formatBRL(metricas.ticketEntrada) : "sem implantação no plano"}
+          valor={
+            metricas.ticketEntrada != null
+              ? formatBRL(metricas.ticketEntrada)
+              : "sem implantação no plano"
+          }
           detalhe={
             metricas.ticketEntrada != null && metricas.cacMedio != null
               ? metricas.ticketEntrada >= metricas.cacMedio
@@ -646,23 +981,37 @@ function MetricasInvestidor({
         <Metrica
           href={hrefDetalhe("ticket_entrada")}
           label="Receita por cobrança"
-          valor={metricas.ticketMedio != null ? formatBRL(metricas.ticketMedio) : "—"}
+          valor={
+            metricas.ticketMedio != null ? formatBRL(metricas.ticketMedio) : "—"
+          }
           detalhe="receita ÷ cobranças do mês — inclui implantação e descontos"
         />
         <Metrica
           href={hrefDetalhe("churn")}
           label="Churn médio"
-          valor={metricas.churnMedio != null ? `${metricas.churnMedio.toFixed(1)}%/mês` : "—"}
+          valor={
+            metricas.churnMedio != null
+              ? `${metricas.churnMedio.toFixed(1)}%/mês`
+              : "—"
+          }
           detalhe="taxa planejada por fase, não realizada"
         />
         <Metrica
           href={hrefDetalhe("retorno_investimento")}
           label="Capital coberto por caixa próprio"
-          valor={totalInvestido > 0 && metricas.roiPct != null ? `${metricas.roiPct.toFixed(0)}%` : "sem captação vinculada"}
+          valor={
+            totalInvestido > 0 && metricas.roiPct != null
+              ? `${metricas.roiPct.toFixed(0)}%`
+              : "sem captação vinculada"
+          }
           detalhe={
             totalInvestido > 0
               ? `${formatBRL(metricas.investimentoRecuperado)} de caixa gerado${
-                  metricas.paybackMes ? ` até ${formatMes(metricas.paybackMes)}` : fim ? ` até ${formatMes(`${fim}-01`)}` : ""
+                  metricas.paybackMes
+                    ? ` até ${formatMes(metricas.paybackMes)}`
+                    : fim
+                      ? ` até ${formatMes(`${fim}-01`)}`
+                      : ""
                 }`
               : "cenário sem captação que exija retorno (fomento não entra nessa conta)"
           }
@@ -670,7 +1019,11 @@ function MetricasInvestidor({
         <Metrica
           href={hrefDetalhe("tir")}
           label="TIR do projeto (empresa)"
-          valor={metricas.tirAnualPct != null ? `${metricas.tirAnualPct.toFixed(1)}% a.a.` : "não se aplica"}
+          valor={
+            metricas.tirAnualPct != null
+              ? `${metricas.tirAnualPct.toFixed(1)}% a.a.`
+              : "não se aplica"
+          }
           detalhe={
             metricas.tirAnualPct != null
               ? metricas.tirBase === "capital_novo"
@@ -682,7 +1035,11 @@ function MetricasInvestidor({
         <Metrica
           href="/fomento"
           label="Retorno do investidor (equity)"
-          valor={retornoInvestidor.temValuation && retornoInvestidor.roiPct != null ? `${retornoInvestidor.roiPct.toFixed(0)}%` : "sem valuation cadastrado"}
+          valor={
+            retornoInvestidor.temValuation && retornoInvestidor.roiPct != null
+              ? `${retornoInvestidor.roiPct.toFixed(0)}%`
+              : "sem valuation cadastrado"
+          }
           detalhe={
             retornoInvestidor.temValuation
               ? `MOIC ${retornoInvestidor.moic?.toFixed(2)}x${retornoInvestidor.tirPct != null ? ` · TIR ${retornoInvestidor.tirPct.toFixed(1)}% a.a.` : " · sem reavaliação: veja a simulação da rodada"}`
@@ -695,7 +1052,13 @@ function MetricasInvestidor({
 }
 
 /** Como o recurso de cada programa vinculado vai ser usado — lido do Orçamento proposto. */
-function UsoDoRecurso({ programas, orcamento }: { programas: ProgramaAporte[]; orcamento: LinhaOrcamento[] }) {
+function UsoDoRecurso({
+  programas,
+  orcamento,
+}: {
+  programas: ProgramaAporte[];
+  orcamento: LinhaOrcamento[];
+}) {
   if (programas.length === 0) return null;
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-5">
@@ -703,38 +1066,62 @@ function UsoDoRecurso({ programas, orcamento }: { programas: ProgramaAporte[]; o
         Uso do recurso — orçamento proposto
         <InfoTooltip texto="Vem da tela Fomento & Investimento → programa → Orçamento proposto (atividade, período, rubrica, conta do plano de contas e valor). A conta define a frente: marketing, vendas, produto (P&D), operação (COGS) ou estrutura (G&A). Também é a base do 'foco do investimento' da planilha." />
       </h2>
-      <p className="mb-3 text-[11px] text-text-muted">Onde cada programa vinculado ao cenário aplica o dinheiro</p>
+      <p className="mb-3 text-[11px] text-text-muted">
+        Onde cada programa vinculado ao cenário aplica o dinheiro
+      </p>
       <div className="flex flex-col gap-2.5">
         {programas.map((p) => {
           const linhas = orcamento.filter((l) => l.programa_id === p.id);
           const total = linhas.reduce((s, l) => s + l.valor, 0);
-          const porCategoria = [...somaPorCategoria(linhas).entries()].sort((a, b) => b[1] - a[1]);
+          const porCategoria = [...somaPorCategoria(linhas).entries()].sort(
+            (a, b) => b[1] - a[1],
+          );
           return (
-            <div key={p.id} className="rounded-lg border border-border-soft px-3 py-2.5">
+            <div
+              key={p.id}
+              className="rounded-lg border border-border-soft px-3 py-2.5"
+            >
               <div className="flex items-center justify-between gap-3 text-[12px]">
                 <span className="font-medium">
                   {p.nome}{" "}
                   <span className="text-[10.5px] font-normal text-text-faint">
-                    {p.entraNoRetorno ? "investimento novo" : p.tipo === "fomento" ? "fomento" : "já aplicado"}
+                    {p.entraNoRetorno
+                      ? "investimento novo"
+                      : p.tipo === "fomento"
+                        ? "fomento"
+                        : "já aplicado"}
                   </span>
                 </span>
-                <Link href={`/fomento/${p.id}/orcamento`} className="text-[11px] text-primary-deep underline">
-                  {linhas.length > 0 ? "Editar orçamento →" : "Cadastrar orçamento →"}
+                <Link
+                  href={`/fomento/${p.id}/orcamento`}
+                  className="text-[11px] text-primary-deep underline"
+                >
+                  {linhas.length > 0
+                    ? "Editar orçamento →"
+                    : "Cadastrar orçamento →"}
                 </Link>
               </div>
               {linhas.length === 0 ? (
-                <p className="mt-1 text-[11px] text-text-faint">Sem orçamento proposto cadastrado.</p>
+                <p className="mt-1 text-[11px] text-text-faint">
+                  Sem orçamento proposto cadastrado.
+                </p>
               ) : (
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-text-muted">
                   {porCategoria.map(([cat, v]) => (
                     <span key={cat}>
-                      {LABEL_CATEGORIA_USO[cat]}: <span className="font-mono text-text">{formatBRL(v)}</span>{" "}
-                      <span className="text-text-faint">({total > 0 ? ((v / total) * 100).toFixed(0) : 0}%)</span>
+                      {LABEL_CATEGORIA_USO[cat]}:{" "}
+                      <span className="font-mono text-text">
+                        {formatBRL(v)}
+                      </span>{" "}
+                      <span className="text-text-faint">
+                        ({total > 0 ? ((v / total) * 100).toFixed(0) : 0}%)
+                      </span>
                     </span>
                   ))}
                   <span className="text-text-faint">
                     · total {formatBRL(total)}
-                    {Math.abs(total - p.valorTotal) > 1 && ` de ${formatBRL(p.valorTotal)} do programa`}
+                    {Math.abs(total - p.valorTotal) > 1 &&
+                      ` de ${formatBRL(p.valorTotal)} do programa`}
                   </span>
                 </div>
               )}
@@ -746,18 +1133,41 @@ function UsoDoRecurso({ programas, orcamento }: { programas: ProgramaAporte[]; o
   );
 }
 
-function Metrica({ href, label, valor, detalhe }: { href: string; label: string; valor: string; detalhe: string }) {
+function Metrica({
+  href,
+  label,
+  valor,
+  detalhe,
+}: {
+  href: string;
+  label: string;
+  valor: string;
+  detalhe: string;
+}) {
   return (
-    <Link href={href} className="block rounded-lg bg-bg p-3 transition-colors hover:bg-primary-soft/40">
-      <div className="text-[10.5px] font-medium uppercase tracking-wide text-text-faint">{label}</div>
+    <Link
+      href={href}
+      className="block rounded-lg bg-bg p-3 transition-colors hover:bg-primary-soft/40"
+    >
+      <div className="text-[10.5px] font-medium uppercase tracking-wide text-text-faint">
+        {label}
+      </div>
       <div className="mt-1 text-[16px] font-semibold text-text">{valor}</div>
       <div className="mt-0.5 text-[10.5px] text-text-muted">{detalhe}</div>
     </Link>
   );
 }
 
+type ColunaAno = {
+  ano: string;
+  meses: number;
+  metricas: Metricas;
+  aportes: number;
+};
+
 function IndicadoresPeriodo({
   metricas,
+  colunasAno,
   totalAportesPeriodo,
   aportesPorPrograma,
   cenarioId,
@@ -765,6 +1175,7 @@ function IndicadoresPeriodo({
   fim,
 }: {
   metricas: Metricas;
+  colunasAno: ColunaAno[];
   totalAportesPeriodo: number;
   aportesPorPrograma: (ProgramaAporte & { valorPeriodo: number })[];
   cenarioId: string;
@@ -776,96 +1187,253 @@ function IndicadoresPeriodo({
   // despesas reais, que fica só na aba Realizado. A tela de detalhe já mostra a cascata inteira
   // (COGS/S&M/P&D/G&A) mês a mês, então qualquer linha aqui aponta pro mesmo lugar de propósito.
   // Cada linha abre o que a compõe (origem por origem, por produto); o EBITDA abre a cascata mês a mês.
-  const hrefLinha = (grupo: string) => `/plano/${cenarioId}/indicadores/${grupo}?inicio=${inicio}&fim=${fim}`;
+  const hrefLinha = (grupo: string) =>
+    `/plano/${cenarioId}/indicadores/${grupo}?inicio=${inicio}&fim=${fim}`;
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-4 font-heading text-sm font-semibold">DRE do período selecionado</h2>
+      <h2 className="mb-4 font-heading text-sm font-semibold">
+        DRE do período selecionado
+      </h2>
       <p className="mb-3 text-[11px] text-text-muted">
-        Os valores aqui são a projeção do cenário; clique em COGS, S&amp;M, P&amp;D ou G&amp;A pra ver o que entra em cada linha,
-        origem por origem e por produto — e no EBITDA pra ver a cascata mês a mês.
+        Os valores aqui são a projeção do cenário; clique em COGS, S&amp;M,
+        P&amp;D ou G&amp;A pra ver o que entra em cada linha, origem por origem
+        e por produto — e no EBITDA pra ver a cascata mês a mês.
       </p>
-      <table className="w-full border-collapse text-[12.5px]">
-        <tbody>
-          <DreLinha label="Receita Operacional Bruta" valor={metricas.receitaAcumulada} />
-          <DreLinha
-            label="(–) Impostos sobre a receita"
-            valor={-metricas.impostosAcumulados}
-            negativo
-            tooltip="Enquanto a empresa está no Simples: DAS (Anexo III ou V pelo Fator R), mês a mês pelo RBT12. Quando o faturamento do ano passa de R$ 4,8 mi: ISS + PIS/COFINS ou, na reforma, CBS/IBS — já descontado o crédito sobre compras de fornecedor. Alíquotas em Configurações."
-          />
-          <DreLinha label="(=) Receita líquida" valor={metricas.receitaLiquidaAcumulada} total />
-          <DreLinha label="(–) Custo dos Serviços Prestados (COGS)" valor={-metricas.cogsAcumulado} negativo href={hrefLinha("cogs")} />
-          <DreLinha
-            label={`(=) Lucro bruto${metricas.margemBruta != null ? ` — margem bruta ${metricas.margemBruta.toFixed(0)}% da receita líquida` : ""}`}
-            valor={metricas.margemBrutaValor}
-            total
-          />
-          <DreLinha label="(–) Vendas e Marketing (S&M)" valor={-metricas.smAcumulado} negativo href={hrefLinha("sm")} />
-          <DreLinha label="(–) Pesquisa e Desenvolvimento (P&D)" valor={-metricas.pdAcumulado} negativo href={hrefLinha("pd")} />
-          <DreLinha label="(–) Geral e Administrativo (G&A)" valor={-metricas.gaAcumulado} negativo href={hrefLinha("ga")} />
-          <tr className="border-t border-border-soft bg-wine-soft">
-            <td className="px-2 py-2.5 font-semibold">
-              <Link href={hrefEbitda} className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
-                (=) EBITDA — ver detalhamento →
-              </Link>
-            </td>
-            <td className={`px-2 py-2.5 text-right font-mono font-semibold ${metricas.ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}>
-              {formatBRL(metricas.ebitdaAcumulado)}
-            </td>
-          </tr>
-          {metricas.irpjCsllAcumulado > 0 && (
-            <>
-              <DreLinha
-                label="(–) IRPJ e CSLL (fora do Simples)"
-                valor={-metricas.irpjCsllAcumulado}
-                negativo
-                tooltip="No Simples, IRPJ e CSLL estão dentro do DAS. Depois que a empresa sai, são calculados à parte sobre o lucro presumido (32% da receita) e ficam abaixo do EBITDA. É esse resultado que devolve o capital (payback e TIR)."
-              />
-              <DreLinha label="(=) Resultado depois de IRPJ/CSLL" valor={metricas.resultadoAposIrAcumulado} total />
-            </>
-          )}
-          <tr className="border-t border-border-soft">
-            <td className="flex items-center px-2 py-2.5 text-text-muted">
-              5. Aportes e Investimentos (Capital)
-              <InfoTooltip texto="Fora da DRE — não abate do EBITDA acima. Soma todos os programas vinculados ao cenário (fomento, investimento, mútuo, empréstimo) nas datas previstas das parcelas. O fomento entra como se já estivesse aplicado; o retorno é calculado só sobre o investimento novo." />
-            </td>
-            <td className="px-2 py-2.5 text-right font-mono text-text-muted">{formatBRL(totalAportesPeriodo)}</td>
-          </tr>
-          {aportesPorPrograma.map((p) => (
-            <tr key={p.id} className="text-[11.5px]">
-              <td className="py-1 pl-6 pr-2 text-text-muted">
-                {p.nome}
-                <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${p.entraNoRetorno ? "bg-wine-soft text-wine-deep" : "bg-bg text-text-faint"}`}>
-                  {p.entraNoRetorno ? "investimento novo · entra no retorno" : p.tipo === "fomento" ? "fomento · fora do retorno" : "já aplicado · fora do retorno"}
-                </span>
-              </td>
-              <td className="px-2 py-1 text-right font-mono text-text-muted">{formatBRL(p.valorPeriodo)}</td>
-            </tr>
-          ))}
-          <tr className="border-t border-border-soft bg-bg">
-            <td className="flex items-center px-2 py-2.5 font-semibold">
-              (=) EBITDA + aportes (caixa gerado no período)
-              <InfoTooltip texto="O resultado operacional do período somado ao capital que entra. Mostra se a captação (existente + nova) cobre a queima até o break-even." />
-            </td>
-            <td className={`px-2 py-2.5 text-right font-mono font-semibold ${metricas.ebitdaAcumulado + totalAportesPeriodo < 0 ? "text-danger" : "text-success"}`}>
-              {formatBRL(metricas.ebitdaAcumulado + totalAportesPeriodo)}
-            </td>
-          </tr>
-          <tr className="border-t border-border-soft">
-            <td className="px-2 py-2.5">Clientes ativos (início → fim do período)</td>
-            <td className="px-2 py-2.5 text-right font-mono">
-              {metricas.clientesInicio.toLocaleString("pt-BR")} → {metricas.clientesFinal.toLocaleString("pt-BR")}
-            </td>
-          </tr>
-          <tr className="border-t border-border-soft">
-            <td className="flex items-center px-2 py-2.5">
-              CAC médio (all-in)
-              <InfoTooltip texto="CAC ponderado pelos clientes novos de cada mês — quanto custou, em média, adquirir cada cliente, dentro do período selecionado." />
-            </td>
-            <td className="px-2 py-2.5 text-right font-mono">{metricas.cacMedio != null ? formatBRL(metricas.cacMedio) : "—"}</td>
-          </tr>
-        </tbody>
-      </table>
+      {/* Colunas: 3 últimos anos + total do período. Cada linha recebe um seletor e a tabela repete
+          o valor por coluna — assim a cascata inteira (até CAC) sai ano a ano sem duplicar markup. */}
+      {(() => {
+        const cols: {
+          rotulo: string;
+          sub?: string;
+          m: Metricas;
+          aportes: number;
+          total?: boolean;
+        }[] = [
+          ...colunasAno.map((c) => ({
+            rotulo: c.ano,
+            sub: c.meses !== 12 ? `${c.meses} meses` : undefined,
+            m: c.metricas,
+            aportes: c.aportes,
+          })),
+          {
+            rotulo: "Total",
+            sub: colunasAno.length < 4 ? "período" : undefined,
+            m: metricas,
+            aportes: totalAportesPeriodo,
+            total: true,
+          },
+        ];
+        const larga = cols.length > 1;
+        return (
+          <div className="overflow-x-auto">
+            <table
+              className={`w-full border-collapse ${larga ? "text-[12px]" : "text-[12.5px]"}`}
+            >
+              {larga && (
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wide text-text-faint">
+                    <th></th>
+                    {cols.map((c) => (
+                      <th
+                        key={c.rotulo}
+                        className={`px-2 pb-1.5 text-right font-medium ${c.total ? "border-l border-border-soft" : ""}`}
+                      >
+                        {c.rotulo}
+                        {c.sub && (
+                          <span className="ml-1 normal-case tracking-normal">
+                            ({c.sub})
+                          </span>
+                        )}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+              )}
+              <tbody>
+                <DreLinha
+                  label="Receita Operacional Bruta"
+                  cols={cols}
+                  valor={(m) => m.receitaAcumulada}
+                />
+                <DreLinha
+                  label="(–) Impostos sobre a receita"
+                  cols={cols}
+                  valor={(m) => -m.impostosAcumulados}
+                  negativo
+                  tooltip="Enquanto a empresa está no Simples: DAS (Anexo III ou V pelo Fator R), mês a mês pelo RBT12. Quando o faturamento do ano passa de R$ 4,8 mi: ISS + PIS/COFINS ou, na reforma, CBS/IBS — já descontado o crédito sobre compras de fornecedor. Alíquotas em Configurações."
+                />
+                <DreLinha
+                  label="(=) Receita líquida"
+                  cols={cols}
+                  valor={(m) => m.receitaLiquidaAcumulada}
+                  total
+                />
+                <DreLinha
+                  label="(–) Custo dos Serviços Prestados (COGS)"
+                  cols={cols}
+                  valor={(m) => -m.cogsAcumulado}
+                  negativo
+                  href={hrefLinha("cogs")}
+                />
+                <DreLinha
+                  label="(=) Lucro bruto"
+                  cols={cols}
+                  valor={(m) => m.margemBrutaValor}
+                  extra={(m) =>
+                    m.margemBruta != null
+                      ? `${m.margemBruta.toFixed(0)}%`
+                      : null
+                  }
+                  tooltip="Margem bruta = lucro bruto ÷ receita líquida (padrão SaaS). O percentual aparece embaixo do valor em cada coluna."
+                  total
+                />
+                <DreLinha
+                  label="(–) Vendas e Marketing (S&M)"
+                  cols={cols}
+                  valor={(m) => -m.smAcumulado}
+                  negativo
+                  href={hrefLinha("sm")}
+                  extra={(m) => pctReceita(m.smAcumulado, m.receitaAcumulada)}
+                />
+                <DreLinha
+                  label="(–) Pesquisa e Desenvolvimento (P&D)"
+                  cols={cols}
+                  valor={(m) => -m.pdAcumulado}
+                  negativo
+                  href={hrefLinha("pd")}
+                  extra={(m) => pctReceita(m.pdAcumulado, m.receitaAcumulada)}
+                />
+                <DreLinha
+                  label="(–) Geral e Administrativo (G&A)"
+                  cols={cols}
+                  valor={(m) => -m.gaAcumulado}
+                  negativo
+                  href={hrefLinha("ga")}
+                  extra={(m) => pctReceita(m.gaAcumulado, m.receitaAcumulada)}
+                />
+                <tr className="border-t border-border-soft bg-wine-soft">
+                  <td className="px-2 py-2.5 font-semibold">
+                    <Link
+                      href={hrefEbitda}
+                      className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                    >
+                      (=) EBITDA — ver detalhamento →
+                    </Link>
+                  </td>
+                  {cols.map((c) => (
+                    <td
+                      key={c.rotulo}
+                      className={`px-2 py-2.5 text-right font-mono font-semibold ${c.total ? "border-l border-border-soft" : ""} ${c.m.ebitdaAcumulado < 0 ? "text-danger" : "text-success"}`}
+                    >
+                      {formatBRL(c.m.ebitdaAcumulado)}
+                      {c.m.margemOperacional != null && (
+                        <span className="block text-[10px] font-normal text-text-faint">
+                          {c.m.margemOperacional.toFixed(0)}%
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+                {metricas.irpjCsllAcumulado > 0 && (
+                  <>
+                    <DreLinha
+                      label="(–) IRPJ e CSLL (fora do Simples)"
+                      cols={cols}
+                      valor={(m) => -m.irpjCsllAcumulado}
+                      negativo
+                      tooltip="No Simples, IRPJ e CSLL estão dentro do DAS. Depois que a empresa sai, são calculados à parte sobre o lucro presumido (32% da receita) e ficam abaixo do EBITDA. É esse resultado que devolve o capital (payback e TIR)."
+                    />
+                    <DreLinha
+                      label="(=) Resultado depois de IRPJ/CSLL"
+                      cols={cols}
+                      valor={(m) => m.resultadoAposIrAcumulado}
+                      total
+                    />
+                  </>
+                )}
+                <tr className="border-t border-border-soft">
+                  <td className="flex items-center px-2 py-2.5 text-text-muted">
+                    5. Aportes e Investimentos (Capital)
+                    <InfoTooltip texto="Fora da DRE — não abate do EBITDA acima. Soma todos os programas vinculados ao cenário (fomento, investimento, mútuo, empréstimo) nas datas previstas das parcelas. O fomento entra como se já estivesse aplicado; o retorno é calculado só sobre o investimento novo." />
+                  </td>
+                  {cols.map((c) => (
+                    <td
+                      key={c.rotulo}
+                      className={`px-2 py-2.5 text-right font-mono text-text-muted ${c.total ? "border-l border-border-soft" : ""}`}
+                    >
+                      {formatBRL(c.aportes)}
+                    </td>
+                  ))}
+                </tr>
+                {aportesPorPrograma.map((p) => (
+                  <tr key={p.id} className="text-[11.5px]">
+                    <td
+                      className="py-1 pl-6 pr-2 text-text-muted"
+                      colSpan={cols.length}
+                    >
+                      {p.nome}
+                      <span
+                        className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${p.entraNoRetorno ? "bg-wine-soft text-wine-deep" : "bg-bg text-text-faint"}`}
+                      >
+                        {p.entraNoRetorno
+                          ? "investimento novo · entra no retorno"
+                          : p.tipo === "fomento"
+                            ? "fomento · fora do retorno"
+                            : "já aplicado · fora do retorno"}
+                      </span>
+                      <span className="ml-2 font-mono">
+                        {formatBRL(p.valorPeriodo)} no período
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t border-border-soft bg-bg">
+                  <td className="flex items-center px-2 py-2.5 font-semibold">
+                    (=) EBITDA + aportes (caixa gerado)
+                    <InfoTooltip texto="O resultado operacional somado ao capital que entra. Mostra se a captação (existente + nova) cobre a queima até o break-even." />
+                  </td>
+                  {cols.map((c) => (
+                    <td
+                      key={c.rotulo}
+                      className={`px-2 py-2.5 text-right font-mono font-semibold ${c.total ? "border-l border-border-soft" : ""} ${c.m.ebitdaAcumulado + c.aportes < 0 ? "text-danger" : "text-success"}`}
+                    >
+                      {formatBRL(c.m.ebitdaAcumulado + c.aportes)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="border-t border-border-soft">
+                  <td className="px-2 py-2.5">
+                    Clientes ativos (início → fim)
+                  </td>
+                  {cols.map((c) => (
+                    <td
+                      key={c.rotulo}
+                      className={`px-2 py-2.5 text-right font-mono ${c.total ? "border-l border-border-soft" : ""}`}
+                    >
+                      {c.m.clientesInicio.toLocaleString("pt-BR")} →{" "}
+                      {c.m.clientesFinal.toLocaleString("pt-BR")}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="border-t border-border-soft">
+                  <td className="flex items-center px-2 py-2.5">
+                    CAC médio (all-in)
+                    <InfoTooltip texto="CAC ponderado pelos clientes novos de cada mês — quanto custou, em média, adquirir cada cliente, dentro do período." />
+                  </td>
+                  {cols.map((c) => (
+                    <td
+                      key={c.rotulo}
+                      className={`px-2 py-2.5 text-right font-mono ${c.total ? "border-l border-border-soft" : ""}`}
+                    >
+                      {c.m.cacMedio != null ? formatBRL(c.m.cacMedio) : "—"}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -880,7 +1448,9 @@ function GraficoReceitaEInvestimento({
   investimentoPorMes: Map<string, number>;
 }) {
   const receitas = linhasPeriodo.map((l) => l.receita);
-  const investimentos = linhasPeriodo.map((l) => investimentoPorMes.get(l.mes_referencia) ?? 0);
+  const investimentos = linhasPeriodo.map(
+    (l) => investimentoPorMes.get(l.mes_referencia) ?? 0,
+  );
   const width = 1050;
   const height = 220;
   const min = 0;
@@ -895,20 +1465,61 @@ function GraficoReceitaEInvestimento({
   return (
     <div className="mb-5 rounded-xl border border-border bg-surface p-6">
       <div className="mb-1 flex items-center justify-between">
-        <h2 className="font-heading text-sm font-semibold">Receita e investimento — {nome}</h2>
+        <h2 className="font-heading text-sm font-semibold">
+          Receita e investimento — {nome}
+        </h2>
       </div>
       <div className="mb-3 flex items-center gap-4">
         <Legenda cor="var(--color-primary-fill)" texto="Receita mensal" />
-        {temInvestimento && <Legenda cor="var(--color-wine)" texto="Aportes/fomentos (parcela do mês)" />}
+        {temInvestimento && (
+          <Legenda
+            cor="var(--color-wine)"
+            texto="Aportes/fomentos (parcela do mês)"
+          />
+        )}
       </div>
-      <svg viewBox={`0 0 ${width} ${height + 28}`} style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
-        <line x1="0" y1={height} x2={width} y2={height} stroke="var(--color-border)" strokeWidth={1} />
-        <path d={buildPath(receitas, width, height, min, max)} fill="none" stroke="var(--color-primary-fill)" strokeWidth={2.5} />
-        {temInvestimento && <path d={buildPath(investimentos, width, height, min, max)} fill="none" stroke="var(--color-wine)" strokeWidth={2.5} />}
+      <svg
+        viewBox={`0 0 ${width} ${height + 28}`}
+        style={{
+          width: "100%",
+          height: "auto",
+          display: "block",
+          overflow: "visible",
+        }}
+      >
+        <line
+          x1="0"
+          y1={height}
+          x2={width}
+          y2={height}
+          stroke="var(--color-border)"
+          strokeWidth={1}
+        />
+        <path
+          d={buildPath(receitas, width, height, min, max)}
+          fill="none"
+          stroke="var(--color-primary-fill)"
+          strokeWidth={2.5}
+        />
+        {temInvestimento && (
+          <path
+            d={buildPath(investimentos, width, height, min, max)}
+            fill="none"
+            stroke="var(--color-wine)"
+            strokeWidth={2.5}
+          />
+        )}
         {linhasPeriodo.map((l, i) => {
           if (i !== 0 && i !== totalMeses - 1 && i % passo !== 0) return null;
           return (
-            <text key={l.mes_referencia} x={i * step} y={height + 20} fontSize="11" textAnchor="middle" fill="var(--color-text-faint)">
+            <text
+              key={l.mes_referencia}
+              x={i * step}
+              y={height + 20}
+              fontSize="11"
+              textAnchor="middle"
+              fill="var(--color-text-faint)"
+            >
               {formatMes(l.mes_referencia)}
             </text>
           );
@@ -918,26 +1529,40 @@ function GraficoReceitaEInvestimento({
   );
 }
 
+function pctReceita(valor: number, receita: number): string | null {
+  return receita > 0 ? `${((valor / receita) * 100).toFixed(0)}%` : null;
+}
+
 function DreLinha({
   label,
+  cols,
   valor,
+  extra,
   negativo,
   total,
   tooltip,
   href,
 }: {
   label: string;
-  valor: number;
+  cols: { rotulo: string; m: Metricas; total?: boolean }[];
+  valor: (m: Metricas) => number;
+  /** Texto pequeno embaixo do valor (ex.: % da receita). */
+  extra?: (m: Metricas) => string | null;
   negativo?: boolean;
   total?: boolean;
   tooltip?: string;
   href?: string;
 }) {
   return (
-    <tr className={`border-t border-border-soft ${total ? "bg-bg font-semibold" : ""}`}>
+    <tr
+      className={`border-t border-border-soft ${total ? "bg-bg font-semibold" : ""}`}
+    >
       <td className="flex items-center px-2 py-2.5">
         {href ? (
-          <Link href={href} className="underline decoration-dotted underline-offset-2 hover:decoration-solid">
+          <Link
+            href={href}
+            className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+          >
             {label} →
           </Link>
         ) : (
@@ -945,9 +1570,23 @@ function DreLinha({
         )}
         {tooltip && <InfoTooltip texto={tooltip} />}
       </td>
-      <td className={`px-2 py-2.5 text-right font-mono ${negativo ? "text-danger" : ""}`}>
-        {negativo ? `− ${formatBRL(Math.abs(valor))}` : formatBRL(valor)}
-      </td>
+      {cols.map((c) => {
+        const v = valor(c.m);
+        const e = extra?.(c.m);
+        return (
+          <td
+            key={c.rotulo}
+            className={`px-2 py-2 text-right font-mono ${negativo ? "text-danger" : ""} ${c.total ? "border-l border-border-soft" : ""}`}
+          >
+            {negativo ? `− ${formatBRL(Math.abs(v))}` : formatBRL(v)}
+            {e && (
+              <span className="block text-[10px] font-normal text-text-faint">
+                {e}
+              </span>
+            )}
+          </td>
+        );
+      })}
     </tr>
   );
 }
@@ -955,9 +1594,11 @@ function DreLinha({
 function Legenda({ cor, texto }: { cor: string; texto: string }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="inline-block h-[2px] w-3.5" style={{ background: cor }} />
+      <span
+        className="inline-block h-[2px] w-3.5"
+        style={{ background: cor }}
+      />
       <span className="text-[11px] text-text-muted">{texto}</span>
     </div>
   );
 }
-
