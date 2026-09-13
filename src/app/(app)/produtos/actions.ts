@@ -6,7 +6,11 @@ import { FASES } from "@/lib/fases";
 import { datasTravadas, type StatusProduto } from "@/lib/fases-produto";
 import { recalcularSimulacao } from "./[id]/simulacao-actions";
 
-export type ActionState = { error: string | null; success?: boolean; mensagem?: string };
+export type ActionState = {
+  error: string | null;
+  success?: boolean;
+  mensagem?: string;
+};
 
 export async function salvarFase(
   _prevState: ActionState,
@@ -37,19 +41,30 @@ export async function salvarFase(
 
   // As DATAS são do produto: uma linha por produto+fase, válida em todos os cenários vinculados.
   // Bloqueadas quando o produto já foi iniciado — o que começou não tem início em aberto.
-  const { data: produtoRow } = await supabase.from("produtos").select("status").eq("id", produto_id).single();
+  const { data: produtoRow } = await supabase
+    .from("produtos")
+    .select("status")
+    .eq("id", produto_id)
+    .single();
   const status = (produtoRow?.status ?? "planejado") as StatusProduto;
   const datas = { data_inicio: str("data_inicio"), data_fim: str("data_fim") };
   const mexeuNasDatas = formData.has("data_inicio") || formData.has("data_fim");
 
   if (mexeuNasDatas && datasTravadas(status)) {
-    return { error: "Produto iniciado: as datas das fases estão congeladas. Volte o status para aprovado se precisar ajustar." };
+    return {
+      error:
+        "Produto iniciado: as datas das fases estão congeladas. Volte o status para aprovado se precisar ajustar.",
+    };
   }
   if (mexeuNasDatas) {
     const { error: dataError } = await supabase
       .from("produto_fases")
-      .upsert({ produto_id, fase, ...datas, updated_at: new Date().toISOString() }, { onConflict: "produto_id,fase" });
-    if (dataError) return { error: "Não foi possível salvar as datas da fase." };
+      .upsert(
+        { produto_id, fase, ...datas, updated_at: new Date().toISOString() },
+        { onConflict: "produto_id,fase" },
+      );
+    if (dataError)
+      return { error: "Não foi possível salvar as datas da fase." };
   }
 
   // As TAXAS são do cenário: é nelas que Base e os demais cenários divergem de verdade.
@@ -83,14 +98,21 @@ export async function salvarFase(
         fase_produto_id: faseRow.id,
         taxa_conversao: Number(taxaConversaoRaw) / 100,
         capacidade_vendedor_mes: Number(capacidadeRaw),
-        span_of_control: formData.get("span_of_control") ? Number(formData.get("span_of_control")) : 8,
-        horas_suporte_por_cliente_mes: formData.get("horas_suporte_por_cliente_mes")
+        span_of_control: formData.get("span_of_control")
+          ? Number(formData.get("span_of_control"))
+          : 8,
+        horas_suporte_por_cliente_mes: formData.get(
+          "horas_suporte_por_cliente_mes",
+        )
           ? Number(formData.get("horas_suporte_por_cliente_mes"))
           : null,
       },
       { onConflict: "fase_produto_id" },
     );
-    if (funilError) return { error: "Fase salva, mas não foi possível salvar o funil dessa fase." };
+    if (funilError)
+      return {
+        error: "Fase salva, mas não foi possível salvar o funil dessa fase.",
+      };
   }
 
   revalidatePath(`/produtos/${produto_id}`);
@@ -110,8 +132,13 @@ export async function criarBetaProduto(
   const data_fim = String(formData.get("data_fim") || "") || null;
   const tipo = String(formData.get("tipo") || "mvp_inicial");
   const condicaoEspecialPct = formData.get("condicao_especial_pct");
-  const condicao_especial_pct = condicaoEspecialPct !== null && condicaoEspecialPct !== "" ? Number(condicaoEspecialPct) / 100 : null;
-  const condicao_especial_meses = formData.get("condicao_especial_meses") ? Number(formData.get("condicao_especial_meses")) : null;
+  const condicao_especial_pct =
+    condicaoEspecialPct !== null && condicaoEspecialPct !== ""
+      ? Number(condicaoEspecialPct) / 100
+      : null;
+  const condicao_especial_meses = formData.get("condicao_especial_meses")
+    ? Number(formData.get("condicao_especial_meses"))
+    : null;
 
   if (!produto_id || !cenario_id || !quantidade) {
     return { error: "Preencha a quantidade de beta testers." };
@@ -154,8 +181,13 @@ export async function atualizarBetaProduto(
   const data_fim = String(formData.get("data_fim") || "") || null;
   const tipo = String(formData.get("tipo") || "mvp_inicial");
   const condicaoEspecialPct = formData.get("condicao_especial_pct");
-  const condicao_especial_pct = condicaoEspecialPct !== null && condicaoEspecialPct !== "" ? Number(condicaoEspecialPct) / 100 : null;
-  const condicao_especial_meses = formData.get("condicao_especial_meses") ? Number(formData.get("condicao_especial_meses")) : null;
+  const condicao_especial_pct =
+    condicaoEspecialPct !== null && condicaoEspecialPct !== ""
+      ? Number(condicaoEspecialPct) / 100
+      : null;
+  const condicao_especial_meses = formData.get("condicao_especial_meses")
+    ? Number(formData.get("condicao_especial_meses"))
+    : null;
 
   if (!id || !produto_id || !quantidade) {
     return { error: "Preencha a quantidade de beta testers." };
@@ -164,7 +196,14 @@ export async function atualizarBetaProduto(
   const supabase = await createClient();
   const { error } = await supabase
     .from("beta_testers_config")
-    .update({ quantidade, data_inicio, data_fim, tipo, condicao_especial_pct, condicao_especial_meses })
+    .update({
+      quantidade,
+      data_inicio,
+      data_fim,
+      tipo,
+      condicao_especial_pct,
+      condicao_especial_meses,
+    })
     .eq("id", id);
 
   if (error) {
@@ -185,9 +224,13 @@ export async function criarPlano(
   const tipo_cobranca = String(formData.get("tipo_cobranca") || "");
   const tipo_venda = String(formData.get("tipo_venda") || "individual");
   const preco = Number(formData.get("preco") || 0);
-  const desconto_pct = formData.get("desconto_pct") ? Number(formData.get("desconto_pct")) : 0;
+  const desconto_pct = formData.get("desconto_pct")
+    ? Number(formData.get("desconto_pct"))
+    : 0;
   const is_annual_only = formData.get("is_annual_only") === "on";
-  const mix_percentual = formData.get("mix_percentual") ? Number(formData.get("mix_percentual")) : null;
+  const mix_percentual = formData.get("mix_percentual")
+    ? Number(formData.get("mix_percentual"))
+    : null;
   const reajuste_anual_pct = formData.get("reajuste_anual_pct")
     ? Number(formData.get("reajuste_anual_pct")) / 100
     : null;
@@ -246,7 +289,10 @@ export async function criarPrecoFase(
 
 export async function excluirPrecoFase(precoFaseId: string, produtoId: string) {
   const supabase = await createClient();
-  await supabase.from("planos_precificacao_fases").delete().eq("id", precoFaseId);
+  await supabase
+    .from("planos_precificacao_fases")
+    .delete()
+    .eq("id", precoFaseId);
   revalidatePath(`/produtos/${produtoId}`);
 }
 
@@ -259,27 +305,48 @@ export async function criarModulo(
   const nome = String(formData.get("nome") || "").trim();
   const preco = Number(formData.get("preco") || 0);
   const gatilho = String(formData.get("gatilho") || "fase");
-  const fase_lancamento = gatilho === "fase" ? String(formData.get("fase_lancamento") || "") || null : null;
+  const fase_lancamento =
+    gatilho === "fase"
+      ? String(formData.get("fase_lancamento") || "") || null
+      : null;
   const meses_apos_lancamento =
     gatilho === "tempo" && formData.get("meses_apos_lancamento")
       ? Number(formData.get("meses_apos_lancamento"))
       : null;
-  const data_disponibilidade = gatilho === "data" ? String(formData.get("data_disponibilidade") || "") || null : null;
+  const data_disponibilidade =
+    gatilho === "data"
+      ? String(formData.get("data_disponibilidade") || "") || null
+      : null;
   const adesao_inicial_pct = formData.get("adesao_inicial_pct")
     ? Number(formData.get("adesao_inicial_pct")) / 100
     : 0;
-  const crescimento_adesao_mensal_pct = formData.get("crescimento_adesao_mensal_pct")
+  const crescimento_adesao_mensal_pct = formData.get(
+    "crescimento_adesao_mensal_pct",
+  )
     ? Number(formData.get("crescimento_adesao_mensal_pct")) / 100
     : 0;
-  const desconto_cliente_existente_pct = formData.get("desconto_cliente_existente_pct")
+  const desconto_cliente_existente_pct = formData.get(
+    "desconto_cliente_existente_pct",
+  )
     ? Number(formData.get("desconto_cliente_existente_pct")) / 100
     : null;
-  const desconto_cliente_existente_meses = formData.get("desconto_cliente_existente_meses")
+  const desconto_cliente_existente_meses = formData.get(
+    "desconto_cliente_existente_meses",
+  )
     ? Number(formData.get("desconto_cliente_existente_meses"))
     : null;
 
-  if (!produto_id || !cenario_id || !nome || !preco || (!fase_lancamento && meses_apos_lancamento == null && !data_disponibilidade)) {
-    return { error: "Preencha nome, preço e quando o módulo fica disponível (fase, tempo ou data)." };
+  if (
+    !produto_id ||
+    !cenario_id ||
+    !nome ||
+    !preco ||
+    (!fase_lancamento && meses_apos_lancamento == null && !data_disponibilidade)
+  ) {
+    return {
+      error:
+        "Preencha nome, preço e quando o módulo fica disponível (fase, tempo ou data).",
+    };
   }
 
   const supabase = await createClient();
@@ -312,12 +379,18 @@ export async function atualizarTipoPrecificacao(
   const produto_id = String(formData.get("produto_id") || "");
   const tipo_precificacao = String(formData.get("tipo_precificacao") || "");
 
-  if (!produto_id || (tipo_precificacao !== "tempo" && tipo_precificacao !== "modulos")) {
+  if (
+    !produto_id ||
+    (tipo_precificacao !== "tempo" && tipo_precificacao !== "modulos")
+  ) {
     return { error: "Tipo de precificação inválido." };
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("produtos").update({ tipo_precificacao }).eq("id", produto_id);
+  const { error } = await supabase
+    .from("produtos")
+    .update({ tipo_precificacao })
+    .eq("id", produto_id);
 
   if (error) {
     return { error: "Não foi possível trocar o tipo de precificação." };
@@ -335,8 +408,11 @@ export async function criarNivelModulo(
   const cenario_id = String(formData.get("cenario_id") || "");
   const nome = String(formData.get("nome") || "").trim();
   const preco = Number(formData.get("preco") || 0);
-  const data_disponibilidade = String(formData.get("data_disponibilidade") || "") || null;
-  const quantidade_usuarios_inclusos = formData.get("quantidade_usuarios_inclusos")
+  const data_disponibilidade =
+    String(formData.get("data_disponibilidade") || "") || null;
+  const quantidade_usuarios_inclusos = formData.get(
+    "quantidade_usuarios_inclusos",
+  )
     ? Number(formData.get("quantidade_usuarios_inclusos"))
     : null;
   const preco_usuario_adicional = formData.get("preco_usuario_adicional")
@@ -345,22 +421,34 @@ export async function criarNivelModulo(
   const media_usuarios_por_cliente = formData.get("media_usuarios_por_cliente")
     ? Number(formData.get("media_usuarios_por_cliente"))
     : null;
-  const percentual_permanencia_estimado = formData.get("percentual_permanencia_estimado")
+  const percentual_permanencia_estimado = formData.get(
+    "percentual_permanencia_estimado",
+  )
     ? Number(formData.get("percentual_permanencia_estimado")) / 100
     : null;
-  const adesao_inicial_pct = formData.get("adesao_inicial_pct") ? Number(formData.get("adesao_inicial_pct")) / 100 : 0;
-  const crescimento_adesao_mensal_pct = formData.get("crescimento_adesao_mensal_pct")
+  const adesao_inicial_pct = formData.get("adesao_inicial_pct")
+    ? Number(formData.get("adesao_inicial_pct")) / 100
+    : 0;
+  const crescimento_adesao_mensal_pct = formData.get(
+    "crescimento_adesao_mensal_pct",
+  )
     ? Number(formData.get("crescimento_adesao_mensal_pct")) / 100
     : 0;
-  const desconto_cliente_existente_pct = formData.get("desconto_cliente_existente_pct")
+  const desconto_cliente_existente_pct = formData.get(
+    "desconto_cliente_existente_pct",
+  )
     ? Number(formData.get("desconto_cliente_existente_pct")) / 100
     : null;
-  const desconto_cliente_existente_meses = formData.get("desconto_cliente_existente_meses")
+  const desconto_cliente_existente_meses = formData.get(
+    "desconto_cliente_existente_meses",
+  )
     ? Number(formData.get("desconto_cliente_existente_meses"))
     : null;
 
   if (!produto_id || !cenario_id || !nome || !preco || !data_disponibilidade) {
-    return { error: "Preencha nome, preço base e data de lançamento do nível." };
+    return {
+      error: "Preencha nome, preço base e data de lançamento do nível.",
+    };
   }
 
   const supabase = await createClient();
@@ -380,10 +468,14 @@ export async function criarNivelModulo(
   const nivelAnterior = niveisExistentes?.[0] ?? null;
   const ordem = (nivelAnterior?.ordem ?? 0) + 1;
   const tipo_cobranca =
-    ordem === 1 ? String(formData.get("tipo_cobranca") || "") || null : nivelAnterior?.tipo_cobranca ?? null;
+    ordem === 1
+      ? String(formData.get("tipo_cobranca") || "") || null
+      : (nivelAnterior?.tipo_cobranca ?? null);
 
   if (ordem === 1 && !tipo_cobranca) {
-    return { error: "Selecione a cobrança (anual ou mensal) do primeiro nível." };
+    return {
+      error: "Selecione a cobrança (anual ou mensal) do primeiro nível.",
+    };
   }
 
   const { error } = await supabase.from("modulos_produto").insert({
@@ -428,8 +520,13 @@ export async function criarBetaModulo(
   const data_inicio = String(formData.get("data_inicio") || "") || null;
   const data_fim = String(formData.get("data_fim") || "") || null;
   const condicaoEspecialPct = formData.get("condicao_especial_pct");
-  const condicao_especial_pct = condicaoEspecialPct !== null && condicaoEspecialPct !== "" ? Number(condicaoEspecialPct) / 100 : null;
-  const condicao_especial_meses = formData.get("condicao_especial_meses") ? Number(formData.get("condicao_especial_meses")) : null;
+  const condicao_especial_pct =
+    condicaoEspecialPct !== null && condicaoEspecialPct !== ""
+      ? Number(condicaoEspecialPct) / 100
+      : null;
+  const condicao_especial_meses = formData.get("condicao_especial_meses")
+    ? Number(formData.get("condicao_especial_meses"))
+    : null;
 
   if (!modulo_id || !quantidade) {
     return { error: "Preencha a quantidade de beta testers do módulo." };
@@ -465,8 +562,10 @@ export async function criarProduto(
 ): Promise<ActionState> {
   const nome = String(formData.get("nome") || "").trim();
   const descricao = String(formData.get("descricao") || "").trim() || null;
-  const data_inicio_desenvolvimento = String(formData.get("data_inicio_desenvolvimento") || "") || null;
-  const data_lancamento_estimada = String(formData.get("data_lancamento_estimada") || "") || null;
+  const data_inicio_desenvolvimento =
+    String(formData.get("data_inicio_desenvolvimento") || "") || null;
+  const data_lancamento_estimada =
+    String(formData.get("data_lancamento_estimada") || "") || null;
   // Nasce disponível para qualquer cenário. Se veio de um cenário não-base, já entra na seleção
   // dele — é onde a pessoa estava trabalhando —, mas sem virar "produto daquele cenário".
   const cenarioDeOrigem = String(formData.get("cenario_id") || "") || null;
@@ -497,10 +596,16 @@ export async function criarProduto(
   }
 
   if (cenarioDeOrigem) {
-    const { data: cenario } = await supabase.from("cenarios").select("is_base").eq("id", cenarioDeOrigem).single();
+    const { data: cenario } = await supabase
+      .from("cenarios")
+      .select("is_base")
+      .eq("id", cenarioDeOrigem)
+      .single();
     // No Base a entrada é por status, então não há o que vincular: planejado ainda não entra no plano.
     if (cenario?.is_base === false) {
-      await supabase.from("produto_cenario").insert({ cenario_id: cenarioDeOrigem, produto_id: criado.id });
+      await supabase
+        .from("produto_cenario")
+        .insert({ cenario_id: cenarioDeOrigem, produto_id: criado.id });
     }
   }
 
@@ -525,9 +630,13 @@ export async function atualizarPlano(
   const tipo_cobranca = String(formData.get("tipo_cobranca") || "");
   const tipo_venda = String(formData.get("tipo_venda") || "individual");
   const preco = Number(formData.get("preco") || 0);
-  const desconto_pct = formData.get("desconto_pct") ? Number(formData.get("desconto_pct")) : 0;
+  const desconto_pct = formData.get("desconto_pct")
+    ? Number(formData.get("desconto_pct"))
+    : 0;
   const is_annual_only = formData.get("is_annual_only") === "on";
-  const mix_percentual = formData.get("mix_percentual") ? Number(formData.get("mix_percentual")) : null;
+  const mix_percentual = formData.get("mix_percentual")
+    ? Number(formData.get("mix_percentual"))
+    : null;
   const reajuste_anual_pct = formData.get("reajuste_anual_pct")
     ? Number(formData.get("reajuste_anual_pct")) / 100
     : null;
@@ -539,7 +648,16 @@ export async function atualizarPlano(
   const supabase = await createClient();
   const { error } = await supabase
     .from("planos_precificacao")
-    .update({ nome_plano, tipo_cobranca, tipo_venda, preco, desconto_pct, is_annual_only, mix_percentual, reajuste_anual_pct })
+    .update({
+      nome_plano,
+      tipo_cobranca,
+      tipo_venda,
+      preco,
+      desconto_pct,
+      is_annual_only,
+      mix_percentual,
+      reajuste_anual_pct,
+    })
     .eq("id", id);
 
   if (error) {
@@ -550,7 +668,10 @@ export async function atualizarPlano(
   return { error: null, success: true };
 }
 
-function montarParametrosCanal(formData: FormData, tipo_canal: string): Record<string, unknown> {
+function montarParametrosCanal(
+  formData: FormData,
+  tipo_canal: string,
+): Record<string, unknown> {
   const num = (name: string) => {
     const v = formData.get(name);
     return v !== null && v !== "" ? Number(v) : undefined;
@@ -569,7 +690,8 @@ function montarParametrosCanal(formData: FormData, tipo_canal: string): Record<s
       comissao_pct: pct("comissao_pct"),
       valor_fixo_fechamento: num("valor_fixo_fechamento"),
       credito_uso_valor: num("credito_uso_valor"),
-      credito_uso_destino: String(formData.get("credito_uso_destino") || "") || undefined,
+      credito_uso_destino:
+        String(formData.get("credito_uso_destino") || "") || undefined,
       /** Custo recorrente de MANTER cada parceiro (ex: mensalidade de associação) — vai pra ADM. */
       custo_mensal_parceiro: num("custo_mensal_parceiro"),
       media_clientes_parceiro_inicial: num("media_clientes_parceiro_inicial"),
@@ -607,6 +729,7 @@ export async function salvarCanalProdutos(
     desconto_cliente_meses: number | null;
     isencao_implementacao: boolean;
     desconto_implementacao_pct: number | null;
+    implementacao_horas_por_etapa?: Record<string, number>;
   }[];
   try {
     linhas = JSON.parse(linhasRaw);
@@ -626,10 +749,12 @@ export async function salvarCanalProdutos(
         desconto_cliente_meses: l.desconto_cliente_meses,
         isencao_implementacao: l.isencao_implementacao,
         desconto_implementacao_pct: l.desconto_implementacao_pct,
+        implementacao_horas_por_etapa: l.implementacao_horas_por_etapa ?? {},
       },
       { onConflict: "canal_id,produto_id" },
     );
-    if (error) return { error: "Não foi possível salvar os produtos deste canal." };
+    if (error)
+      return { error: "Não foi possível salvar os produtos deste canal." };
   }
 
   revalidatePath(`/plano/${cenario_id}/vendas`);
@@ -655,8 +780,12 @@ export async function salvarParceirosCanal(
     const quantidade = raw !== null && raw !== "" ? Number(raw) : 0;
     const { error } = await supabase
       .from("canal_parceiros_fase")
-      .upsert({ canal_id, fase: fase.value, quantidade_parceiros: quantidade }, { onConflict: "canal_id,fase" });
-    if (error) return { error: "Não foi possível salvar os parceiros por fase." };
+      .upsert(
+        { canal_id, fase: fase.value, quantidade_parceiros: quantidade },
+        { onConflict: "canal_id,fase" },
+      );
+    if (error)
+      return { error: "Não foi possível salvar os parceiros por fase." };
   }
 
   revalidatePath(`/plano/${cenario_id}/vendas`);
@@ -672,7 +801,8 @@ export async function criarCanalAquisicao(
   const nome = String(formData.get("nome") || "").trim();
   const descricao = String(formData.get("descricao") || "").trim() || null;
   const tipo_canal = String(formData.get("tipo_canal") || "direto");
-  const modelo_contratacao_id = String(formData.get("modelo_contratacao_id") || "") || null;
+  const modelo_contratacao_id =
+    String(formData.get("modelo_contratacao_id") || "") || null;
 
   if (!cenario_id || !nome) {
     return { error: "Dê um nome pro canal." };
@@ -706,7 +836,8 @@ export async function atualizarCanalAquisicao(
   const nome = String(formData.get("nome") || "").trim();
   const descricao = String(formData.get("descricao") || "").trim() || null;
   const tipo_canal = String(formData.get("tipo_canal") || "direto");
-  const modelo_contratacao_id = String(formData.get("modelo_contratacao_id") || "") || null;
+  const modelo_contratacao_id =
+    String(formData.get("modelo_contratacao_id") || "") || null;
 
   if (!id || !nome) {
     return { error: "Dê um nome pro canal." };
@@ -743,10 +874,15 @@ export async function excluirCanalAquisicao(id: string, cenarioId: string) {
 /** Preço e custo de implementação mudam receita e COGS da projeção — recalcula na hora. Preço e
  * parcelas são do produto (valem em todos os cenários); as etapas são de um cenário só. Cenário em
  * que o produto ainda não tem fase é ignorado (a simulação só devolve aviso, não grava nada). */
-async function recalcularProdutoNosCenarios(produtoId: string, cenarioId?: string): Promise<string[]> {
+async function recalcularProdutoNosCenarios(
+  produtoId: string,
+  cenarioId?: string,
+): Promise<string[]> {
   const supabase = await createClient();
   const query = supabase.from("cenarios").select("id, nome");
-  const { data: cenarios } = cenarioId ? await query.eq("id", cenarioId) : await query;
+  const { data: cenarios } = cenarioId
+    ? await query.eq("id", cenarioId)
+    : await query;
   const recalculados: string[] = [];
   for (const c of cenarios ?? []) {
     const r = await recalcularSimulacao(produtoId, c.id as string);
@@ -761,7 +897,9 @@ export async function salvarConfigImplementacao(
 ): Promise<ActionState> {
   const produto_id = String(formData.get("produto_id") || "");
   const tem_implementacao = formData.get("tem_implementacao") === "on";
-  const preco_implementacao = formData.get("preco_implementacao") ? Number(formData.get("preco_implementacao")) : null;
+  const preco_implementacao = formData.get("preco_implementacao")
+    ? Number(formData.get("preco_implementacao"))
+    : null;
   let implementacao_parcelas = formData.get("implementacao_parcelas")
     ? Math.max(1, Number(formData.get("implementacao_parcelas")))
     : 1;
@@ -775,7 +913,8 @@ export async function salvarConfigImplementacao(
 
   // Mix de formas de pagamento: [{parcelas, pct, desconto}] com pct e desconto em 0–1. Uma forma só
   // (ou nenhuma) volta a ser o número único de parcelas de antes.
-  let implementacao_formas_pagamento: { parcelas: number; pct: number; desconto: number }[] | null = null;
+  let implementacao_formas_pagamento:
+    { parcelas: number; pct: number; desconto: number }[] | null = null;
   const formasRaw = String(formData.get("implementacao_formas") || "");
   if (formasRaw) {
     let formas: { parcelas: number; pct: number; desconto?: number }[];
@@ -785,16 +924,26 @@ export async function salvarConfigImplementacao(
       return { error: "Não foi possível ler as formas de pagamento." };
     }
     const validas = formas
-      .map((f) => ({ parcelas: Math.max(1, Math.round(Number(f.parcelas))), pct: Number(f.pct), desconto: Math.min(1, Math.max(0, Number(f.desconto ?? 0))) }))
+      .map((f) => ({
+        parcelas: Math.max(1, Math.round(Number(f.parcelas))),
+        pct: Number(f.pct),
+        desconto: Math.min(1, Math.max(0, Number(f.desconto ?? 0))),
+      }))
       .filter((f) => Number.isFinite(f.parcelas) && f.pct > 0);
     const soma = validas.reduce((acc, f) => acc + f.pct, 0);
     if (validas.length > 0 && Math.abs(soma - 1) > 0.005) {
-      return { error: `As formas de pagamento somam ${(soma * 100).toFixed(0)}% dos clientes — ajuste pra 100%.` };
+      return {
+        error: `As formas de pagamento somam ${(soma * 100).toFixed(0)}% dos clientes — ajuste pra 100%.`,
+      };
     }
-    if (validas.length > 1 || (validas.length === 1 && validas[0].desconto > 0)) {
+    if (
+      validas.length > 1 ||
+      (validas.length === 1 && validas[0].desconto > 0)
+    ) {
       implementacao_formas_pagamento = validas;
       // O campo antigo guarda a forma mais usada (é o que outras telas mostram como "parcelas").
-      implementacao_parcelas = [...validas].sort((x, y) => y.pct - x.pct)[0].parcelas;
+      implementacao_parcelas = [...validas].sort((x, y) => y.pct - x.pct)[0]
+        .parcelas;
     } else if (validas.length === 1) {
       implementacao_parcelas = validas[0].parcelas;
     }
@@ -803,7 +952,12 @@ export async function salvarConfigImplementacao(
   const supabase = await createClient();
   const { error } = await supabase
     .from("produtos")
-    .update({ tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento })
+    .update({
+      tem_implementacao,
+      preco_implementacao,
+      implementacao_parcelas,
+      implementacao_formas_pagamento,
+    })
     .eq("id", produto_id);
 
   if (error) {
@@ -834,11 +988,22 @@ export async function criarEtapaImplementacao(
   const senioridade = String(formData.get("senioridade") || "");
   const tipo_contratacao = String(formData.get("tipo_contratacao") || "");
   const horas = formData.get("horas") ? Number(formData.get("horas")) : 0;
-  const valor_hora = formData.get("valor_hora") ? Number(formData.get("valor_hora")) : 0;
+  const valor_hora = formData.get("valor_hora")
+    ? Number(formData.get("valor_hora"))
+    : 0;
   const ordem = formData.get("ordem") ? Number(formData.get("ordem")) : null;
 
-  if (!produto_id || !cenario_id || !nome_etapa || !cargo_executor || !horas || !valor_hora) {
-    return { error: "Preencha a etapa, o cargo que executa, as horas e o valor/hora." };
+  if (
+    !produto_id ||
+    !cenario_id ||
+    !nome_etapa ||
+    !cargo_executor ||
+    !horas ||
+    !valor_hora
+  ) {
+    return {
+      error: "Preencha a etapa, o cargo que executa, as horas e o valor/hora.",
+    };
   }
 
   const supabase = await createClient();
@@ -882,8 +1047,16 @@ export async function atualizarEtapaImplementacao(
   dados: EtapaImplementacaoEdicao,
 ): Promise<ActionState> {
   const nome_etapa = dados.nome_etapa.trim();
-  if (!id || !nome_etapa || !dados.cargo_executor || !(dados.horas > 0) || !(dados.valor_hora > 0)) {
-    return { error: "Preencha a etapa, o cargo que executa, as horas e o valor/hora." };
+  if (
+    !id ||
+    !nome_etapa ||
+    !dados.cargo_executor ||
+    !(dados.horas > 0) ||
+    !(dados.valor_hora > 0)
+  ) {
+    return {
+      error: "Preencha a etapa, o cargo que executa, as horas e o valor/hora.",
+    };
   }
   const supabase = await createClient();
   const { error } = await supabase
@@ -905,7 +1078,11 @@ export async function atualizarEtapaImplementacao(
   return { error: null, success: true };
 }
 
-export async function excluirEtapaImplementacao(id: string, produtoId: string, cenarioId?: string) {
+export async function excluirEtapaImplementacao(
+  id: string,
+  produtoId: string,
+  cenarioId?: string,
+) {
   const supabase = await createClient();
   await supabase.from("implementacao_etapas").delete().eq("id", id);
   if (cenarioId) await recalcularProdutoNosCenarios(produtoId, cenarioId);
@@ -917,8 +1094,10 @@ export async function atualizarDatasProduto(
   formData: FormData,
 ): Promise<ActionState> {
   const produto_id = String(formData.get("produto_id") || "");
-  const data_inicio_desenvolvimento = String(formData.get("data_inicio_desenvolvimento") || "") || null;
-  const data_lancamento_estimada = String(formData.get("data_lancamento_estimada") || "") || null;
+  const data_inicio_desenvolvimento =
+    String(formData.get("data_inicio_desenvolvimento") || "") || null;
+  const data_lancamento_estimada =
+    String(formData.get("data_lancamento_estimada") || "") || null;
 
   if (!produto_id) {
     return { error: "Produto inválido." };
@@ -946,10 +1125,17 @@ type LinhaGrade = {
   produto_id: string;
   data_inicio_desenvolvimento: string | null;
   data_lancamento_estimada: string | null;
-  fases: { fase: string; data_inicio: string | null; data_fim: string | null }[];
+  fases: {
+    fase: string;
+    data_inicio: string | null;
+    data_fim: string | null;
+  }[];
 };
 
-export async function salvarGradeProdutos(_prev: ActionState, formData: FormData): Promise<ActionState> {
+export async function salvarGradeProdutos(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
   let linhas: LinhaGrade[];
   try {
     linhas = JSON.parse(String(formData.get("linhas") || "[]"));
@@ -962,23 +1148,44 @@ export async function salvarGradeProdutos(_prev: ActionState, formData: FormData
   const { data: produtos } = await supabase
     .from("produtos")
     .select("id, status")
-    .in("id", linhas.map((l) => l.produto_id));
-  const statusPorId = new Map((produtos ?? []).map((p) => [p.id, (p.status ?? "planejado") as StatusProduto]));
+    .in(
+      "id",
+      linhas.map((l) => l.produto_id),
+    );
+  const statusPorId = new Map(
+    (produtos ?? []).map((p) => [
+      p.id,
+      (p.status ?? "planejado") as StatusProduto,
+    ]),
+  );
 
   for (const l of linhas) {
     const { error } = await supabase
       .from("produtos")
-      .update({ data_inicio_desenvolvimento: l.data_inicio_desenvolvimento, data_lancamento_estimada: l.data_lancamento_estimada })
+      .update({
+        data_inicio_desenvolvimento: l.data_inicio_desenvolvimento,
+        data_lancamento_estimada: l.data_lancamento_estimada,
+      })
       .eq("id", l.produto_id);
-    if (error) return { error: "Não foi possível salvar as datas de um produto." };
+    if (error)
+      return { error: "Não foi possível salvar as datas de um produto." };
 
     if (datasTravadas(statusPorId.get(l.produto_id) ?? "planejado")) continue;
     for (const f of l.fases) {
-      const { error: erroFase } = await supabase.from("produto_fases").upsert(
-        { produto_id: l.produto_id, fase: f.fase, data_inicio: f.data_inicio, data_fim: f.data_fim, updated_at: new Date().toISOString() },
-        { onConflict: "produto_id,fase" },
-      );
-      if (erroFase) return { error: "Não foi possível salvar a fase de um dos produtos." };
+      const { error: erroFase } = await supabase
+        .from("produto_fases")
+        .upsert(
+          {
+            produto_id: l.produto_id,
+            fase: f.fase,
+            data_inicio: f.data_inicio,
+            data_fim: f.data_fim,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "produto_id,fase" },
+        );
+      if (erroFase)
+        return { error: "Não foi possível salvar a fase de um dos produtos." };
     }
   }
 

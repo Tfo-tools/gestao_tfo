@@ -5,6 +5,11 @@ import {
   type CustoEmpresaInput,
 } from "@/lib/custos-empresa";
 import { horasAtendimentoPorProduto } from "@/lib/cogs";
+import {
+  custoImplementacaoDasEtapas,
+  temAjusteDeEtapas,
+  type EtapaImplementacao,
+} from "@/lib/implementacao";
 import type { FaseValue } from "@/lib/fases";
 import { type ParametrosModelo } from "@/lib/modelos-contratacao";
 import {
@@ -934,7 +939,7 @@ export async function agregarPorCenario(
       ),
     supabase
       .from("implementacao_etapas")
-      .select("produto_id, horas, valor_hora")
+      .select("produto_id, nome_etapa, horas, valor_hora")
       .eq("cenario_id", cenarioId),
   ]);
   const nomeProduto = new Map<string, string>(
@@ -979,16 +984,13 @@ export async function agregarPorCenario(
     preco_implementacao: number | null;
   }[]) {
     if (!p.tem_implementacao || p.preco_implementacao == null) continue;
-    const total = (
-      (etapasRaw ?? []) as {
-        produto_id: string;
-        horas: number;
-        valor_hora: number;
-      }[]
-    )
-      .filter((e) => e.produto_id === p.id)
-      .reduce((s, e) => s + Number(e.horas) * Number(e.valor_hora), 0);
-    custoImplPorCliente.set(p.id, total);
+    const etapasDoProduto = (
+      (etapasRaw ?? []) as (EtapaImplementacao & { produto_id: string })[]
+    ).filter((e) => e.produto_id === p.id);
+    custoImplPorCliente.set(
+      p.id,
+      custoImplementacaoDasEtapas(etapasDoProduto, null),
+    );
   }
 
   const fasesPorProduto = new Map<
@@ -1026,7 +1028,7 @@ export async function agregarPorCenario(
   const { data: canaisRaw } = await supabase
     .from("canais_aquisicao")
     .select(
-      "id, tipo_canal, modelo_contratacao_id, parametros, canal_produto(produto_id, percentual_mix, taxa_fechamento)",
+      "id, tipo_canal, modelo_contratacao_id, parametros, canal_produto(produto_id, percentual_mix, taxa_fechamento, implementacao_horas_por_etapa)",
     )
     .eq("cenario_id", cenarioId);
   const faseById = new Map<
@@ -1100,6 +1102,51 @@ export async function agregarPorCenario(
       (m) => [m.id, m.parametros?.taxa_qualificacao ?? null],
     ),
   );
+  // Custo de implantação por TIPO de canal (o consultor parceiro implanta a metodologia, então o
+  // cliente dele custa menos): média ponderada pelo mix entre canais do mesmo tipo. Sem ajuste, o padrão.
+  const custoImplPorTipo = new Map<string, Record<string, number>>();
+  {
+    const soma = new Map<
+      string,
+      Record<string, { custo: number; peso: number }>
+    >();
+    for (const c of (canaisRaw ?? []) as {
+      tipo_canal: string;
+      canal_produto:
+        | {
+            produto_id: string;
+            percentual_mix: number;
+            implementacao_horas_por_etapa?: Record<string, number> | null;
+          }[]
+        | null;
+    }[]) {
+      for (const l of c.canal_produto ?? []) {
+        const padrao = custoImplPorCliente.get(l.produto_id);
+        if (padrao == null || Number(l.percentual_mix) <= 0) continue;
+        const etapasDoProduto = (
+          (etapasRaw ?? []) as (EtapaImplementacao & { produto_id: string })[]
+        ).filter((e) => e.produto_id === l.produto_id);
+        const custo = temAjusteDeEtapas(l.implementacao_horas_por_etapa)
+          ? custoImplementacaoDasEtapas(
+              etapasDoProduto,
+              l.implementacao_horas_por_etapa,
+            )
+          : padrao;
+        const porTipo = soma.get(l.produto_id) ?? {};
+        const acc = porTipo[c.tipo_canal] ?? { custo: 0, peso: 0 };
+        acc.custo += custo * Number(l.percentual_mix);
+        acc.peso += Number(l.percentual_mix);
+        porTipo[c.tipo_canal] = acc;
+        soma.set(l.produto_id, porTipo);
+      }
+    }
+    for (const [pid, porTipo] of soma) {
+      const out: Record<string, number> = {};
+      for (const [tipo, a] of Object.entries(porTipo))
+        out[tipo] = a.peso > 0 ? a.custo / a.peso : 0;
+      custoImplPorTipo.set(pid, out);
+    }
+  }
   // O canal é do cenário e carrega uma linha por produto — cada linha vira uma célula da matriz.
   const canaisInput: CanalFunilInput[] = (
     (canaisRaw ?? []) as {
@@ -1242,8 +1289,17 @@ export async function agregarPorCenario(
     // Composição do que veio do produto — as mesmas colunas que o motor gravou, separadas por regra.
     const produto = nomeProduto.get(row.produto_id) ?? "Produto";
     const n = (k: string) => Number(row[k] ?? 0);
+    const custoImplPadrao = custoImplPorCliente.get(row.produto_id) ?? 0;
+    const custoImplTipo = custoImplPorTipo.get(row.produto_id) ?? {};
+    // Mesma conta do motor: cada canal com o custo das suas etapas; direto (que já inclui as
+    // ações) no padrão.
     const implementacao =
-      n("novos_clientes") * (custoImplPorCliente.get(row.produto_id) ?? 0);
+      row.novos_direto != null
+        ? n("novos_direto") * custoImplPadrao +
+          n("novos_representante") *
+            (custoImplTipo.representante ?? custoImplPadrao) +
+          n("novos_associacao") * (custoImplTipo.associacao ?? custoImplPadrao)
+        : n("novos_clientes") * custoImplPadrao;
     atual.receitaImplementacao += n("receita_implementacao");
     atual.cogsImplementacao += implementacao;
     atual.custosCreditaveis +=

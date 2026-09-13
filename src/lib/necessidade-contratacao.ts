@@ -47,7 +47,7 @@ export type SimulacaoMesInput = {
   novos_direto?: number;
   novos_representante?: number;
   novos_associacao?: number;
-  /** Clientes que vieram de feiras, eventos e campanhas — a SDR faz o acompanhamento deles. */
+  /** Clientes de feiras, eventos e campanhas — já estão dentro de novos_direto (informativo). */
   novos_acoes?: number;
 };
 
@@ -325,47 +325,6 @@ export function calcularDemandaPorCargo(params: {
       acc(s.produtoId, mesIso, "sdr", oportunidades);
       if (canal.tipo_canal === "direto" && !canal.taxa_qualificacao)
         mesesSemQualificacao.add(mesIso);
-    }
-
-    // Feiras, eventos e campanhas: o cliente chega pela ação, mas a SDR acompanha até o acesso ou
-    // a reunião e o vendedor atende — mesma conta do canal direto, com a taxa dele.
-    const direto = canaisDoProduto.find(
-      (c) => c.tipo_canal === "direto" && c.taxa_fechamento,
-    );
-    const clientesAcoes = s.novos_acoes ?? 0;
-    if (direto?.taxa_fechamento && clientesAcoes > 0) {
-      const oportunidades = clientesAcoes / direto.taxa_fechamento;
-      porMesOportunidades.set(
-        mesIso,
-        (porMesOportunidades.get(mesIso) ?? 0) + oportunidades,
-      );
-      porMesSdr.set(mesIso, (porMesSdr.get(mesIso) ?? 0) + oportunidades);
-      acc(s.produtoId, mesIso, "sdr", oportunidades);
-      const reunioesAtendidas =
-        oportunidades * (funil.reunioes_por_oportunidade ?? 1);
-      if (funil.capacidade_vendedor_mes) {
-        const vendedores = reunioesAtendidas / funil.capacidade_vendedor_mes;
-        porMesVendedor.set(
-          mesIso,
-          (porMesVendedor.get(mesIso) ?? 0) + vendedores,
-        );
-        acc(s.produtoId, mesIso, "reunioesVendedor", reunioesAtendidas);
-        acc(s.produtoId, mesIso, "vendedores", vendedores);
-        acc(s.produtoId, mesIso, "vendasComReuniao", clientesAcoes);
-        if (funil.span_of_control) {
-          porMesCoordenador.set(
-            mesIso,
-            (porMesCoordenador.get(mesIso) ?? 0) +
-              vendedores / funil.span_of_control,
-          );
-          acc(
-            s.produtoId,
-            mesIso,
-            "coordenador",
-            vendedores / funil.span_of_control,
-          );
-        }
-      }
     }
   }
 

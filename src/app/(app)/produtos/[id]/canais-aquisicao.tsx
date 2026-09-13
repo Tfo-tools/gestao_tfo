@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useActionState,
   useEffect,
   useRef,
@@ -17,6 +18,10 @@ import {
 } from "../actions";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { FASES } from "@/lib/fases";
+import {
+  custoImplementacaoDasEtapas,
+  temAjusteDeEtapas,
+} from "@/lib/implementacao";
 
 export type ModeloContratacaoOpcao = {
   id: string;
@@ -26,6 +31,13 @@ export type ModeloContratacaoOpcao = {
 };
 
 export type ProdutoOpcao = { id: string; nome: string };
+/** Etapa da implantação do produto neste cenário — o canal pode ajustar as horas de cada uma. */
+export type EtapaOpcao = {
+  produto_id: string;
+  nome_etapa: string;
+  horas: number;
+  valor_hora: number;
+};
 
 type ParametrosCanal = {
   comissao_pct?: number;
@@ -50,6 +62,8 @@ export type CanalProduto = {
   desconto_cliente_meses: number | null;
   isencao_implementacao: boolean;
   desconto_implementacao_pct?: number;
+  /** { "nome da etapa": horas } — 0 = não executa; ausente = padrão do produto. */
+  implementacao_horas_por_etapa?: Record<string, number> | null;
 };
 
 export type CanalAquisicao = {
@@ -115,11 +129,13 @@ export function CanaisAquisicao({
   canais,
   modelos,
   produtos,
+  etapas = [],
 }: {
   cenarioId: string;
   canais: CanalAquisicao[];
   modelos: ModeloContratacaoOpcao[];
   produtos: ProdutoOpcao[];
+  etapas?: EtapaOpcao[];
 }) {
   const [state, formAction, pending] = useActionState(
     criarCanalAquisicao,
@@ -183,6 +199,7 @@ export function CanaisAquisicao({
             modelos={modelos}
             modeloById={modeloById}
             produtos={produtos}
+            etapas={etapas}
           />
         ))}
       </div>
@@ -246,12 +263,14 @@ function CanalRow({
   modelos,
   modeloById,
   produtos,
+  etapas,
 }: {
   canal: CanalAquisicao;
   cenarioId: string;
   modelos: ModeloContratacaoOpcao[];
   modeloById: Map<string, ModeloContratacaoOpcao>;
   produtos: ProdutoOpcao[];
+  etapas: EtapaOpcao[];
 }) {
   const [editando, setEditando] = useState(false);
   const [state, formAction, pending] = useActionState(
@@ -357,7 +376,12 @@ function CanalRow({
         </div>
       </div>
 
-      <MatrizProdutos canal={canal} cenarioId={cenarioId} produtos={produtos} />
+      <MatrizProdutos
+        canal={canal}
+        cenarioId={cenarioId}
+        produtos={produtos}
+        etapas={etapas}
+      />
 
       {canal.tipo_canal === "self_service" ? (
         <p className="mt-1.5 border-t border-border-soft pt-1.5 text-[10px] text-text-faint">
@@ -393,16 +417,26 @@ function MatrizProdutos({
   canal,
   cenarioId,
   produtos,
+  etapas,
 }: {
   canal: CanalAquisicao;
   cenarioId: string;
   produtos: ProdutoOpcao[];
+  etapas: EtapaOpcao[];
 }) {
   const [state, formAction, pending] = useActionState(
     salvarCanalProdutos,
     initialState,
   );
   const porProduto = new Map(canal.produtos.map((cp) => [cp.produto_id, cp]));
+  const etapasPorProduto = new Map<string, EtapaOpcao[]>();
+  for (const e of etapas)
+    etapasPorProduto.set(e.produto_id, [
+      ...(etapasPorProduto.get(e.produto_id) ?? []),
+      e,
+    ]);
+  // Linha de horas por etapa aberta (um produto por vez) — detalhe atrás do "+", sem rolagem extra.
+  const [etapasAbertas, setEtapasAbertas] = useState<string | null>(null);
 
   return (
     <form
@@ -425,6 +459,16 @@ function MatrizProdutos({
             desconto_cliente_meses: num("desconto_meses"),
             isencao_implementacao: get("isencao") === "on",
             desconto_implementacao_pct: pct("desconto_impl"),
+            // Só grava as etapas que a pessoa preencheu; vazio = padrão do produto.
+            implementacao_horas_por_etapa: Object.fromEntries(
+              (etapasPorProduto.get(p.id) ?? [])
+                .map(
+                  (e) => [e.nome_etapa, num(`etapa__${e.nome_etapa}`)] as const,
+                )
+                .filter(
+                  (par): par is readonly [string, number] => par[1] != null,
+                ),
+            ),
           };
         });
         const dados = new FormData();
@@ -478,72 +522,147 @@ function MatrizProdutos({
                   <InfoTooltip texto="Cliente vindo por este canal não paga a implementação daquele produto. O custo de entregar continua contando." />
                 </span>
               </th>
+              <th className="whitespace-nowrap px-1.5 py-1 text-right text-[9px] font-medium uppercase tracking-wide text-text-faint">
+                <span className="flex items-center justify-end">
+                  Custo impl.
+                  <InfoTooltip texto="Quanto custa ENTREGAR a implantação pra cliente vindo deste canal. Abra o + pra ajustar as horas de cada etapa: um consultor parceiro já implanta a metodologia, então essa etapa fica em 0 e o go-live encurta. Em branco = horas padrão do produto." />
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {produtos.map((p) => {
               const cp = porProduto.get(p.id);
+              const etapasDoProduto = etapasPorProduto.get(p.id) ?? [];
+              const ajuste = cp?.implementacao_horas_por_etapa ?? null;
+              const ajustado = temAjusteDeEtapas(ajuste);
+              const custoCanal = custoImplementacaoDasEtapas(
+                etapasDoProduto,
+                ajuste,
+              );
+              const aberto = etapasAbertas === p.id;
               return (
-                <tr key={p.id} className="border-t border-border-soft">
-                  <td className="px-1.5 py-1 text-[11px]">{p.nome}</td>
-                  <td className="px-1.5 py-1">
-                    <input
-                      name={`${p.id}__mix`}
-                      type="number"
-                      step="0.01"
-                      defaultValue={pctOuVazio(cp?.percentual_mix)}
-                      placeholder="0"
-                      className="input campo-pct text-right"
-                    />
-                  </td>
-                  <td className="px-1.5 py-1">
-                    <input
-                      name={`${p.id}__fechamento`}
-                      type="number"
-                      step="0.01"
-                      defaultValue={pctOuVazio(cp?.taxa_fechamento)}
-                      placeholder="30"
-                      className="input campo-pct text-right"
-                    />
-                  </td>
-                  <td className="px-1.5 py-1">
-                    <input
-                      name={`${p.id}__desconto`}
-                      type="number"
-                      step="0.01"
-                      defaultValue={pctOuVazio(cp?.desconto_cliente_pct)}
-                      placeholder="—"
-                      className="input campo-pct text-right"
-                    />
-                  </td>
-                  <td className="px-1.5 py-1">
-                    <input
-                      name={`${p.id}__desconto_meses`}
-                      type="number"
-                      defaultValue={numOuVazio(cp?.desconto_cliente_meses)}
-                      placeholder="sempre"
-                      className="input campo-num text-right"
-                    />
-                  </td>
-                  <td className="px-1.5 py-1">
-                    <input
-                      name={`${p.id}__desconto_impl`}
-                      type="number"
-                      step="0.01"
-                      defaultValue={pctOuVazio(cp?.desconto_implementacao_pct)}
-                      placeholder="0"
-                      className="input campo-pct text-right"
-                    />
-                  </td>
-                  <td className="px-1.5 py-1 text-center">
-                    <input
-                      type="checkbox"
-                      name={`${p.id}__isencao`}
-                      defaultChecked={cp?.isencao_implementacao === true}
-                      className="h-4 w-4 rounded border-border"
-                    />
-                  </td>
-                </tr>
+                <Fragment key={p.id}>
+                  <tr className="border-t border-border-soft">
+                    <td className="px-1.5 py-1 text-[11px]">{p.nome}</td>
+                    <td className="px-1.5 py-1">
+                      <input
+                        name={`${p.id}__mix`}
+                        type="number"
+                        step="0.01"
+                        defaultValue={pctOuVazio(cp?.percentual_mix)}
+                        placeholder="0"
+                        className="input campo-pct text-right"
+                      />
+                    </td>
+                    <td className="px-1.5 py-1">
+                      <input
+                        name={`${p.id}__fechamento`}
+                        type="number"
+                        step="0.01"
+                        defaultValue={pctOuVazio(cp?.taxa_fechamento)}
+                        placeholder="30"
+                        className="input campo-pct text-right"
+                      />
+                    </td>
+                    <td className="px-1.5 py-1">
+                      <input
+                        name={`${p.id}__desconto`}
+                        type="number"
+                        step="0.01"
+                        defaultValue={pctOuVazio(cp?.desconto_cliente_pct)}
+                        placeholder="—"
+                        className="input campo-pct text-right"
+                      />
+                    </td>
+                    <td className="px-1.5 py-1">
+                      <input
+                        name={`${p.id}__desconto_meses`}
+                        type="number"
+                        defaultValue={numOuVazio(cp?.desconto_cliente_meses)}
+                        placeholder="sempre"
+                        className="input campo-num text-right"
+                      />
+                    </td>
+                    <td className="px-1.5 py-1">
+                      <input
+                        name={`${p.id}__desconto_impl`}
+                        type="number"
+                        step="0.01"
+                        defaultValue={pctOuVazio(
+                          cp?.desconto_implementacao_pct,
+                        )}
+                        placeholder="0"
+                        className="input campo-pct text-right"
+                      />
+                    </td>
+                    <td className="px-1.5 py-1 text-center">
+                      <input
+                        type="checkbox"
+                        name={`${p.id}__isencao`}
+                        defaultChecked={cp?.isencao_implementacao === true}
+                        className="h-4 w-4 rounded border-border"
+                      />
+                    </td>
+                    <td className="whitespace-nowrap px-1.5 py-1 text-right font-mono text-[11px]">
+                      {etapasDoProduto.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setEtapasAbertas(aberto ? null : p.id)}
+                          className={`inline-flex items-center gap-1 ${ajustado ? "text-primary-deep" : "text-text-muted"}`}
+                          title="Ajustar horas por etapa pra este canal"
+                        >
+                          {formatBRL(custoCanal)}
+                          {ajustado && (
+                            <span className="text-[9px]">(ajustado)</span>
+                          )}
+                          <span className="text-[12px] leading-none">
+                            {aberto ? "−" : "+"}
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="text-text-faint">—</span>
+                      )}
+                    </td>
+                  </tr>
+                  {aberto && (
+                    <tr className="border-t border-border-soft bg-surface-muted/40">
+                      <td colSpan={8} className="px-1.5 py-1.5">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          {etapasDoProduto.map((e) => (
+                            <label
+                              key={e.nome_etapa}
+                              className="flex items-center gap-1.5 text-[10.5px] text-text-muted"
+                            >
+                              <span>
+                                {e.nome_etapa}
+                                <span className="text-text-faint">
+                                  {" "}
+                                  · padrão {e.horas}h ×{" "}
+                                  {formatBRL(e.valor_hora)}
+                                </span>
+                              </span>
+                              <input
+                                name={`${p.id}__etapa__${e.nome_etapa}`}
+                                type="number"
+                                step="0.5"
+                                min={0}
+                                defaultValue={ajuste?.[e.nome_etapa] ?? ""}
+                                placeholder={String(e.horas)}
+                                className="input campo-num text-right"
+                              />
+                              <span className="text-text-faint">h</span>
+                            </label>
+                          ))}
+                          <span className="text-[10px] text-text-faint">
+                            0 = etapa não executada · em branco = padrão · salve
+                            em "Salvar produtos"
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>
