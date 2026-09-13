@@ -26,22 +26,53 @@ export type LinhaProjecao = {
 export type ProdutoOpcao = { id: string; nome: string };
 
 function formatBRL(v: number) {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+  return v.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
 }
 function formatMes(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", {
+    month: "short",
+    year: "numeric",
+  });
 }
 function num(v: number, casas = 1) {
-  return v.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+  return v.toLocaleString("pt-BR", {
+    minimumFractionDigits: casas,
+    maximumFractionDigits: casas,
+  });
 }
 
-export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaProjecao[]; produtos: ProdutoOpcao[]; cenarioId: string }) {
-  const [selecionados, setSelecionados] = useState<string[]>(produtos.map((p) => p.id));
+export function TabelaProjecao({
+  linhas,
+  produtos,
+  cenarioId,
+}: {
+  linhas: LinhaProjecao[];
+  produtos: ProdutoOpcao[];
+  cenarioId: string;
+}) {
+  const [selecionados, setSelecionados] = useState<string[]>(
+    produtos.map((p) => p.id),
+  );
   // A quebra por canal é detalhe de diagnóstico: fica fora do caminho até ser pedida.
   const [detalharCanais, setDetalharCanais] = useState(false);
+  // Ano a ano por padrão; o ano abre pra mostrar os meses.
+  const [abertos, setAbertos] = useState<Set<string>>(new Set());
+  const alternarAno = (ano: string) =>
+    setAbertos((prev) => {
+      const n = new Set(prev);
+      if (n.has(ano)) n.delete(ano);
+      else n.add(ano);
+      return n;
+    });
 
   function alternar(id: string) {
-    setSelecionados((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelecionados((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
   }
 
   // Com um produto só dá pra mostrar a fase; com vários, a fase de cada um seria diferente no
@@ -70,8 +101,13 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
       atual.novas_implementacoes += l.novas_implementacoes;
       // Churn consolidado: média ponderada pela base de clientes de cada produto.
       if (l.churn_pct != null) {
-        const pesoAtual = (atual.churn_pct ?? 0) * (atual.clientes_ativos - l.clientes_ativos);
-        atual.churn_pct = atual.clientes_ativos > 0 ? (pesoAtual + l.churn_pct * l.clientes_ativos) / atual.clientes_ativos : l.churn_pct;
+        const pesoAtual =
+          (atual.churn_pct ?? 0) * (atual.clientes_ativos - l.clientes_ativos);
+        atual.churn_pct =
+          atual.clientes_ativos > 0
+            ? (pesoAtual + l.churn_pct * l.clientes_ativos) /
+              atual.clientes_ativos
+            : l.churn_pct;
       }
       atual.produtosNoMes += 1;
     }
@@ -84,7 +120,25 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
   // junto de propósito: quando o cenário começa ou termina no meio do ano, somar o que tem e
   // comparar com um ano cheio dá a falsa impressão de queda.
   const comFechamentos = useMemo(() => {
-    const saida: (({ tipo: "mes" } & (typeof agregado)[number]) | { tipo: "ano"; ano: string; meses: number; clientesFim: number; novosDireto: number; novosRepresentante: number; novosAssociacao: number; novosTotal: number; saidas: number; receita: number; receitaImpl: number; implementacoes: number; novasImplementacoes: number; arpu: number })[] = [];
+    const saida: (
+      | ({ tipo: "mes" } & (typeof agregado)[number])
+      | {
+          tipo: "ano";
+          ano: string;
+          meses: number;
+          clientesFim: number;
+          novosDireto: number;
+          novosRepresentante: number;
+          novosAssociacao: number;
+          novosTotal: number;
+          saidas: number;
+          receita: number;
+          receitaImpl: number;
+          implementacoes: number;
+          novasImplementacoes: number;
+          arpu: number;
+        }
+    )[] = [];
     let acc: (typeof agregado)[number][] = [];
 
     const fechar = () => {
@@ -107,7 +161,10 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
         receita,
         receitaImpl,
         implementacoes: implMes,
-        novasImplementacoes: acc.reduce((s, l) => s + l.novas_implementacoes, 0),
+        novasImplementacoes: acc.reduce(
+          (s, l) => s + l.novas_implementacoes,
+          0,
+        ),
         // Ticket médio por cobrança: assinaturas + parcelas de implementação no denominador.
         arpu: clientesMes + implMes > 0 ? receita / (clientesMes + implMes) : 0,
       });
@@ -115,27 +172,58 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
     };
 
     for (const l of agregado) {
-      if (acc.length > 0 && l.mes_referencia.slice(0, 4) !== acc[0].mes_referencia.slice(0, 4)) fechar();
+      if (
+        acc.length > 0 &&
+        l.mes_referencia.slice(0, 4) !== acc[0].mes_referencia.slice(0, 4)
+      )
+        fechar();
       saida.push({ tipo: "mes", ...l });
       acc.push(l);
     }
     fechar();
-    return saida;
+    // O fechamento do ano vem ANTES dos meses dele: é a linha que fica visível com os meses recolhidos.
+    const porAno = new Map<string, typeof saida>();
+    for (const item of saida) {
+      const ano =
+        item.tipo === "ano" ? item.ano : item.mes_referencia.slice(0, 4);
+      const lista = porAno.get(ano) ?? [];
+      if (item.tipo === "ano") lista.unshift(item);
+      else lista.push(item);
+      porAno.set(ano, lista);
+    }
+    return [...porAno.values()].flat();
   }, [agregado]);
+  const anosDisponiveis = useMemo(
+    () => [...new Set(agregado.map((l) => l.mes_referencia.slice(0, 4)))],
+    [agregado],
+  );
+  const todosAbertos =
+    anosDisponiveis.length > 0 && anosDisponiveis.every((a) => abertos.has(a));
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center font-heading text-[13px] font-semibold">
-          Projeção de vendas
-          <InfoTooltip texto="Resultado dos indicadores que você definiu acima. Ajuste crescimento, churn e os canais até esta tabela mostrar um número que faça sentido. A linha destacada ao fim de cada ano soma o faturamento do exercício — quando o ano não tem 12 meses dentro do cenário, ela mostra quantos meses entraram e o valor anualizado, pra não parecer queda." />
+          Vendas ano a ano
+          <InfoTooltip texto="Resultado dos indicadores que você definiu acima. Ajuste crescimento, churn e os canais até esta tabela mostrar um número que faça sentido. Cada linha é um ano; clique nela pra abrir os meses. Quando o ano não tem 12 meses dentro do cenário, mostra quantos meses entraram e o valor anualizado, pra não parecer queda." />
+          <button
+            type="button"
+            onClick={() =>
+              setAbertos(todosAbertos ? new Set() : new Set(anosDisponiveis))
+            }
+            className="ml-3 text-[11px] font-normal text-primary-deep underline decoration-dotted"
+          >
+            {todosAbertos ? "recolher meses" : "abrir todos os meses"}
+          </button>
         </h2>
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => setDetalharCanais((v) => !v)}
             className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium ${
-              detalharCanais ? "border-primary-fill bg-primary-soft text-primary-deep" : "border-border text-text-muted"
+              detalharCanais
+                ? "border-primary-fill bg-primary-soft text-primary-deep"
+                : "border-border text-text-muted"
             }`}
           >
             {detalharCanais ? "Ocultar canais" : "Detalhar canais"}
@@ -155,7 +243,9 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
                 type="button"
                 onClick={() => alternar(p.id)}
                 className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
-                  ativo ? "border-primary-fill bg-primary-soft text-primary-deep" : "border-border text-text-faint"
+                  ativo
+                    ? "border-primary-fill bg-primary-soft text-primary-deep"
+                    : "border-border text-text-faint"
                 }`}
               >
                 {p.nome}
@@ -166,10 +256,13 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
       </div>
 
       {selecionados.length === 0 ? (
-        <p className="text-[12px] text-text-faint">Selecione pelo menos um produto.</p>
+        <p className="text-[12px] text-text-faint">
+          Selecione pelo menos um produto.
+        </p>
       ) : agregado.length === 0 ? (
         <p className="text-[12px] text-text-faint">
-          Sem projeção ainda — preencha os indicadores acima e recalcule a simulação em Produtos.
+          Sem projeção ainda — preencha os indicadores acima e recalcule a
+          simulação em Produtos.
         </p>
       ) : (
         <div className="max-h-[520px] overflow-auto">
@@ -177,24 +270,40 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
             <thead className="sticky top-0 bg-surface">
               <tr className="text-left text-[9.5px] uppercase tracking-wide text-text-faint">
                 <th className="px-2 py-1.5 font-medium">Mês</th>
-                {umProdutoSo && <th className="px-2 py-1.5 font-medium">Fase</th>}
+                {umProdutoSo && (
+                  <th className="px-2 py-1.5 font-medium">Fase</th>
+                )}
                 <th className="px-2 py-1.5 text-right font-medium">Clientes</th>
                 {detalharCanais && (
                   <>
-                    <th className="px-2 py-1.5 text-right font-medium">Novos direto</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Novos repres.</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Novos assoc.</th>
+                    <th className="px-2 py-1.5 text-right font-medium">
+                      Novos direto
+                    </th>
+                    <th className="px-2 py-1.5 text-right font-medium">
+                      Novos repres.
+                    </th>
+                    <th className="px-2 py-1.5 text-right font-medium">
+                      Novos assoc.
+                    </th>
                   </>
                 )}
-                <th className="px-2 py-1.5 text-right font-medium">Total novos</th>
+                <th className="px-2 py-1.5 text-right font-medium">
+                  Total novos
+                </th>
                 <th className="px-2 py-1.5 text-right font-medium">Saíram</th>
-                <th className="px-2 py-1.5 text-right font-medium">Novas implant.</th>
+                <th className="px-2 py-1.5 text-right font-medium">
+                  Novas implant.
+                </th>
                 <th className="px-2 py-1.5 text-right font-medium">
                   Implant. cobradas
                   <InfoTooltip texto="Implantações com cobrança no mês: as vendidas agora (à vista ou 1ª parcela) + as parceladas de meses anteriores ainda em andamento. Por isso passa das novas quando há parcelamento — ex: 4 implantações do Mind = 2,8 à vista + 1,2 na 1ª de 5 parcelas." />
                 </th>
-                <th className="px-2 py-1.5 text-right font-medium">Receita implant.</th>
-                <th className="px-2 py-1.5 text-right font-medium">Faturamento</th>
+                <th className="px-2 py-1.5 text-right font-medium">
+                  Receita implant.
+                </th>
+                <th className="px-2 py-1.5 text-right font-medium">
+                  Faturamento
+                </th>
                 <th className="px-2 py-1.5 text-right font-medium">
                   Ticket médio
                   <InfoTooltip texto="Receita total ÷ número de cobranças do mês, onde cobranças = assinaturas ativas de cada produto + parcelas de implementação em andamento. Como o cliente vindo de associação tem desconto na implementação, ele entra no denominador inteiro mas soma menos receita — e o ticket médio cai, que é o efeito esperado." />
@@ -206,8 +315,15 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
                 if (item.tipo === "ano") {
                   const completo = item.meses === 12;
                   return (
-                    <tr key={`ano-${item.ano}`} className="border-t-2 border-border bg-bg text-[11.5px] font-semibold">
+                    <tr
+                      key={`ano-${item.ano}`}
+                      onClick={() => alternarAno(item.ano)}
+                      className="cursor-pointer border-t-2 border-border bg-bg text-[11.5px] font-semibold hover:bg-primary-soft/40"
+                    >
                       <td className="whitespace-nowrap px-2 py-1.5">
+                        <span className="mr-1.5 inline-block text-[9px] text-text-faint">
+                          {abertos.has(item.ano) ? "▼" : "▶"}
+                        </span>
                         {item.ano}
                         {!completo && (
                           <span className="ml-1 font-normal text-[9px] text-text-faint">
@@ -216,26 +332,42 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
                         )}
                       </td>
                       {umProdutoSo && <td className="px-2 py-1.5" />}
-                      <td className="px-2 py-1.5 text-right font-mono">{item.clientesFim}</td>
+                      <td className="px-2 py-1.5 text-right font-mono">
+                        {item.clientesFim}
+                      </td>
                       {detalharCanais && (
                         <>
-                          <td className="px-2 py-1.5 text-right font-mono text-text-muted">{num(item.novosDireto)}</td>
-                          <td className="px-2 py-1.5 text-right font-mono text-text-muted">{num(item.novosRepresentante)}</td>
-                          <td className="px-2 py-1.5 text-right font-mono text-text-muted">{num(item.novosAssociacao)}</td>
+                          <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                            {num(item.novosDireto)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                            {num(item.novosRepresentante)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                            {num(item.novosAssociacao)}
+                          </td>
                         </>
                       )}
-                      <td className="px-2 py-1.5 text-right font-mono">{num(item.novosTotal, 0)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono">
+                        {num(item.novosTotal, 0)}
+                      </td>
                       <td className="px-2 py-1.5 text-right font-mono text-text-muted">
                         {item.saidas > 0 ? `-${num(item.saidas)}` : "—"}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono text-text-muted">
-                        {item.novasImplementacoes > 0 ? num(item.novasImplementacoes, 0) : "—"}
+                        {item.novasImplementacoes > 0
+                          ? num(item.novasImplementacoes, 0)
+                          : "—"}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono text-text-muted">
-                        {item.implementacoes > 0 ? num(item.implementacoes, 0) : "—"}
+                        {item.implementacoes > 0
+                          ? num(item.implementacoes, 0)
+                          : "—"}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono text-text-muted">
-                        {item.receitaImpl > 0 ? formatBRL(item.receitaImpl) : "—"}
+                        {item.receitaImpl > 0
+                          ? formatBRL(item.receitaImpl)
+                          : "—"}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono">
                         {formatBRL(item.receita)}
@@ -245,46 +377,85 @@ export function TabelaProjecao({ linhas, produtos, cenarioId }: { linhas: LinhaP
                           </span>
                         )}
                       </td>
-                      <td className="px-2 py-1.5 text-right font-mono text-text-muted">{formatBRL(item.arpu)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                        {formatBRL(item.arpu)}
+                      </td>
                     </tr>
                   );
                 }
                 const l = item;
+                if (!abertos.has(l.mes_referencia.slice(0, 4))) return null;
                 // Preço médio é do RECORRENTE: implementação é cobrança única e distorceria a
                 // comparação com o preço de tabela.
                 // Cada assinatura ativa e cada parcela de implementação é uma cobrança. O ticket
                 // médio é a receita total dividida pelo número de cobranças — cliente de canal com
                 // desconto na implementação puxa esse número pra baixo, que é o comportamento certo.
                 const cobrancas = l.clientes_ativos + l.implementacoes_ativas;
-                const precoMedio = cobrancas > 0 ? l.receita_bruta / cobrancas : 0;
+                const precoMedio =
+                  cobrancas > 0 ? l.receita_bruta / cobrancas : 0;
                 return (
-                  <tr key={l.mes_referencia} className="border-t border-border-soft text-[11.5px]">
-                    <td className="whitespace-nowrap px-2 py-1.5 capitalize">{formatMes(l.mes_referencia)}</td>
-                    {umProdutoSo && <td className="px-2 py-1.5 capitalize text-text-muted">{l.fase ?? "—"}</td>}
-                    <td className="px-2 py-1.5 text-right font-mono font-semibold">{l.clientes_ativos}</td>
+                  <tr
+                    key={l.mes_referencia}
+                    className="border-t border-border-soft text-[11.5px]"
+                  >
+                    <td className="whitespace-nowrap px-2 py-1.5 pl-6 capitalize">
+                      {formatMes(l.mes_referencia)}
+                    </td>
+                    {umProdutoSo && (
+                      <td className="px-2 py-1.5 capitalize text-text-muted">
+                        {l.fase ?? "—"}
+                      </td>
+                    )}
+                    <td className="px-2 py-1.5 text-right font-mono font-semibold">
+                      {l.clientes_ativos}
+                    </td>
                     {detalharCanais && (
                       <>
-                        <td className="px-2 py-1.5 text-right font-mono text-text-muted">{num(l.novos_direto)}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-text-muted">{num(l.novos_representante)}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-text-muted">{num(l.novos_associacao)}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                          {num(l.novos_direto)}
+                        </td>
+                        <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                          {num(l.novos_representante)}
+                        </td>
+                        <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                          {num(l.novos_associacao)}
+                        </td>
                       </>
                     )}
-                    <td className="px-2 py-1.5 text-right font-mono">{l.novos_clientes}</td>
-                    <td className="px-2 py-1.5 text-right font-mono text-text-muted">
-                      {l.clientes_perdidos > 0 ? `-${num(l.clientes_perdidos)}` : "—"}
-                      {l.churn_pct ? <span className="ml-1 text-[9px] text-text-faint">({(l.churn_pct * 100).toFixed(1)}%)</span> : null}
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {l.novos_clientes}
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono text-text-muted">
-                      {l.novas_implementacoes > 0 ? num(l.novas_implementacoes, 1) : "—"}
+                      {l.clientes_perdidos > 0
+                        ? `-${num(l.clientes_perdidos)}`
+                        : "—"}
+                      {l.churn_pct ? (
+                        <span className="ml-1 text-[9px] text-text-faint">
+                          ({(l.churn_pct * 100).toFixed(1)}%)
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono text-text-muted">
-                      {l.implementacoes_ativas > 0 ? num(l.implementacoes_ativas, 1) : "—"}
+                      {l.novas_implementacoes > 0
+                        ? num(l.novas_implementacoes, 1)
+                        : "—"}
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono text-text-muted">
-                      {l.receita_implementacao > 0 ? formatBRL(l.receita_implementacao) : "—"}
+                      {l.implementacoes_ativas > 0
+                        ? num(l.implementacoes_ativas, 1)
+                        : "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-right font-mono">{formatBRL(l.receita_bruta)}</td>
-                    <td className="px-2 py-1.5 text-right font-mono text-text-muted">{formatBRL(precoMedio)}</td>
+                    <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                      {l.receita_implementacao > 0
+                        ? formatBRL(l.receita_implementacao)
+                        : "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {formatBRL(l.receita_bruta)}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono text-text-muted">
+                      {formatBRL(precoMedio)}
+                    </td>
                   </tr>
                 );
               })}

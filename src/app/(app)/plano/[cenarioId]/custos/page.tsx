@@ -226,6 +226,24 @@ export default async function PlanoCustosPage({
     }
     simPorMes.set(r.mes_referencia, m);
   }
+  // COGS de cada produto no mês — a aba COGS da tabela filtra por produto.
+  const cogsPorProdutoMes = new Map<string, Record<string, { receita: number; clientes: number; infra: number; llm: number; suporteCs: number; gateway: number; implementacao: number }>>();
+  for (const r of simRows ?? []) {
+    const rr = r as Record<string, unknown>;
+    const n = (k: string) => Number(rr[k] ?? 0);
+    const llm = n("cogs_llm"), software = n("cogs_software"), gateway = n("cogs_gateway");
+    const porProduto = cogsPorProdutoMes.get(r.mes_referencia) ?? {};
+    porProduto[r.produto_id] = {
+      receita: n("receita_bruta"),
+      clientes: n("clientes_ativos"),
+      infra: n("cogs_infraestrutura"),
+      llm,
+      suporteCs: n("cogs_suporte_reativo") + n("cogs_cs_proativo"),
+      gateway,
+      implementacao: Math.max(0, n("cogs_outros") - llm - software - gateway),
+    };
+    cogsPorProdutoMes.set(r.mes_referencia, porProduto);
+  }
   const semResiduo = (v: number) => (Math.abs(v) < 0.005 ? 0 : v);
   const linhasCustos: LinhaCustos[] = resumo.linhasPeriodo.map((l) => {
     const m = simPorMes.get(l.mes_referencia) ?? {};
@@ -234,6 +252,7 @@ export default async function PlanoCustosPage({
       mes_referencia: l.mes_referencia,
       receita: l.receita,
       clientes: l.clientes,
+      cogsPorProduto: cogsPorProdutoMes.get(l.mes_referencia) ?? {},
       infra: m.cogs_infraestrutura ?? 0,
       llm,
       suporteCs: (m.cogs_suporte_reativo ?? 0) + (m.cogs_cs_proativo ?? 0),
@@ -429,7 +448,7 @@ export default async function PlanoCustosPage({
       </div>
 
       <div className="mt-6">
-        <TabelaCustos linhas={linhasCustos} cenarioId={cenarioId} />
+        <TabelaCustos linhas={linhasCustos} cenarioId={cenarioId} produtos={(produtosCenario ?? []).map((p) => ({ id: p.id, nome: p.nome }))} />
       </div>
 
       {cacProdutos.length > 0 && (
