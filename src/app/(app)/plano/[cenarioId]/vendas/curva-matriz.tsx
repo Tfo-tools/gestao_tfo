@@ -1,10 +1,14 @@
 "use client";
 
-import { useActionState, useRef } from "react";
-import { salvarPlanejamentoFase, type CurvaActionState } from "./actions";
+import { Fragment, useActionState, useState } from "react";
+import { salvarPlanejamentoGrade, type CurvaActionState } from "./actions";
 import { InfoTooltip } from "@/components/info-tooltip";
 
-export type TrimestreDados = { indice: number; taxa_crescimento_mensal: number | null; taxa_churn_mensal: number | null };
+export type TrimestreDados = {
+  indice: number;
+  taxa_crescimento_mensal: number | null;
+  taxa_churn_mensal: number | null;
+};
 
 type FaseDados = {
   taxa_crescimento_mensal: number | null;
@@ -25,7 +29,10 @@ function quantidadeTrimestres(d: FaseDados): number {
   if (!d.data_fim) return 4;
   const i = new Date(d.data_inicio + "T00:00:00");
   const f = new Date(d.data_fim + "T00:00:00");
-  const meses = (f.getFullYear() - i.getFullYear()) * 12 + (f.getMonth() - i.getMonth()) + 1;
+  const meses =
+    (f.getFullYear() - i.getFullYear()) * 12 +
+    (f.getMonth() - i.getMonth()) +
+    1;
   return Math.max(1, Math.ceil(meses / 3));
 }
 
@@ -37,6 +44,15 @@ export type ProdutoCurva = {
 
 const initialState: CurvaActionState = { error: null };
 
+const LABEL_CURTO: Record<string, string> = {
+  ideacao: "Ideação",
+  validacao: "Validação",
+  pmf: "PMF",
+  tracao: "Tração",
+  escala: "Escala",
+  maturidade: "Maturidade",
+};
+
 function fmtData(iso: string) {
   const [a, m, d] = iso.split("-");
   return `${d}/${m}/${a.slice(2)}`;
@@ -46,220 +62,253 @@ function pctStr(v: number | null | undefined) {
   return v != null ? (v * 100).toFixed(2) : "";
 }
 
-export function CurvaMatriz({ cenarioId, produtos }: { cenarioId: string; produtos: ProdutoCurva[] }) {
+const CAMPO =
+  "w-[58px] rounded border border-border-soft bg-transparent px-1 py-0.5 text-right font-mono text-[11px] outline-none focus:border-primary-fill disabled:border-transparent";
+
+/**
+ * Uma grade só: produto nas linhas (padrão da fase + um bloco por trimestre), fases nas colunas
+ * (crescimento % / churn %). Tudo se edita na célula e salva de uma vez. Célula em branco num
+ * trimestre usa o padrão da fase; preenchida vale dela em diante até o próximo bloco preenchido.
+ */
+export function CurvaMatriz({
+  cenarioId,
+  produtos,
+}: {
+  cenarioId: string;
+  produtos: ProdutoCurva[];
+}) {
+  const [state, formAction, pending] = useActionState(
+    salvarPlanejamentoGrade,
+    initialState,
+  );
+  const [sujo, setSujo] = useState(false);
+
   if (produtos.length === 0) {
-    return <p className="text-[13px] text-text-muted">Nenhum produto cadastrado ainda — cadastre em Produtos primeiro.</p>;
+    return (
+      <p className="text-[13px] text-text-muted">
+        Nenhum produto cadastrado ainda — cadastre em Produtos primeiro.
+      </p>
+    );
   }
 
   const fasesRef = produtos[0].fases;
 
   return (
-    <div className="flex flex-col gap-3">
-      {fasesRef.map((faseRef, i) => (
-        <FaseSecao
-          key={faseRef.fase}
-          cenarioId={cenarioId}
-          fase={faseRef.fase}
-          label={faseRef.label}
-          ordem={i + 1}
-          produtos={produtos.map((p) => ({
-            id: p.id,
-            nome: p.nome,
-            dados: p.fases[i]?.dados ?? null,
-          }))}
-        />
-      ))}
-    </div>
-  );
-}
-
-function FaseSecao({
-  cenarioId,
-  fase,
-  label,
-  ordem,
-  produtos,
-}: {
-  cenarioId: string;
-  fase: string;
-  label: string;
-  ordem: number;
-  produtos: { id: string; nome: string; dados: FaseDados }[];
-}) {
-  const [state, formAction, pending] = useActionState(salvarPlanejamentoFase, initialState);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  return (
-    <div className="rounded-lg border border-border-soft overflow-hidden">
-      <div className="bg-primary-soft px-4 py-2.5">
-        <span className="text-[12.5px] font-semibold">
-          {ordem}. {label}
-        </span>
-      </div>
-
-      <form
-        ref={formRef}
-        action={(formData) => {
-          const linhas = produtos.map((p) => {
-            const get = (name: string) => formData.get(`${p.id}__${name}`);
-            const pct = (name: string) => {
-              const v = get(name);
-              return v !== null && v !== "" ? Number(v) / 100 : null;
-            };
-            const trimestres = Array.from({ length: quantidadeTrimestres(p.dados) }, (_, i) => ({
-              indice: i,
-              taxa_crescimento_mensal: pct(`t${i}_cresc`),
-              taxa_churn_mensal: pct(`t${i}_churn`),
-            }));
+    <form
+      action={(fd) => {
+        const pct = (name: string) => {
+          const v = fd.get(name);
+          return v !== null && v !== "" ? Number(v) / 100 : null;
+        };
+        const fases = fasesRef.map((f, fi) => ({
+          fase: f.fase,
+          linhas: produtos.map((p) => {
+            const d = p.fases[fi]?.dados ?? null;
+            const k = (campo: string) => `${p.id}__${f.fase}__${campo}`;
             return {
               produto_id: p.id,
-              taxa_crescimento_mensal: pct("taxa_crescimento_mensal"),
-              taxa_churn_mensal: pct("taxa_churn_mensal"),
-              trimestres,
+              taxa_crescimento_mensal: pct(k("cresc")),
+              taxa_churn_mensal: pct(k("churn")),
+              capacidade_vendedor_mes: null,
+              trimestres: Array.from(
+                { length: quantidadeTrimestres(d) },
+                (_, i) => ({
+                  indice: i,
+                  taxa_crescimento_mensal: pct(k(`t${i}_cresc`)),
+                  taxa_churn_mensal: pct(k(`t${i}_churn`)),
+                }),
+              ),
             };
-          });
-          const fd = new FormData();
-          fd.set("cenario_id", cenarioId);
-          fd.set("fase", fase);
-          fd.set("linhas", JSON.stringify(linhas));
-          formAction(fd);
-        }}
-        className="overflow-x-auto"
-      >
+          }),
+        }));
+        const out = new FormData();
+        out.set("cenario_id", cenarioId);
+        out.set("fases", JSON.stringify(fases));
+        formAction(out);
+        setSujo(false);
+      }}
+      onChange={() => setSujo(true)}
+    >
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+        <p className="flex items-center text-[11px] text-text-muted">
+          Padrão da fase vale nos trimestres em branco; trimestre preenchido
+          vale dele em diante. Taxas mensais, em %.
+          <InfoTooltip texto="Crescimento: a cada mês, quantos % de clientes novos em relação à base atual (só o canal direto — parceiros e ações somam por fora). Churn: taxa mensal; em planos semestrais/anuais é aplicada composta só na renovação. Cada fase é dividida em blocos de 3 meses contados do início dela; numa fase aberta (maturidade) o último bloco segue até o fim do cenário. Início e fim das fases ficam em Produtos." />
+        </p>
+        <div className="flex items-center gap-3">
+          {state.error && (
+            <span className="text-[11px] text-danger">{state.error}</span>
+          )}
+          {state.success && !sujo && (
+            <span className="text-[11px] text-success">Salvo.</span>
+          )}
+          <button
+            type="submit"
+            disabled={pending || !sujo}
+            className="rounded-lg bg-wine-deep px-3.5 py-1.5 text-[12px] font-medium text-white disabled:opacity-40"
+          >
+            {pending ? "Salvando…" : "Salvar alterações"}
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto border-t border-border-soft">
         <table className="w-full border-collapse">
           <thead>
-            <tr>
-              <th className="w-[220px]"></th>
-              {produtos.map((p) => (
+            <tr className="text-[10px] font-medium uppercase tracking-wide text-text-faint">
+              <th
+                className="sticky left-0 z-[1] bg-surface px-4 py-1.5 text-left"
+                rowSpan={2}
+              >
+                Produto
+              </th>
+              <th
+                className="sticky left-[150px] z-[1] bg-surface px-2 py-1.5 text-left"
+                rowSpan={2}
+              ></th>
+              {fasesRef.map((f) => (
                 <th
-                  key={p.id}
-                  className="border-l border-border-soft px-3 py-2 text-left text-[10px] font-medium uppercase tracking-wide text-text-faint"
+                  key={f.fase}
+                  colSpan={2}
+                  className="border-l border-border-soft px-2 py-1.5 text-center"
                 >
-                  {p.nome}
-                  <span className="mt-0.5 block font-mono text-[10px] normal-case tracking-normal text-text-muted">
-                    {p.dados?.data_inicio ? fmtData(p.dados.data_inicio) : "—"} → {p.dados?.data_fim ? fmtData(p.dados.data_fim) : "aberta"}
-                    {p.dados?.data_inicio ? ` · ${quantidadeTrimestres(p.dados)} tri` : ""}
-                  </span>
+                  {LABEL_CURTO[f.fase] ?? f.label}
                 </th>
+              ))}
+            </tr>
+            <tr className="text-[9.5px] font-medium text-text-faint">
+              {fasesRef.map((f) => (
+                <FaseSub key={f.fase} />
               ))}
             </tr>
           </thead>
           <tbody>
-            <LinhaMatriz
-              label="Crescimento padrão da fase (%)"
-              tooltip="Vale nos trimestres em que você não preencher taxa própria abaixo. A cada mês, quantos % de clientes novos em relação à base atual."
-            >
-              {produtos.map((p) => (
-                <TdInput
-                  key={p.id}
-                  name={`${p.id}__taxa_crescimento_mensal`}
-                  type="number"
-                  step="0.01"
-                  defaultValue={pctStr(p.dados?.taxa_crescimento_mensal)}
-                  placeholder="16.7"
-                />
-              ))}
-            </LinhaMatriz>
-            <LinhaMatriz
-              label="Churn padrão da fase (%)"
-              tooltip="Vale nos trimestres sem churn próprio abaixo. Taxa mensal — em planos semestrais/anuais é aplicada composta só na renovação."
-            >
-              {produtos.map((p) => (
-                <TdInput
-                  key={p.id}
-                  name={`${p.id}__taxa_churn_mensal`}
-                  type="number"
-                  step="0.01"
-                  defaultValue={pctStr(p.dados?.taxa_churn_mensal)}
-                  placeholder="1.5"
-                />
-              ))}
-            </LinhaMatriz>
-            {(() => {
-              const maxT = Math.max(0, ...produtos.map((p) => quantidadeTrimestres(p.dados)));
-              if (maxT === 0) return null;
-              return (
-                <>
-                  <tr className="bg-bg">
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium uppercase tracking-wide text-text-faint" colSpan={produtos.length + 1}>
-                      <span className="flex items-center">
-                        Por trimestre da fase — crescimento % / churn %
-                        <InfoTooltip texto="Cada fase dividida em blocos de 3 meses contados do início dela. Preencha só onde a taxa difere do padrão: bloco em branco usa o padrão da fase; bloco preenchido vale dele em diante até o próximo preenchido — então, numa fase aberta como a maturidade, o último bloco segue até o fim do cenário. É aqui que uma tração de 24 meses deixa de crescer igual do primeiro ao último trimestre." />
-                      </span>
-                    </th>
-                  </tr>
-                  {Array.from({ length: maxT }, (_, i) => (
-                    <LinhaMatriz key={`t${i}`} label={`T${i + 1} · meses ${i * 3 + 1}–${i * 3 + 3}`}>
-                      {produtos.map((p) => {
-                        const n = quantidadeTrimestres(p.dados);
-                        if (i >= n) return <td key={p.id} className="border-l border-border-soft px-3 py-1 text-center text-[10px] text-text-faint">—</td>;
-                        const t = p.dados?.trimestres.find((x) => x.indice === i);
-                        return (
-                          <td key={p.id} className="border-l border-border-soft px-2 py-1">
-                            <div className="flex items-center gap-1">
-                              <input
-                                name={`${p.id}__t${i}_cresc`}
-                                type="number"
-                                step="0.01"
-                                defaultValue={pctStr(t?.taxa_crescimento_mensal)}
-                                placeholder={pctStr(p.dados?.taxa_crescimento_mensal) || "cresc."}
-                                className="w-[64px] rounded border border-border-soft bg-transparent px-1 py-0.5 font-mono text-[11px] outline-none focus:border-primary-fill"
-                              />
-                              <span className="text-[10px] text-text-faint">/</span>
-                              <input
-                                name={`${p.id}__t${i}_churn`}
-                                type="number"
-                                step="0.01"
-                                defaultValue={pctStr(t?.taxa_churn_mensal)}
-                                placeholder={pctStr(p.dados?.taxa_churn_mensal) || "churn"}
-                                className="w-[64px] rounded border border-border-soft bg-transparent px-1 py-0.5 font-mono text-[11px] outline-none focus:border-primary-fill"
-                              />
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </LinhaMatriz>
-                  ))}
-                </>
+            {produtos.map((p) => {
+              const maxT = Math.max(
+                0,
+                ...p.fases.map((f) => quantidadeTrimestres(f.dados)),
               );
-            })()}
+              const linhas = 1 + maxT;
+              return (
+                <LinhasProduto
+                  key={p.id}
+                  produto={p}
+                  maxT={maxT}
+                  linhas={linhas}
+                />
+              );
+            })}
           </tbody>
         </table>
-
-        <div className="flex items-center gap-3 p-3">
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white disabled:opacity-60"
-          >
-            {pending ? "Salvando…" : "Salvar fase"}
-          </button>
-          {state.error && <p className="text-[11.5px] text-danger">{state.error}</p>}
-          {state.success && <p className="text-[11.5px] text-success">Fase salva.</p>}
-        </div>
-      </form>
-    </div>
+      </div>
+    </form>
   );
 }
 
-function LinhaMatriz({ label, tooltip, children }: { label: string; tooltip?: string; children: React.ReactNode }) {
+function FaseSub() {
   return (
-    <tr>
-      <th className="px-3 py-2 text-left text-[11px] font-medium text-text-muted">
-        <span className="flex items-center">
-          {label}
-          {tooltip && <InfoTooltip texto={tooltip} />}
-        </span>
+    <>
+      <th className="border-l border-border-soft px-1 pb-1 text-right font-normal">
+        cresc.
       </th>
-      {children}
-    </tr>
+      <th className="px-1 pb-1 text-right font-normal">churn</th>
+    </>
   );
 }
 
-function TdInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+function LinhasProduto({
+  produto: p,
+  maxT,
+  linhas,
+}: {
+  produto: ProdutoCurva;
+  maxT: number;
+  linhas: number;
+}) {
+  const celula = (fi: number, campo: "cresc" | "churn", ti: number | null) => {
+    const f = p.fases[fi];
+    const d = f?.dados ?? null;
+    const semFase = !d?.data_inicio;
+    const n = quantidadeTrimestres(d);
+    if (ti !== null && ti >= n) {
+      return (
+        <td
+          key={`${fi}-${campo}`}
+          className={`px-1 py-0.5 text-center text-[10px] text-text-faint ${campo === "cresc" ? "border-l border-border-soft" : ""}`}
+        >
+          {campo === "cresc" ? "—" : ""}
+        </td>
+      );
+    }
+    const t = ti !== null ? d?.trimestres.find((x) => x.indice === ti) : null;
+    const valor =
+      ti === null
+        ? campo === "cresc"
+          ? d?.taxa_crescimento_mensal
+          : d?.taxa_churn_mensal
+        : campo === "cresc"
+          ? t?.taxa_crescimento_mensal
+          : t?.taxa_churn_mensal;
+    const padrao =
+      campo === "cresc" ? d?.taxa_crescimento_mensal : d?.taxa_churn_mensal;
+    const name = `${p.id}__${f.fase}__${ti === null ? campo : `t${ti}_${campo}`}`;
+    const titulo = semFase
+      ? "Sem início/fim desta fase em Produtos"
+      : `${LABEL_CURTO[f.fase] ?? f.label}: ${d?.data_inicio ? fmtData(d.data_inicio) : "—"} → ${d?.data_fim ? fmtData(d.data_fim) : "aberta"} · ${n} tri`;
+    return (
+      <td
+        key={`${fi}-${campo}`}
+        className={`px-1 py-0.5 ${campo === "cresc" ? "border-l border-border-soft" : ""}`}
+      >
+        <input
+          name={name}
+          type="number"
+          step="0.01"
+          defaultValue={pctStr(valor)}
+          placeholder={ti === null ? "" : pctStr(padrao) || ""}
+          disabled={semFase}
+          title={titulo}
+          className={CAMPO}
+        />
+      </td>
+    );
+  };
+
   return (
-    <td className="border-l border-t border-border-soft px-2 py-1.5">
-      <input {...props} className="w-full border-none bg-transparent font-mono text-[12px] outline-none" />
-    </td>
+    <>
+      <tr className="border-t border-border align-middle">
+        <td
+          rowSpan={linhas}
+          className="sticky left-0 z-[1] w-[150px] bg-surface px-4 py-1.5 align-top text-[12.5px] font-semibold shadow-[1px_0_0_var(--color-border-soft)]"
+        >
+          {p.nome}
+        </td>
+        <td className="sticky left-[150px] z-[1] bg-surface px-2 py-0.5 text-[10.5px] font-medium text-text-muted">
+          Padrão
+        </td>
+        {p.fases.map((_, fi) => (
+          <Fragment key={fi}>
+            {celula(fi, "cresc", null)}
+            {celula(fi, "churn", null)}
+          </Fragment>
+        ))}
+      </tr>
+      {Array.from({ length: maxT }, (_, ti) => (
+        <tr key={ti} className="align-middle">
+          <td
+            className="sticky left-[150px] z-[1] bg-surface px-2 py-0.5 text-[10.5px] text-text-faint"
+            title={`meses ${ti * 3 + 1}–${ti * 3 + 3} da fase`}
+          >
+            T{ti + 1}
+          </td>
+          {p.fases.map((_, fi) => (
+            <Fragment key={fi}>
+              {celula(fi, "cresc", ti)}
+              {celula(fi, "churn", ti)}
+            </Fragment>
+          ))}
+        </tr>
+      ))}
+    </>
   );
 }

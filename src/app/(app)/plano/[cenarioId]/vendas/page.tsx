@@ -237,7 +237,7 @@ export default async function PlanoVendasPage({ params }: { params: Promise<{ ce
               {(produtos ?? []).length} produto(s) · {FASES.length} fases
             </span>
           </summary>
-          <div className="border-t border-border-soft p-5">
+          <div className="border-t border-border-soft">
             <CurvaMatriz cenarioId={cenarioId} produtos={produtosData} />
           </div>
         </details>
