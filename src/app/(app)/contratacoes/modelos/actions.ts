@@ -63,6 +63,8 @@ function montarParametros(
         num(formData, "custo_estrutura_mensal") ?? 0;
       parametros.fixo_por_pessoa_inteira =
         formData.get("fixo_por_pessoa_inteira") === "on";
+      parametros.clt_apos_unidades = num(formData, "clt_apos_unidades") ?? 0;
+      parametros.clt_custo_pessoa = num(formData, "clt_custo_pessoa") ?? 0;
     }
     if (tipo_modelo === "empresa_fixo_escopo")
       parametros.canal = String(formData.get("canal") || "multicanal");

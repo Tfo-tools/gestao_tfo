@@ -56,6 +56,12 @@ export type ParametrosModelo = {
    *  sócias absorvem e o custo é zero — PJ fecha com ≥ 1 semana de trabalho (≈ ¼ da capacidade),
    *  CLT só com ≥ 1 mês (a capacidade inteira). */
   demanda_minima_mes?: number;
+  /** PJ que vira CLT quando a demanda passa de N pessoas cheias: até aí paga proporcional às horas;
+   *  depois contrata pessoas inteiras e só adiciona a próxima quando a demanda exige mais uma
+   *  cheia (opera acima da capacidade no meio). Ex.: suporte — PJ até 2, CLT a partir da 3ª. */
+  clt_apos_unidades?: number;
+  /** Custo mensal de 1 pessoa CLT nesse cargo (salário + encargos + estrutura), pra regra acima. */
+  clt_custo_pessoa?: number;
 };
 
 export const TIPO_MODELO_LABEL: Record<TipoModelo, string> = {
@@ -146,7 +152,7 @@ export function custoMensalModelo(
   parametros: ParametrosModelo,
   demanda: number,
   contexto: ContextoCusto = {},
-): { custoMensal: number; unidades: number } {
+): { custoMensal: number; unidades: number; regime?: "clt" | "pj" } {
   const demandaConvertida = contexto.reunioes;
   // Abaixo do volume mínimo combinado ninguém é contratado: as sócias cobrem, sem custo.
   const minimo = parametros.demanda_minima_mes ?? 0;
@@ -180,6 +186,21 @@ export function custoMensalModelo(
       // inteiro) passa a compensar mais.
       const capacidade = parametros.capacidade_unidade_mes ?? 0;
       const unidades = capacidade > 0 ? demanda / capacidade : 0;
+      // Passou do limite combinado: vira CLT em pessoas inteiras, sem fração — a próxima pessoa só
+      // entra quando a demanda pede mais uma cheia (floor), então há meses acima da capacidade.
+      const limiteClt = parametros.clt_apos_unidades ?? 0;
+      if (
+        limiteClt > 0 &&
+        unidades > limiteClt &&
+        (parametros.clt_custo_pessoa ?? 0) > 0
+      ) {
+        const pessoasClt = Math.max(limiteClt, Math.floor(unidades + 1e-9));
+        return {
+          custoMensal: pessoasClt * (parametros.clt_custo_pessoa ?? 0),
+          unidades: pessoasClt,
+          regime: "clt",
+        };
+      }
       const pessoas = Math.ceil(unidades - 1e-9);
       const inteiro = parametros.fixo_por_pessoa_inteira === true;
       // Estrutura (central, sistema, computador) é por pessoa trabalhando no mês.

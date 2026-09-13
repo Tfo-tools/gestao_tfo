@@ -1,8 +1,17 @@
-import { calcularRateioPorProduto, custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
+import {
+  calcularRateioPorProduto,
+  custoEmpresaNoMes,
+  faseDoProdutoNoMes,
+  type CustoEmpresaInput,
+} from "@/lib/custos-empresa";
 import { horasAtendimentoPorProduto } from "@/lib/cogs";
 import type { FaseValue } from "@/lib/fases";
 import { type ParametrosModelo } from "@/lib/modelos-contratacao";
-import { custoEquipeNoMes, type AlocacaoEquipe, type ModeloEquipe } from "@/lib/equipe-comercial";
+import {
+  custoEquipeNoMes,
+  type AlocacaoEquipe,
+  type ModeloEquipe,
+} from "@/lib/equipe-comercial";
 import {
   calcularDemandaPorCargo,
   type DemandaProdutoMes,
@@ -10,7 +19,7 @@ import {
   type FaseProdutoInput,
   type FunilPremissaInput,
   type SimulacaoMesInput,
-  } from "@/lib/necessidade-contratacao";
+} from "@/lib/necessidade-contratacao";
 import {
   calcularImpostoSimples,
   calcularTributosPosSimples,
@@ -18,8 +27,15 @@ import {
   parametrosTributariosDe,
 } from "@/lib/impostos";
 import { subgrupoDeConta } from "@/lib/subgrupo-conta";
-import { custoAcaoPorMes, vendasAcaoPorMes, type AcaoMarketing } from "@/lib/acoes-marketing";
-import { formasDePagamento, type FormaPagamentoImplementacao } from "@/lib/simulacao";
+import {
+  custoAcaoPorMes,
+  vendasAcaoPorMes,
+  type AcaoMarketing,
+} from "@/lib/acoes-marketing";
+import {
+  formasDePagamento,
+  type FormaPagamentoImplementacao,
+} from "@/lib/simulacao";
 import { categoriaDeConta } from "@/lib/categoria-negocio";
 
 export type Agregado = {
@@ -86,6 +102,9 @@ export type Agregado = {
   alocacaoVendedor: number;
   alocacaoCoordenador: number;
   alocacaoSuporte: number;
+  /** Suporte pelas regras de COGS (horas × custo/hora) dos produtos — substituído pela equipe de
+   *  suporte alocada quando ela existe no mês. */
+  cogsSuporteRegra: number;
   alocacaoOutros: number;
   empresaSm: number;
   empresaPd: number;
@@ -125,63 +144,63 @@ export type Agregado = {
 /** Um mês zerado, com todos os campos do Agregado — usado pela agregação e pelo recorte por produto. */
 export function agregadoVazio(mes: string): Agregado {
   return {
-        mes_referencia: mes,
-        receita: 0,
-        ebitdaProdutos: 0,
-        clientes: 0,
-        custosEmpresa: 0,
-        ebitda: 0,
-        cogs: 0,
-        novosClientes: 0,
-        cacPonderado: 0,
-        churnPonderado: 0,
-        ltvPonderado: 0,
-        custoCLT: 0,
-        impostoMensal: 0,
-        aliquotaEfetivaImposto: null,
-        regimeTributario: "simples",
-        creditoTributos: 0,
-        irpjCsll: 0,
-        custosCreditaveis: 0,
-        receitaImplementacao: 0,
-        cogsImplementacao: 0,
-        smMarketing: 0,
-        smVendas: 0,
-        smOutros: 0,
-        opexPd: 0,
-        opexGa: 0,
-        gaTaxasFiliacao: 0,
-        smFeirasEventos: 0,
-        novosAcoes: 0,
-        pmvPonderado: 0,
-        novosComPmv: 0,
-        pmvPonderadoBase: 0,
-        clientesComPmv: 0,
-        entradaPonderada: 0,
-        implantacaoContratadaPonderada: 0,
-        novosComEntrada: 0,
-        alocacaoSdr: 0,
-        alocacaoVendedor: 0,
-        alocacaoCoordenador: 0,
-        alocacaoSuporte: 0,
-        alocacaoOutros: 0,
-        empresaSm: 0,
-        empresaPd: 0,
-        empresaGa: 0,
-        alocacaoFixa: 0,
-        alocacaoVariavel: 0,
-        empresaCogs: 0,
-        empresaMarketingLancado: 0,
-        empresaVendasLancado: 0,
-        empresaMarca: 0,
-        alocacaoSm: 0,
-        equipePorProduto: {},
-        marketingPorProduto: {},
-        demandaDescoberta: { sdr: 0, vendedor: 0 },
-        composicao: {},
-      } satisfies Agregado;
+    mes_referencia: mes,
+    receita: 0,
+    ebitdaProdutos: 0,
+    clientes: 0,
+    custosEmpresa: 0,
+    ebitda: 0,
+    cogs: 0,
+    novosClientes: 0,
+    cacPonderado: 0,
+    churnPonderado: 0,
+    ltvPonderado: 0,
+    custoCLT: 0,
+    impostoMensal: 0,
+    aliquotaEfetivaImposto: null,
+    regimeTributario: "simples",
+    creditoTributos: 0,
+    irpjCsll: 0,
+    custosCreditaveis: 0,
+    receitaImplementacao: 0,
+    cogsImplementacao: 0,
+    smMarketing: 0,
+    smVendas: 0,
+    smOutros: 0,
+    opexPd: 0,
+    opexGa: 0,
+    gaTaxasFiliacao: 0,
+    smFeirasEventos: 0,
+    novosAcoes: 0,
+    pmvPonderado: 0,
+    novosComPmv: 0,
+    pmvPonderadoBase: 0,
+    clientesComPmv: 0,
+    entradaPonderada: 0,
+    implantacaoContratadaPonderada: 0,
+    novosComEntrada: 0,
+    alocacaoSdr: 0,
+    alocacaoVendedor: 0,
+    alocacaoCoordenador: 0,
+    alocacaoSuporte: 0,
+    cogsSuporteRegra: 0,
+    alocacaoOutros: 0,
+    empresaSm: 0,
+    empresaPd: 0,
+    empresaGa: 0,
+    alocacaoFixa: 0,
+    alocacaoVariavel: 0,
+    empresaCogs: 0,
+    empresaMarketingLancado: 0,
+    empresaVendasLancado: 0,
+    empresaMarca: 0,
+    alocacaoSm: 0,
+    equipePorProduto: {},
+    marketingPorProduto: {},
+    demandaDescoberta: { sdr: 0, vendedor: 0 },
+    composicao: {},
+  } satisfies Agregado;
 }
-
 
 /** Uma linha mensal da simulação de um produto — o que o motor gravou em simulacao_mensal. */
 export type LinhaSimProduto = {
@@ -256,9 +275,11 @@ export function linhasDoProduto(
     a.irpjCsll = l.irpjCsll * fatia;
     a.aliquotaEfetivaImposto = l.aliquotaEfetivaImposto;
     a.regimeTributario = l.regimeTributario;
-    if (r?.churn_pct != null) a.churnPonderado = Number(r.churn_pct) * a.clientes;
+    if (r?.churn_pct != null)
+      a.churnPonderado = Number(r.churn_pct) * a.clientes;
     if (r?.ltv != null) a.ltvPonderado = Number(r.ltv) * a.clientes;
-    if (r?.cac_all_in != null) a.cacPonderado = Number(r.cac_all_in) * a.novosClientes;
+    if (r?.cac_all_in != null)
+      a.cacPonderado = Number(r.cac_all_in) * a.novosClientes;
     if (r?.preco_medio_venda != null) {
       const pmv = Number(r.preco_medio_venda);
       a.pmvPonderado = pmv * a.novosClientes;
@@ -270,14 +291,29 @@ export function linhasDoProduto(
     for (const [chave, valor] of Object.entries(l.composicao)) {
       if (chave.endsWith(sufixo)) a.composicao[chave] = valor;
     }
-    a.ebitda = a.receita - a.cogs - a.impostoMensal - a.smMarketing - a.smVendas - a.smOutros - a.opexPd - a.opexGa;
+    a.ebitda =
+      a.receita -
+      a.cogs -
+      a.impostoMensal -
+      a.smMarketing -
+      a.smVendas -
+      a.smOutros -
+      a.opexPd -
+      a.opexGa;
     return a;
   });
 }
 
 export type GrupoDre = "cogs" | "sm" | "pd" | "ga";
 
-function compor(atual: Agregado, grupo: GrupoDre, origem: string, rotulo: string, valor: number, produto = "") {
+function compor(
+  atual: Agregado,
+  grupo: GrupoDre,
+  origem: string,
+  rotulo: string,
+  valor: number,
+  produto = "",
+) {
   if (Math.abs(valor) < 0.005) return;
   const chave = `${grupo}|${origem}|${rotulo}|${produto}`;
   atual.composicao[chave] = (atual.composicao[chave] ?? 0) + valor;
@@ -300,10 +336,16 @@ function mesIso(v: string | null | undefined): string | null {
 }
 
 /** Recorta as linhas mensais a um intervalo de meses (limites inclusivos; nulo = sem limite). */
-export function recortarPeriodo(linhas: Agregado[], inicio: string | null | undefined, fim: string | null | undefined): Agregado[] {
+export function recortarPeriodo(
+  linhas: Agregado[],
+  inicio: string | null | undefined,
+  fim: string | null | undefined,
+): Agregado[] {
   const i = mesIso(inicio);
   const f = mesIso(fim);
-  return linhas.filter((l) => (!i || l.mes_referencia >= i) && (!f || l.mes_referencia <= f));
+  return linhas.filter(
+    (l) => (!i || l.mes_referencia >= i) && (!f || l.mes_referencia <= f),
+  );
 }
 
 export type ParcelaAporte = { mes: string; valor: number; recebida: boolean };
@@ -345,19 +387,34 @@ export async function carregarAportes(
   supabase: any,
   cenarioId: string,
 ): Promise<AportesCenario> {
-  const vazio: AportesCenario = { programas: [], porMes: new Map(), capitalNovo: 0, capitalNovoPorMes: new Map() };
+  const vazio: AportesCenario = {
+    programas: [],
+    porMes: new Map(),
+    capitalNovo: 0,
+    capitalNovoPorMes: new Map(),
+  };
   if (!cenarioId) return vazio;
-  const { data: vinculos } = await supabase.from("cenario_programas").select("programa_id").eq("cenario_id", cenarioId);
-  const ids = ((vinculos ?? []) as { programa_id: string }[]).map((v) => v.programa_id);
+  const { data: vinculos } = await supabase
+    .from("cenario_programas")
+    .select("programa_id")
+    .eq("cenario_id", cenarioId);
+  const ids = ((vinculos ?? []) as { programa_id: string }[]).map(
+    (v) => v.programa_id,
+  );
   if (ids.length === 0) return vazio;
 
   const [{ data: programasRaw }, { data: parcelasRaw }] = await Promise.all([
     supabase
       .from("programas_investimento")
-      .select("id, nome, tipo, status, valor_total, valor_proposto, data_aporte, data_assinatura_prevista, created_at")
+      .select(
+        "id, nome, tipo, status, valor_total, valor_proposto, data_aporte, data_assinatura_prevista, created_at",
+      )
       .in("id", ids)
       .order("created_at"),
-    supabase.from("parcelas_investimento").select("programa_id, valor, data_prevista, status").in("programa_id", ids),
+    supabase
+      .from("parcelas_investimento")
+      .select("programa_id, valor, data_prevista, status")
+      .in("programa_id", ids),
   ]);
 
   const porMes = new Map<string, number>();
@@ -365,26 +422,48 @@ export async function carregarAportes(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const p of (programasRaw ?? []) as any[]) {
     const valorTotal = Number(p.valor_total ?? p.valor_proposto ?? 0);
-    const parcelasDoPrograma = ((parcelasRaw ?? []) as { programa_id: string; valor: number; data_prevista: string | null; status: string | null }[])
-      .filter((x) => x.programa_id === p.id);
+    const parcelasDoPrograma = (
+      (parcelasRaw ?? []) as {
+        programa_id: string;
+        valor: number;
+        data_prevista: string | null;
+        status: string | null;
+      }[]
+    ).filter((x) => x.programa_id === p.id);
     let parcelas: ParcelaAporte[] = parcelasDoPrograma
       .filter((x) => x.data_prevista)
-      .map((x) => ({ mes: `${x.data_prevista!.slice(0, 7)}-01`, valor: Number(x.valor), recebida: x.status === "recebida" }))
+      .map((x) => ({
+        mes: `${x.data_prevista!.slice(0, 7)}-01`,
+        valor: Number(x.valor),
+        recebida: x.status === "recebida",
+      }))
       .sort((a, b) => a.mes.localeCompare(b.mes));
     if (parcelas.length === 0) {
       const data = p.data_aporte ?? p.data_assinatura_prevista;
-      if (data && valorTotal > 0) parcelas = [{ mes: `${String(data).slice(0, 7)}-01`, valor: valorTotal, recebida: false }];
+      if (data && valorTotal > 0)
+        parcelas = [
+          {
+            mes: `${String(data).slice(0, 7)}-01`,
+            valor: valorTotal,
+            recebida: false,
+          },
+        ];
     }
-    for (const parc of parcelas) porMes.set(parc.mes, (porMes.get(parc.mes) ?? 0) + parc.valor);
+    for (const parc of parcelas)
+      porMes.set(parc.mes, (porMes.get(parc.mes) ?? 0) + parc.valor);
 
-    const valorRecebido = parcelasDoPrograma.filter((x) => x.status === "recebida").reduce((s, x) => s + Number(x.valor), 0);
+    const valorRecebido = parcelasDoPrograma
+      .filter((x) => x.status === "recebida")
+      .reduce((s, x) => s + Number(x.valor), 0);
     let entraNoRetorno = false;
     let valorNaoAplicado = 0;
     let tratamento: string;
     if (p.tipo === "fomento") {
-      tratamento = "Fomento (não reembolsável) — entra nos aportes como aplicado; fora do cálculo de retorno";
+      tratamento =
+        "Fomento (não reembolsável) — entra nos aportes como aplicado; fora do cálculo de retorno";
     } else if (p.status === "encerrado") {
-      tratamento = "Programa encerrado — já aplicado; fora do cálculo de retorno";
+      tratamento =
+        "Programa encerrado — já aplicado; fora do cálculo de retorno";
     } else {
       valorNaoAplicado = Math.max(0, valorTotal - valorRecebido);
       entraNoRetorno = valorNaoAplicado > 0;
@@ -394,7 +473,18 @@ export async function carregarAportes(
           : "Investimento novo — base do cálculo de retorno"
         : "Totalmente recebido — já aplicado; fora do cálculo de retorno";
     }
-    programas.push({ id: p.id, nome: p.nome, tipo: p.tipo, status: p.status ?? null, valorTotal, valorRecebido, valorNaoAplicado, entraNoRetorno, tratamento, parcelas });
+    programas.push({
+      id: p.id,
+      nome: p.nome,
+      tipo: p.tipo,
+      status: p.status ?? null,
+      valorTotal,
+      valorRecebido,
+      valorNaoAplicado,
+      entraNoRetorno,
+      tratamento,
+      parcelas,
+    });
   }
 
   const capitalNovoPorMes = new Map<string, number>();
@@ -402,13 +492,20 @@ export async function carregarAportes(
     if (!p.entraNoRetorno) continue;
     const aReceber = p.parcelas.filter((x) => !x.recebida);
     // Sem parcela datada, o que falta aplicar entra no 1º mês do período (tratado em computeMetricas).
-    for (const parc of aReceber) capitalNovoPorMes.set(parc.mes, (capitalNovoPorMes.get(parc.mes) ?? 0) + parc.valor);
+    for (const parc of aReceber)
+      capitalNovoPorMes.set(
+        parc.mes,
+        (capitalNovoPorMes.get(parc.mes) ?? 0) + parc.valor,
+      );
   }
 
   return {
     programas,
     porMes,
-    capitalNovo: programas.reduce((s, p) => s + (p.entraNoRetorno ? p.valorNaoAplicado : 0), 0),
+    capitalNovo: programas.reduce(
+      (s, p) => s + (p.entraNoRetorno ? p.valorNaoAplicado : 0),
+      0,
+    ),
     capitalNovoPorMes,
   };
 }
@@ -470,7 +567,8 @@ export type Metricas = {
  */
 export function tirMensal(fluxos: number[]): number | null {
   if (!fluxos.some((f) => f < 0) || !fluxos.some((f) => f > 0)) return null;
-  const vpl = (r: number) => fluxos.reduce((s, f, t) => s + f / Math.pow(1 + r, t), 0);
+  const vpl = (r: number) =>
+    fluxos.reduce((s, f, t) => s + f / Math.pow(1 + r, t), 0);
   const grade: number[] = [];
   for (let r = -0.95; r < 5; r += r < 0.2 ? 0.005 : 0.05) grade.push(r);
   for (let i = 1; i < grade.length; i++) {
@@ -503,15 +601,20 @@ export function tirMensal(fluxos: number[]): number | null {
  * novo, é a TIR do projeto — os meses de EBITDA negativo são o investimento que a operação consome.
  * Não inclui valor de saída/perpetuidade (é uma leitura conservadora).
  */
-export function fluxoTir(linhas: Agregado[], capitalNovoPorMes?: Map<string, number>): number[] {
-  const temCapital = capitalNovoPorMes && [...capitalNovoPorMes.values()].some((v) => v > 0);
+export function fluxoTir(
+  linhas: Agregado[],
+  capitalNovoPorMes?: Map<string, number>,
+): number[] {
+  const temCapital =
+    capitalNovoPorMes && [...capitalNovoPorMes.values()].some((v) => v > 0);
   const primeiro = linhas[0]?.mes_referencia ?? "";
   return linhas.map((l, i) => {
     let aporte = 0;
     if (temCapital) {
       for (const [mes, v] of capitalNovoPorMes!) {
         // Capital que entrou antes do período conta no 1º mês dele.
-        if (mes === l.mes_referencia || (i === 0 && mes < primeiro)) aporte += v;
+        if (mes === l.mes_referencia || (i === 0 && mes < primeiro))
+          aporte += v;
       }
     }
     return l.ebitda - l.irpjCsll - aporte;
@@ -520,7 +623,11 @@ export function fluxoTir(linhas: Agregado[], capitalNovoPorMes?: Map<string, num
 
 /** Todas as métricas calculadas só a partir das linhas já filtradas pro período selecionado —
  * break-even e payback recomeçam do zero no início do período, não carregam saldo de fora dele. */
-export function computeMetricas(linhas: Agregado[], totalInvestido: number, capitalNovoPorMes?: Map<string, number>): Metricas {
+export function computeMetricas(
+  linhas: Agregado[],
+  totalInvestido: number,
+  capitalNovoPorMes?: Map<string, number>,
+): Metricas {
   // DRE em cascata, igual ao modelo de referência: Receita (–) COGS (–) Impostos (=) Margem Bruta
   // (–) S&M (–) P&D (–) G&A (=) EBITDA. Os impostos entram no EBITDA agora — antes ficavam de fora,
   // só afetando a margem bruta, mas o modelo de referência deixa claro que eles pesam no resultado.
@@ -531,22 +638,37 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
   // Dividir pela receita bruta misturava imposto com eficiência de entrega e deixava a margem ~20
   // pontos abaixo do benchmark de 70–85% com que o investidor compara.
   const receitaLiquidaAcumulada = receitaAcumulada - impostosAcumulados;
-  const margemBrutaValor = receitaAcumulada - cogsAcumulado - impostosAcumulados;
-  const margemBruta = receitaLiquidaAcumulada > 0 ? (margemBrutaValor / receitaLiquidaAcumulada) * 100 : null;
+  const margemBrutaValor =
+    receitaAcumulada - cogsAcumulado - impostosAcumulados;
+  const margemBruta =
+    receitaLiquidaAcumulada > 0
+      ? (margemBrutaValor / receitaLiquidaAcumulada) * 100
+      : null;
   const receitaImpl = linhas.reduce((s, l) => s + l.receitaImplementacao, 0);
   const cogsImpl = linhas.reduce((s, l) => s + l.cogsImplementacao, 0);
   const receitaAssinatura = receitaAcumulada - receitaImpl;
-  const impostosAssinatura = receitaAcumulada > 0 ? impostosAcumulados * (receitaAssinatura / receitaAcumulada) : 0;
+  const impostosAssinatura =
+    receitaAcumulada > 0
+      ? impostosAcumulados * (receitaAssinatura / receitaAcumulada)
+      : 0;
   const liquidaAssinatura = receitaAssinatura - impostosAssinatura;
   const margemBrutaAssinatura =
-    liquidaAssinatura > 0 ? ((liquidaAssinatura - (cogsAcumulado - cogsImpl)) / liquidaAssinatura) * 100 : null;
+    liquidaAssinatura > 0
+      ? ((liquidaAssinatura - (cogsAcumulado - cogsImpl)) / liquidaAssinatura) *
+        100
+      : null;
   const irpjCsllAcumulado = linhas.reduce((s, l) => s + l.irpjCsll, 0);
-  const smAcumulado = linhas.reduce((s, l) => s + l.smMarketing + l.smVendas + l.smOutros, 0);
+  const smAcumulado = linhas.reduce(
+    (s, l) => s + l.smMarketing + l.smVendas + l.smOutros,
+    0,
+  );
   const pdAcumulado = linhas.reduce((s, l) => s + l.opexPd, 0);
   const gaAcumulado = linhas.reduce((s, l) => s + l.opexGa, 0);
-  const ebitdaAcumulado = margemBrutaValor - smAcumulado - pdAcumulado - gaAcumulado;
+  const ebitdaAcumulado =
+    margemBrutaValor - smAcumulado - pdAcumulado - gaAcumulado;
   const custosAcumulados = receitaAcumulada - ebitdaAcumulado;
-  const margemOperacional = receitaAcumulada > 0 ? (ebitdaAcumulado / receitaAcumulada) * 100 : null;
+  const margemOperacional =
+    receitaAcumulada > 0 ? (ebitdaAcumulado / receitaAcumulada) * 100 : null;
   const clientesInicio = linhas[0]?.clientes ?? 0;
   const clientesFinal = linhas[linhas.length - 1]?.clientes ?? 0;
 
@@ -560,8 +682,15 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
   let acumuladoPayback = 0;
   let paybackMes: string | null = null;
   // O capital entra no mês da 1ª parcela; sem data, no 1º mês do período.
-  const mesesComCapital = capitalNovoPorMes ? [...capitalNovoPorMes.entries()].filter(([, v]) => v > 0).map(([m]) => m).sort() : [];
-  const mesCapital = mesesComCapital[0] ?? (totalInvestido > 0 ? (linhas[0]?.mes_referencia ?? null) : null);
+  const mesesComCapital = capitalNovoPorMes
+    ? [...capitalNovoPorMes.entries()]
+        .filter(([, v]) => v > 0)
+        .map(([m]) => m)
+        .sort()
+    : [];
+  const mesCapital =
+    mesesComCapital[0] ??
+    (totalInvestido > 0 ? (linhas[0]?.mes_referencia ?? null) : null);
 
   for (const [i, l] of linhas.entries()) {
     acumulado += l.ebitda;
@@ -572,7 +701,8 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
     if (totalInvestido > 0) {
       // Caixa que devolve o capital: EBITDA menos IRPJ/CSLL (fora do Simples eles saem abaixo do EBITDA).
       acumuladoPayback += l.ebitda - l.irpjCsll;
-      if (paybackMes === null && acumuladoPayback >= totalInvestido) paybackMes = l.mes_referencia;
+      if (paybackMes === null && acumuladoPayback >= totalInvestido)
+        paybackMes = l.mes_referencia;
     }
     somaNovosClientes += l.novosClientes;
     somaChurnPonderado += l.churnPonderado;
@@ -596,7 +726,10 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
     smAcumulado,
     pdAcumulado,
     gaAcumulado,
-    churnMedio: somaClientesPeso > 0 ? (somaChurnPonderado / somaClientesPeso) * 100 : null,
+    churnMedio:
+      somaClientesPeso > 0
+        ? (somaChurnPonderado / somaClientesPeso) * 100
+        : null,
     ltvMedio: somaClientesPeso > 0 ? somaLtvPonderado / somaClientesPeso : null,
     clientesInicio,
     clientesFinal,
@@ -612,28 +745,43 @@ export function computeMetricas(linhas: Agregado[], totalInvestido: number, capi
       paybackMes && mesCapital
         ? Math.max(
             0,
-            (Number(paybackMes.slice(0, 4)) - Number(mesCapital.slice(0, 4))) * 12 +
+            (Number(paybackMes.slice(0, 4)) - Number(mesCapital.slice(0, 4))) *
+              12 +
               (Number(paybackMes.slice(5, 7)) - Number(mesCapital.slice(5, 7))),
           )
         : null,
     mesCapital,
     investimentoRecuperado: acumuladoPayback,
-    roiPct: totalInvestido > 0 ? (acumuladoPayback / totalInvestido) * 100 : null,
+    roiPct:
+      totalInvestido > 0 ? (acumuladoPayback / totalInvestido) * 100 : null,
     ...precoETir(linhas, totalInvestido, capitalNovoPorMes),
   };
 }
 
-function precoETir(linhas: Agregado[], totalInvestido: number, capitalNovoPorMes?: Map<string, number>) {
+function precoETir(
+  linhas: Agregado[],
+  totalInvestido: number,
+  capitalNovoPorMes?: Map<string, number>,
+) {
   const novosComPmv = linhas.reduce((s, l) => s + (l.novosComPmv ?? 0), 0);
   const pmvPonderado = linhas.reduce((s, l) => s + (l.pmvPonderado ?? 0), 0);
-  const clientesComPmv = linhas.reduce((s, l) => s + (l.clientesComPmv ?? 0), 0);
+  const clientesComPmv = linhas.reduce(
+    (s, l) => s + (l.clientesComPmv ?? 0),
+    0,
+  );
   const pmvBase = linhas.reduce((s, l) => s + (l.pmvPonderadoBase ?? 0), 0);
   const receita = linhas.reduce((s, l) => s + l.receita, 0);
   const clientesMes = linhas.reduce((s, l) => s + l.clientes, 0);
   // Recorrente = receita − implantação: é a base do ARPA, que não carrega serviço profissional.
-  const recorrente = linhas.reduce((s, l) => s + l.receita - l.receitaImplementacao, 0);
+  const recorrente = linhas.reduce(
+    (s, l) => s + l.receita - l.receitaImplementacao,
+    0,
+  );
   const entradaPonderada = linhas.reduce((s, l) => s + l.entradaPonderada, 0);
-  const implantacaoPonderada = linhas.reduce((s, l) => s + l.implantacaoContratadaPonderada, 0);
+  const implantacaoPonderada = linhas.reduce(
+    (s, l) => s + l.implantacaoContratadaPonderada,
+    0,
+  );
   const novosComEntrada = linhas.reduce((s, l) => s + l.novosComEntrada, 0);
   // Capital novo sem data (programa sem parcela nem data prevista) entra no 1º mês do período.
   const capital =
@@ -644,21 +792,34 @@ function precoETir(linhas: Agregado[], totalInvestido: number, capitalNovoPorMes
         : undefined;
   const tir = tirMensal(fluxoTir(linhas, capital));
   return {
-    precoMedioVenda: novosComPmv > 0 ? pmvPonderado / novosComPmv : clientesComPmv > 0 ? pmvBase / clientesComPmv : null,
+    precoMedioVenda:
+      novosComPmv > 0
+        ? pmvPonderado / novosComPmv
+        : clientesComPmv > 0
+          ? pmvBase / clientesComPmv
+          : null,
     ticketMedio: clientesMes > 0 ? receita / clientesMes : null,
     arpaRecorrente: clientesMes > 0 ? recorrente / clientesMes : null,
-    ticketEntrada: novosComEntrada > 0 ? entradaPonderada / novosComEntrada : null,
-    implantacaoContratada: novosComEntrada > 0 ? implantacaoPonderada / novosComEntrada : null,
+    ticketEntrada:
+      novosComEntrada > 0 ? entradaPonderada / novosComEntrada : null,
+    implantacaoContratada:
+      novosComEntrada > 0 ? implantacaoPonderada / novosComEntrada : null,
     tirAnualPct: tir != null ? (Math.pow(1 + tir, 12) - 1) * 100 : null,
-    tirBase: (capital ? "capital_novo" : "projeto") as "capital_novo" | "projeto",
+    tirBase: (capital ? "capital_novo" : "projeto") as
+      "capital_novo" | "projeto",
   };
 }
 
-export function ativaNoMes(mesIso: string, dataInicio: string | null, dataFim: string | null): boolean {
+export function ativaNoMes(
+  mesIso: string,
+  dataInicio: string | null,
+  dataFim: string | null,
+): boolean {
   const mes = new Date(mesIso + "T00:00:00");
   const inicio = dataInicio ? new Date(dataInicio + "T00:00:00") : null;
   const fim = dataFim ? new Date(dataFim + "T00:00:00") : null;
-  const iniciouAntes = !inicio || new Date(inicio.getFullYear(), inicio.getMonth(), 1) <= mes;
+  const iniciouAntes =
+    !inicio || new Date(inicio.getFullYear(), inicio.getMonth(), 1) <= mes;
   const aindaAtiva = !fim || fim >= mes;
   return iniciouAntes && aindaAtiva;
 }
@@ -674,7 +835,12 @@ export async function agregarPorCenario(
       linhasPeriodo: [],
       periodo: { inicio: null, fim: null },
       totalInvestido: 0,
-      aportes: { programas: [], porMes: new Map(), capitalNovo: 0, capitalNovoPorMes: new Map() },
+      aportes: {
+        programas: [],
+        porMes: new Map(),
+        capitalNovo: 0,
+        capitalNovoPorMes: new Map(),
+      },
     };
   }
 
@@ -693,38 +859,67 @@ export async function agregarPorCenario(
       )
       .eq("cenario_id", cenarioId)
       .order("mes_referencia"),
-    supabase.from("cenarios").select("data_inicio, data_fim").eq("id", cenarioId).maybeSingle(),
-    supabase.from("custos_empresa").select("*, plano_contas:plano_contas_id(codigo, tipo)").eq("cenario_id", cenarioId),
-    supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioId),
+    supabase
+      .from("cenarios")
+      .select("data_inicio, data_fim")
+      .eq("id", cenarioId)
+      .maybeSingle(),
+    supabase
+      .from("custos_empresa")
+      .select("*, plano_contas:plano_contas_id(codigo, tipo)")
+      .eq("cenario_id", cenarioId),
+    supabase
+      .from("alocacao_modelo_contratacao")
+      .select("*")
+      .eq("cenario_id", cenarioId),
     supabase.from("modelos_contratacao").select("*"),
-    supabase.from("fases_produto").select("id, produto_id, fase, data_inicio, data_fim").eq("cenario_id", cenarioId),
+    supabase
+      .from("fases_produto")
+      .select("id, produto_id, fase, data_inicio, data_fim")
+      .eq("cenario_id", cenarioId),
   ]);
 
-  const { data: acoesRaw } = await supabase.from("acoes_marketing").select("*").eq("cenario_id", cenarioId);
+  const { data: acoesRaw } = await supabase
+    .from("acoes_marketing")
+    .select("*")
+    .eq("cenario_id", cenarioId);
   // Custo de feiras e eventos por mês — entra na linha de Marketing (S&M) do cenário.
   const custoAcoesPorMes = new Map<string, number>();
   for (const a of (acoesRaw ?? []) as AcaoMarketing[]) {
     // Campanha sem data fim roda até o fim do cenário.
-    const fimCenario = (cenarioRow as { data_fim?: string | null } | null)?.data_fim ?? null;
-    for (const [mes, v] of custoAcaoPorMes(a, fimCenario)) custoAcoesPorMes.set(mes, (custoAcoesPorMes.get(mes) ?? 0) + v);
+    const fimCenario =
+      (cenarioRow as { data_fim?: string | null } | null)?.data_fim ?? null;
+    for (const [mes, v] of custoAcaoPorMes(a, fimCenario))
+      custoAcoesPorMes.set(mes, (custoAcoesPorMes.get(mes) ?? 0) + v);
   }
 
   // Custo das ações atribuído a cada produto: pela fatia de clientes que a ação promete a ele. Ação
   // sem retorno cadastrado não tem produto — fica no balde "" (não atribuído), visível na tela.
   const acoesPorProdutoMes = new Map<string, Record<string, number>>();
   for (const a of (acoesRaw ?? []) as AcaoMarketing[]) {
-    const fimCenario = (cenarioRow as { data_fim?: string | null } | null)?.data_fim ?? null;
-    const produtosDaAcao = [...new Set((a.retorno ?? []).map((r) => r.produto_id).filter(Boolean))];
+    const fimCenario =
+      (cenarioRow as { data_fim?: string | null } | null)?.data_fim ?? null;
+    const produtosDaAcao = [
+      ...new Set((a.retorno ?? []).map((r) => r.produto_id).filter(Boolean)),
+    ];
     const clientesPorProduto = new Map<string, number>();
     for (const pid of produtosDaAcao) {
-      const total = vendasAcaoPorMes(a, pid, fimCenario).reduce((s, x) => s + x.clientes, 0);
+      const total = vendasAcaoPorMes(a, pid, fimCenario).reduce(
+        (s, x) => s + x.clientes,
+        0,
+      );
       if (total > 0) clientesPorProduto.set(pid, total);
     }
-    const totalClientes = [...clientesPorProduto.values()].reduce((s, v) => s + v, 0);
+    const totalClientes = [...clientesPorProduto.values()].reduce(
+      (s, v) => s + v,
+      0,
+    );
     for (const [mes, valor] of custoAcaoPorMes(a, fimCenario)) {
       const destino = acoesPorProdutoMes.get(mes) ?? {};
       if (totalClientes <= 0) destino[""] = (destino[""] ?? 0) + valor;
-      else for (const [pid, qtd] of clientesPorProduto) destino[pid] = (destino[pid] ?? 0) + valor * (qtd / totalClientes);
+      else
+        for (const [pid, qtd] of clientesPorProduto)
+          destino[pid] = (destino[pid] ?? 0) + valor * (qtd / totalClientes);
       acoesPorProdutoMes.set(mes, destino);
     }
   }
@@ -732,11 +927,21 @@ export async function agregarPorCenario(
   // Nome de cada produto e o custo da implementação por cliente novo (soma das etapas) — pra
   // separar, no detalhamento do COGS, a implementação dos outros custos lançados.
   const [{ data: produtosRaw }, { data: etapasRaw }] = await Promise.all([
-    supabase.from("produtos").select("id, nome, tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento"),
-    supabase.from("implementacao_etapas").select("produto_id, horas, valor_hora").eq("cenario_id", cenarioId),
+    supabase
+      .from("produtos")
+      .select(
+        "id, nome, tem_implementacao, preco_implementacao, implementacao_parcelas, implementacao_formas_pagamento",
+      ),
+    supabase
+      .from("implementacao_etapas")
+      .select("produto_id, horas, valor_hora")
+      .eq("cenario_id", cenarioId),
   ]);
   const nomeProduto = new Map<string, string>(
-    ((produtosRaw ?? []) as { id: string; nome: string }[]).map((p) => [p.id, p.nome]),
+    ((produtosRaw ?? []) as { id: string; nome: string }[]).map((p) => [
+      p.id,
+      p.nome,
+    ]),
   );
   // Quanto um cliente novo paga de implantação NO ATO, pelo mix de formas: 70% à vista com 10% de
   // desconto + 30% na 1ª de 5 parcelas = R$ 4.830 de um preço de R$ 7.000. É a parte que entra no
@@ -750,26 +955,52 @@ export async function agregarPorCenario(
     const formas = formasDePagamento({
       preco_venda: preco,
       parcelas: Number(p.implementacao_parcelas ?? 1),
-      formas: (p.implementacao_formas_pagamento ?? null) as FormaPagamentoImplementacao[] | null,
+      formas: (p.implementacao_formas_pagamento ?? null) as
+        FormaPagamentoImplementacao[] | null,
       custo_total: 0,
     });
-    const noAto = formas.reduce((s, f) => s + (f.fracao * preco * (1 - f.desconto)) / Math.max(1, f.parcelas), 0);
-    const contratado = formas.reduce((s, f) => s + f.fracao * preco * (1 - f.desconto), 0);
+    const noAto = formas.reduce(
+      (s, f) =>
+        s + (f.fracao * preco * (1 - f.desconto)) / Math.max(1, f.parcelas),
+      0,
+    );
+    const contratado = formas.reduce(
+      (s, f) => s + f.fracao * preco * (1 - f.desconto),
+      0,
+    );
     entradaImplPorCliente.set(p.id, noAto);
     implContratadaPorCliente.set(p.id, contratado);
   }
 
   const custoImplPorCliente = new Map<string, number>();
-  for (const p of (produtosRaw ?? []) as { id: string; tem_implementacao: boolean | null; preco_implementacao: number | null }[]) {
+  for (const p of (produtosRaw ?? []) as {
+    id: string;
+    tem_implementacao: boolean | null;
+    preco_implementacao: number | null;
+  }[]) {
     if (!p.tem_implementacao || p.preco_implementacao == null) continue;
-    const total = ((etapasRaw ?? []) as { produto_id: string; horas: number; valor_hora: number }[])
+    const total = (
+      (etapasRaw ?? []) as {
+        produto_id: string;
+        horas: number;
+        valor_hora: number;
+      }[]
+    )
       .filter((e) => e.produto_id === p.id)
       .reduce((s, e) => s + Number(e.horas) * Number(e.valor_hora), 0);
     custoImplPorCliente.set(p.id, total);
   }
 
-  const fasesPorProduto = new Map<string, { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]>();
-  for (const f of (fasesRaw ?? []) as { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]) {
+  const fasesPorProduto = new Map<
+    string,
+    { fase: FaseValue; data_inicio: string | null; data_fim: string | null }[]
+  >();
+  for (const f of (fasesRaw ?? []) as {
+    produto_id: string;
+    fase: FaseValue;
+    data_inicio: string | null;
+    data_fim: string | null;
+  }[]) {
     const atual = fasesPorProduto.get(f.produto_id) ?? [];
     atual.push(f);
     fasesPorProduto.set(f.produto_id, atual);
@@ -784,7 +1015,9 @@ export async function agregarPorCenario(
     faseIds.length > 0
       ? await supabase
           .from("premissas_funil")
-          .select("fase_produto_id, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes, reunioes_por_oportunidade")
+          .select(
+            "fase_produto_id, capacidade_vendedor_mes, span_of_control, horas_suporte_por_cliente_mes, reunioes_por_oportunidade",
+          )
           .in("fase_produto_id", faseIds)
       : { data: [] };
 
@@ -792,13 +1025,25 @@ export async function agregarPorCenario(
   // contratação que executa o canal direto.
   const { data: canaisRaw } = await supabase
     .from("canais_aquisicao")
-    .select("id, tipo_canal, modelo_contratacao_id, parametros, canal_produto(produto_id, percentual_mix, taxa_fechamento)")
+    .select(
+      "id, tipo_canal, modelo_contratacao_id, parametros, canal_produto(produto_id, percentual_mix, taxa_fechamento)",
+    )
     .eq("cenario_id", cenarioId);
-  const faseById = new Map<string, { id: string; produto_id: string; fase: FaseValue }>(
-    (fasesRaw ?? []).map((f: { id: string; produto_id: string; fase: FaseValue }) => [f.id, f]),
+  const faseById = new Map<
+    string,
+    { id: string; produto_id: string; fase: FaseValue }
+  >(
+    (fasesRaw ?? []).map(
+      (f: { id: string; produto_id: string; fase: FaseValue }) => [f.id, f],
+    ),
   );
   const fasesPorProdutoInput: FaseProdutoInput[] = (fasesRaw ?? []).map(
-    (f: { produto_id: string; fase: FaseValue; data_inicio: string | null; data_fim: string | null }) => ({
+    (f: {
+      produto_id: string;
+      fase: FaseValue;
+      data_inicio: string | null;
+      data_fim: string | null;
+    }) => ({
       produtoId: f.produto_id,
       fase: f.fase,
       data_inicio: f.data_inicio,
@@ -827,21 +1072,33 @@ export async function agregarPorCenario(
       };
     })
     .filter((f): f is FunilPremissaInput => f !== null);
-  const simulacaoInput: SimulacaoMesInput[] = ((simRows ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number; novos_direto?: number | null; novos_representante?: number | null; novos_associacao?: number | null; novos_acoes?: number | null }[]).map((s) => ({
+  const simulacaoInput: SimulacaoMesInput[] = (
+    (simRows ?? []) as {
+      produto_id: string;
+      mes_referencia: string;
+      novos_clientes: number;
+      clientes_ativos: number;
+      novos_direto?: number | null;
+      novos_representante?: number | null;
+      novos_associacao?: number | null;
+      novos_acoes?: number | null;
+    }[]
+  ).map((s) => ({
     produtoId: s.produto_id,
     mes_referencia: s.mes_referencia,
     novos_clientes: Number(s.novos_clientes),
     clientes_ativos: Number(s.clientes_ativos),
     novos_direto: s.novos_direto != null ? Number(s.novos_direto) : undefined,
-    novos_representante: s.novos_representante != null ? Number(s.novos_representante) : undefined,
-    novos_associacao: s.novos_associacao != null ? Number(s.novos_associacao) : undefined,
+    novos_representante:
+      s.novos_representante != null ? Number(s.novos_representante) : undefined,
+    novos_associacao:
+      s.novos_associacao != null ? Number(s.novos_associacao) : undefined,
     novos_acoes: s.novos_acoes != null ? Number(s.novos_acoes) : undefined,
   }));
   const qualificacaoPorModelo = new Map(
-    ((modelosRaw ?? []) as { id: string; parametros: ParametrosModelo }[]).map((m) => [
-      m.id,
-      m.parametros?.taxa_qualificacao ?? null,
-    ]),
+    ((modelosRaw ?? []) as { id: string; parametros: ParametrosModelo }[]).map(
+      (m) => [m.id, m.parametros?.taxa_qualificacao ?? null],
+    ),
   );
   // O canal é do cenário e carrega uma linha por produto — cada linha vira uma célula da matriz.
   const canaisInput: CanalFunilInput[] = (
@@ -849,7 +1106,13 @@ export async function agregarPorCenario(
       id: string;
       tipo_canal: "direto" | "representante" | "associacao";
       modelo_contratacao_id: string | null;
-      canal_produto: { produto_id: string; percentual_mix: number; taxa_fechamento: number | null }[] | null;
+      canal_produto:
+        | {
+            produto_id: string;
+            percentual_mix: number;
+            taxa_fechamento: number | null;
+          }[]
+        | null;
     }[]
   ).flatMap((c) =>
     (c.canal_produto ?? []).map((cp) => ({
@@ -857,11 +1120,16 @@ export async function agregarPorCenario(
       tipo_canal: c.tipo_canal,
       percentual_mix: Number(cp.percentual_mix),
       taxa_fechamento: cp.taxa_fechamento,
-      taxa_qualificacao: c.modelo_contratacao_id ? (qualificacaoPorModelo.get(c.modelo_contratacao_id) ?? null) : null,
+      taxa_qualificacao: c.modelo_contratacao_id
+        ? (qualificacaoPorModelo.get(c.modelo_contratacao_id) ?? null)
+        : null,
     })),
   );
 
-  const { data: cogsRaw } = await supabase.from("cogs_premissas").select("produto_id, parametros").eq("cenario_id", cenarioId);
+  const { data: cogsRaw } = await supabase
+    .from("cogs_premissas")
+    .select("produto_id, parametros")
+    .eq("cenario_id", cenarioId);
   const demandaPorCargo = calcularDemandaPorCargo({
     fasesPorProduto: fasesPorProdutoInput,
     funis: funisInput,
@@ -873,10 +1141,21 @@ export async function agregarPorCenario(
 
   // Canais de parceiro que cobram mensalidade por parceiro mantido.
   const canaisComCusto = (
-    (canaisRaw ?? []) as { id: string; tipo_canal: string; parametros: { custo_mensal_parceiro?: number } | null }[]
+    (canaisRaw ?? []) as {
+      id: string;
+      tipo_canal: string;
+      parametros: { custo_mensal_parceiro?: number } | null;
+    }[]
   )
-    .filter((c) => c.tipo_canal !== "direto" && Number(c.parametros?.custo_mensal_parceiro ?? 0) > 0)
-    .map((c) => ({ id: c.id, custoMensalPorParceiro: Number(c.parametros!.custo_mensal_parceiro) }));
+    .filter(
+      (c) =>
+        c.tipo_canal !== "direto" &&
+        Number(c.parametros?.custo_mensal_parceiro ?? 0) > 0,
+    )
+    .map((c) => ({
+      id: c.id,
+      custoMensalPorParceiro: Number(c.parametros!.custo_mensal_parceiro),
+    }));
 
   const { data: parceirosFaseRaw } =
     canaisComCusto.length > 0
@@ -893,15 +1172,23 @@ export async function agregarPorCenario(
   // empresa e as fases são de produto, usamos a data mais cedo em que qualquer produto entrou
   // naquela fase — é quando a empresa como um todo chegou lá.
   const inicioMaisCedoPorFase = new Map<string, string>();
-  for (const f of (fasesRaw ?? []) as { fase: FaseValue; data_inicio: string | null }[]) {
+  for (const f of (fasesRaw ?? []) as {
+    fase: FaseValue;
+    data_inicio: string | null;
+  }[]) {
     if (!f.data_inicio) continue;
     const atual = inicioMaisCedoPorFase.get(f.fase);
-    if (!atual || f.data_inicio < atual) inicioMaisCedoPorFase.set(f.fase, f.data_inicio);
+    if (!atual || f.data_inicio < atual)
+      inicioMaisCedoPorFase.set(f.fase, f.data_inicio);
   }
 
   function parceirosAtivosNoMes(canalId: string, mesIso: string): number {
     return (
-      (parceirosFaseRaw ?? []) as { canal_id: string; fase: string; quantidade_parceiros: number }[]
+      (parceirosFaseRaw ?? []) as {
+        canal_id: string;
+        fase: string;
+        quantidade_parceiros: number;
+      }[]
     ).reduce((acc, pf) => {
       if (pf.canal_id !== canalId) return acc;
       const inicio = inicioMaisCedoPorFase.get(pf.fase);
@@ -923,21 +1210,24 @@ export async function agregarPorCenario(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const row of (simRows ?? []) as any[]) {
     const r = receitaPorProdutoMes.get(row.mes_referencia) ?? {};
-    r[row.produto_id] = (r[row.produto_id] ?? 0) + Number(row.receita_bruta ?? 0);
+    r[row.produto_id] =
+      (r[row.produto_id] ?? 0) + Number(row.receita_bruta ?? 0);
     receitaPorProdutoMes.set(row.mes_referencia, r);
   }
   const clientesPorProdutoMes = new Map<string, Record<string, number>>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const row of (simRows ?? []) as any[]) {
     const c = clientesPorProdutoMes.get(row.mes_referencia) ?? {};
-    c[row.produto_id] = (c[row.produto_id] ?? 0) + Number(row.clientes_ativos ?? 0);
+    c[row.produto_id] =
+      (c[row.produto_id] ?? 0) + Number(row.clientes_ativos ?? 0);
     clientesPorProdutoMes.set(row.mes_referencia, c);
   }
 
   const porMes = new Map<string, Agregado>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const row of (simRows ?? []) as any[]) {
-    const atual = porMes.get(row.mes_referencia) ?? agregadoVazio(row.mes_referencia);
+    const atual =
+      porMes.get(row.mes_referencia) ?? agregadoVazio(row.mes_referencia);
     atual.receita += Number(row.receita_bruta);
     atual.ebitdaProdutos += Number(row.ebitda);
     atual.clientes += Number(row.clientes_ativos);
@@ -952,31 +1242,141 @@ export async function agregarPorCenario(
     // Composição do que veio do produto — as mesmas colunas que o motor gravou, separadas por regra.
     const produto = nomeProduto.get(row.produto_id) ?? "Produto";
     const n = (k: string) => Number(row[k] ?? 0);
-    const implementacao = n("novos_clientes") * (custoImplPorCliente.get(row.produto_id) ?? 0);
+    const implementacao =
+      n("novos_clientes") * (custoImplPorCliente.get(row.produto_id) ?? 0);
     atual.receitaImplementacao += n("receita_implementacao");
     atual.cogsImplementacao += implementacao;
-    atual.custosCreditaveis += n("cogs_infraestrutura") + n("cogs_llm") + n("cogs_software") + n("cogs_gateway") + n("sm_marketing");
-    compor(atual, "cogs", "regra_cogs", "Infraestrutura e cloud (1.1.1)", n("cogs_infraestrutura"), produto);
-    compor(atual, "cogs", "regra_cogs", "APIs / LLM (1.1.2)", n("cogs_llm"), produto);
-    compor(atual, "cogs", "regra_cogs", "Suporte reativo — horas × custo/hora (1.1.3)", n("cogs_suporte_reativo"), produto);
-    compor(atual, "cogs", "regra_cogs", "CS proativo — horas × custo/hora (1.1.3)", n("cogs_cs_proativo"), produto);
-    compor(atual, "cogs", "lancado", "Suporte lançado no plano da fase (1.1.3)", n("cogs_suporte") - n("cogs_suporte_reativo") - n("cogs_cs_proativo"), produto);
-    compor(atual, "cogs", "regra_cogs", "Software de atendimento (1.1.4)", n("cogs_software"), produto);
-    compor(atual, "cogs", "regra_cogs", "Gateway de pagamento (1.1.5)", n("cogs_gateway"), produto);
-    compor(atual, "cogs", "implementacao", "Implementação — etapas × clientes novos (1.1.6)", implementacao, produto);
-    compor(atual, "cogs", "lancado", "Outros COGS lançados no plano da fase", n("cogs_outros") - n("cogs_llm") - n("cogs_software") - n("cogs_gateway") - implementacao, produto);
-    compor(atual, "sm", "canais", "Mídia do self-service e marketing do produto", n("sm_marketing"), produto);
-    compor(atual, "sm", "canais", "Parceiros: fechamento, comissão e crédito (e equipe do produto)", n("sm_vendas"), produto);
-    compor(atual, "sm", "lancado", "Outros S&M do produto", n("sm_outros"), produto);
-    compor(atual, "pd", "contratacoes", "Equipe e custos de P&D do produto", n("opex_pd"), produto);
-    compor(atual, "ga", "contratacoes", "Equipe e custos de G&A do produto", n("opex_ga"), produto);
+    atual.custosCreditaveis +=
+      n("cogs_infraestrutura") +
+      n("cogs_llm") +
+      n("cogs_software") +
+      n("cogs_gateway") +
+      n("sm_marketing");
+    compor(
+      atual,
+      "cogs",
+      "regra_cogs",
+      "Infraestrutura e cloud (1.1.1)",
+      n("cogs_infraestrutura"),
+      produto,
+    );
+    compor(
+      atual,
+      "cogs",
+      "regra_cogs",
+      "APIs / LLM (1.1.2)",
+      n("cogs_llm"),
+      produto,
+    );
+    atual.cogsSuporteRegra += n("cogs_suporte_reativo") + n("cogs_cs_proativo");
+    compor(
+      atual,
+      "cogs",
+      "regra_cogs",
+      "Suporte reativo — horas × custo/hora (1.1.3)",
+      n("cogs_suporte_reativo"),
+      produto,
+    );
+    compor(
+      atual,
+      "cogs",
+      "regra_cogs",
+      "CS proativo — horas × custo/hora (1.1.3)",
+      n("cogs_cs_proativo"),
+      produto,
+    );
+    compor(
+      atual,
+      "cogs",
+      "lancado",
+      "Suporte lançado no plano da fase (1.1.3)",
+      n("cogs_suporte") - n("cogs_suporte_reativo") - n("cogs_cs_proativo"),
+      produto,
+    );
+    compor(
+      atual,
+      "cogs",
+      "regra_cogs",
+      "Software de atendimento (1.1.4)",
+      n("cogs_software"),
+      produto,
+    );
+    compor(
+      atual,
+      "cogs",
+      "regra_cogs",
+      "Gateway de pagamento (1.1.5)",
+      n("cogs_gateway"),
+      produto,
+    );
+    compor(
+      atual,
+      "cogs",
+      "implementacao",
+      "Implementação — etapas × clientes novos (1.1.6)",
+      implementacao,
+      produto,
+    );
+    compor(
+      atual,
+      "cogs",
+      "lancado",
+      "Outros COGS lançados no plano da fase",
+      n("cogs_outros") -
+        n("cogs_llm") -
+        n("cogs_software") -
+        n("cogs_gateway") -
+        implementacao,
+      produto,
+    );
+    compor(
+      atual,
+      "sm",
+      "canais",
+      "Mídia do self-service e marketing do produto",
+      n("sm_marketing"),
+      produto,
+    );
+    compor(
+      atual,
+      "sm",
+      "canais",
+      "Parceiros: fechamento, comissão e crédito (e equipe do produto)",
+      n("sm_vendas"),
+      produto,
+    );
+    compor(
+      atual,
+      "sm",
+      "lancado",
+      "Outros S&M do produto",
+      n("sm_outros"),
+      produto,
+    );
+    compor(
+      atual,
+      "pd",
+      "contratacoes",
+      "Equipe e custos de P&D do produto",
+      n("opex_pd"),
+      produto,
+    );
+    compor(
+      atual,
+      "ga",
+      "contratacoes",
+      "Equipe e custos de G&A do produto",
+      n("opex_ga"),
+      produto,
+    );
 
     const novos = Number(row.novos_clientes ?? 0);
     atual.novosClientes += novos;
     // cacPonderado fica só como referência histórica (CAC por produto, sem custo compartilhado) —
     // o CAC consolidado de verdade usa smMarketing+smVendas+smOutros ÷ novosClientes, calculado em
     // computeMetricas, porque só assim entra o custo de equipe comercial compartilhada (SDR etc.).
-    if (row.cac_all_in != null && novos > 0) atual.cacPonderado += Number(row.cac_all_in) * novos;
+    if (row.cac_all_in != null && novos > 0)
+      atual.cacPonderado += Number(row.cac_all_in) * novos;
     // Churn e LTV ponderados pelos clientes ativos do produto naquele mês — dá a média
     // consolidada certa em vez de simplesmente somar taxas de produtos diferentes.
     const clientesRow = Number(row.clientes_ativos ?? 0);
@@ -991,26 +1391,48 @@ export async function agregarPorCenario(
       if (novos > 0) {
         const entradaImpl = entradaImplPorCliente.get(row.produto_id) ?? 0;
         atual.entradaPonderada += (entradaImpl + pmv) * novos;
-        atual.implantacaoContratadaPonderada += (implContratadaPorCliente.get(row.produto_id) ?? 0) * novos;
+        atual.implantacaoContratadaPonderada +=
+          (implContratadaPorCliente.get(row.produto_id) ?? 0) * novos;
         atual.novosComEntrada += novos;
       }
     }
-    if (row.churn_pct != null) atual.churnPonderado += Number(row.churn_pct) * clientesRow;
+    if (row.churn_pct != null)
+      atual.churnPonderado += Number(row.churn_pct) * clientesRow;
     if (row.ltv != null) atual.ltvPonderado += Number(row.ltv) * clientesRow;
   }
 
   // Custos compartilhados da empresa (não ligados a um produto) — entram uma vez no EBITDA
   // consolidado, sem ratear entre produtos.
-  const modeloById = new Map(((modelosRaw ?? []) as { id: string; nome?: string; cargo: string; categoria: "pd" | "sm" | "ga"; tipo_modelo: string; parametros: ParametrosModelo }[]).map((m) => [m.id, m]));
+  const modeloById = new Map(
+    (
+      (modelosRaw ?? []) as {
+        id: string;
+        nome?: string;
+        cargo: string;
+        categoria: "pd" | "sm" | "ga";
+        tipo_modelo: string;
+        parametros: ParametrosModelo;
+      }[]
+    ).map((m) => [m.id, m]),
+  );
   for (const atual of porMes.values()) {
     const mesDate = new Date(atual.mes_referencia + "T00:00:00");
 
     let custosEmpresa = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const c of (custosEmpresaRaw ?? []) as any[]) {
-      const produtoRefId = c.parametros?.produto_referencia_id as string | undefined;
-      const faseReferencia = produtoRefId ? faseDoProdutoNoMes(fasesPorProduto.get(produtoRefId) ?? [], mesDate) : null;
-      const valor = custoEmpresaNoMes(c as CustoEmpresaInput, mesDate, atual.receita, atual.clientes, faseReferencia);
+      const produtoRefId = c.parametros?.produto_referencia_id as
+        string | undefined;
+      const faseReferencia = produtoRefId
+        ? faseDoProdutoNoMes(fasesPorProduto.get(produtoRefId) ?? [], mesDate)
+        : null;
+      const valor = custoEmpresaNoMes(
+        c as CustoEmpresaInput,
+        mesDate,
+        atual.receita,
+        atual.clientes,
+        faseReferencia,
+      );
       // Pró-labore e folha própria lançados como custo da empresa contam na "folha" do Fator R
       // (LC 123, art. 18 §24 inclui pró-labore): sem isso o app subestimava a folha e podia manter a
       // empresa no Anexo V (15,5%) num ano em que ela já cairia no III (6%).
@@ -1024,7 +1446,11 @@ export async function agregarPorCenario(
         else if (sub === "outros_sm") atual.smOutros += valor;
         else if (sub === "pd") atual.opexPd += valor;
         else if (sub === "ga") atual.opexGa += valor;
-        else if (sub === "suporte" || sub === "infraestrutura" || sub === "outros_cogs") {
+        else if (
+          sub === "suporte" ||
+          sub === "infraestrutura" ||
+          sub === "outros_cogs"
+        ) {
           // Custo da empresa em conta de COGS (ex: infra compartilhada lançada no card CSP, modo
           // Compartilhado) — antes ficava fora do EBITDA; é custo de entregar o serviço.
           atual.cogs += valor;
@@ -1033,32 +1459,48 @@ export async function agregarPorCenario(
         }
         if (sub === "marketing" || sub === "vendas" || sub === "outros_sm") {
           atual.empresaSm += valor;
-          const ehMarketing = categoriaDeConta({ codigo: c.plano_contas.codigo }) === "marketing";
+          const ehMarketing =
+            categoriaDeConta({ codigo: c.plano_contas.codigo }) === "marketing";
           if (ehMarketing) atual.empresaMarketingLancado += valor;
           else atual.empresaVendasLancado += valor;
           compor(atual, "sm", "empresa", rotulo, valor);
           // Marketing lançado vai pros produtos pelo rateio do item — por receita quando não há
           // rateio configurado, ou 100% num produto quando a pessoa vinculou o custo a ele.
           if (ehMarketing) {
-            const receitas = receitaPorProdutoMes.get(atual.mes_referencia) ?? {};
-            const clientes = clientesPorProdutoMes.get(atual.mes_referencia) ?? {};
-            const idsProdutos = [...new Set([...Object.keys(receitas), ...Object.keys(clientes)])].map((id) => ({ id }));
-            const partes = calcularRateioPorProduto(c.parametros ?? {}, valor, idsProdutos, clientes, receitas, true);
+            const receitas =
+              receitaPorProdutoMes.get(atual.mes_referencia) ?? {};
+            const clientes =
+              clientesPorProdutoMes.get(atual.mes_referencia) ?? {};
+            const idsProdutos = [
+              ...new Set([...Object.keys(receitas), ...Object.keys(clientes)]),
+            ].map((id) => ({ id }));
+            const partes = calcularRateioPorProduto(
+              c.parametros ?? {},
+              valor,
+              idsProdutos,
+              clientes,
+              receitas,
+              true,
+            );
             let atribuido = 0;
             for (const parte of partes) {
               if (parte.valor === 0) continue;
-              atual.marketingPorProduto[parte.produtoId] = (atual.marketingPorProduto[parte.produtoId] ?? 0) + parte.valor;
+              atual.marketingPorProduto[parte.produtoId] =
+                (atual.marketingPorProduto[parte.produtoId] ?? 0) + parte.valor;
               atribuido += parte.valor;
             }
             const resto = valor - atribuido;
-            if (Math.abs(resto) > 0.005) atual.marketingPorProduto[""] = (atual.marketingPorProduto[""] ?? 0) + resto;
+            if (Math.abs(resto) > 0.005)
+              atual.marketingPorProduto[""] =
+                (atual.marketingPorProduto[""] ?? 0) + resto;
           }
         } else if (sub === "pd") {
           atual.empresaPd += valor;
           compor(atual, "pd", "empresa", rotulo, valor);
         } else if (sub === "ga") {
           atual.empresaGa += valor;
-          if (String(c.plano_contas.codigo).startsWith("2.4")) atual.empresaMarca += valor;
+          if (String(c.plano_contas.codigo).startsWith("2.4"))
+            atual.empresaMarca += valor;
           compor(atual, "ga", "empresa", rotulo, valor);
         }
         // Financeiro (3.x), capital e ativos ficam fora da DRE operacional — e fora das colunas.
@@ -1071,9 +1513,18 @@ export async function agregarPorCenario(
       atual.smMarketing += custoAcoes;
       atual.empresaSm += custoAcoes;
       atual.smFeirasEventos += custoAcoes;
-      compor(atual, "sm", "feiras", "Feiras, eventos e campanhas (2.1.8 / 2.1.1)", custoAcoes);
-      for (const [pid, v] of Object.entries(acoesPorProdutoMes.get(atual.mes_referencia) ?? {})) {
-        atual.marketingPorProduto[pid] = (atual.marketingPorProduto[pid] ?? 0) + v;
+      compor(
+        atual,
+        "sm",
+        "feiras",
+        "Feiras, eventos e campanhas (2.1.8 / 2.1.1)",
+        custoAcoes,
+      );
+      for (const [pid, v] of Object.entries(
+        acoesPorProdutoMes.get(atual.mes_referencia) ?? {},
+      )) {
+        atual.marketingPorProduto[pid] =
+          (atual.marketingPorProduto[pid] ?? 0) + v;
       }
     }
 
@@ -1089,14 +1540,22 @@ export async function agregarPorCenario(
       atual.opexGa += custo;
       atual.empresaGa += custo;
       atual.gaTaxasFiliacao += custo;
-      compor(atual, "ga", "canais", "Filiação de associações parceiras (2.3.5.1)", custo);
+      compor(
+        atual,
+        "ga",
+        "canais",
+        "Filiação de associações parceiras (2.3.5.1)",
+        custo,
+      );
     }
 
     // Equipe alocada em Necessidade de Contratação — uma regra só (lib/equipe-comercial): cada
     // alocação cobre a demanda dos produtos dela, na unidade que o modelo cobra, e o vendedor só
     // recebe por venda das vendas que passaram por reunião.
     const demandaMes: Record<string, DemandaProdutoMes> = {};
-    for (const [pid, porMesProduto] of Object.entries(demandaPorCargo.porProduto)) {
+    for (const [pid, porMesProduto] of Object.entries(
+      demandaPorCargo.porProduto,
+    )) {
       const d = porMesProduto[atual.mes_referencia];
       if (d) demandaMes[pid] = d;
     }
@@ -1107,7 +1566,10 @@ export async function agregarPorCenario(
       demanda: demandaMes,
       arpuPorProduto: arpuPorMes.get(atual.mes_referencia) ?? {},
     });
-    atual.demandaDescoberta = { sdr: equipe.descoberto.sdr, vendedor: equipe.descoberto.vendedor };
+    atual.demandaDescoberta = {
+      sdr: equipe.descoberto.sdr,
+      vendedor: equipe.descoberto.vendedor,
+    };
     for (const item of equipe.itens) {
       const custoModelo = item.custo;
       const tipo = item.tipo;
@@ -1119,17 +1581,50 @@ export async function agregarPorCenario(
       const chaveCargo = item.chave;
       if (chaveCargo === "sdr") atual.alocacaoSdr += custoModelo;
       else if (chaveCargo === "vendedor") atual.alocacaoVendedor += custoModelo;
-      else if (chaveCargo === "coordenador") atual.alocacaoCoordenador += custoModelo;
+      else if (chaveCargo === "coordenador")
+        atual.alocacaoCoordenador += custoModelo;
       else if (chaveCargo === "suporte") atual.alocacaoSuporte += custoModelo;
       else atual.alocacaoOutros += custoModelo;
       const sub = item.sub;
-      // Alocação de Suporte só dimensiona equipe: o custo de suporte vem das regras de COGS (1.1.3).
-      // Ela não entra no EBITDA — e por isso também não entra nas colunas de equipe.
+      // Suporte alocado (1 analista pros três produtos; PJ proporcional até 2 pessoas, CLT inteiro
+      // depois) SUBSTITUI o suporte por regra de COGS no mês: as regras continuam dando as horas
+      // (é a demanda), mas quem paga é a contratação. Rateio entre produtos por receita.
+      const rotuloEquipe = item.rotulo;
+      if (sub === "suporte" && custoModelo > 0) {
+        if (atual.cogsSuporteRegra > 0) {
+          atual.cogs -= atual.cogsSuporteRegra;
+          for (const k of Object.keys(atual.composicao)) {
+            if (
+              k.startsWith("cogs|regra_cogs|Suporte reativo") ||
+              k.startsWith("cogs|regra_cogs|CS proativo")
+            )
+              delete atual.composicao[k];
+          }
+          atual.cogsSuporteRegra = 0;
+        }
+        atual.cogs += custoModelo;
+        if (item.regime === "clt" && tipo !== "clt")
+          atual.custoCLT += custoModelo;
+        const receitas = receitaPorProdutoMes.get(atual.mes_referencia) ?? {};
+        const totalReceita = Object.values(receitas).reduce((a, b) => a + b, 0);
+        const rotuloSuporte = `${rotuloEquipe} — ${item.regime === "clt" ? "CLT" : "PJ por hora"} (1.1.3)`;
+        if (totalReceita > 0) {
+          for (const [pid, r] of Object.entries(receitas))
+            compor(
+              atual,
+              "cogs",
+              "equipe",
+              rotuloSuporte,
+              (custoModelo * r) / totalReceita,
+              nomeProduto.get(pid) ?? "",
+            );
+        } else compor(atual, "cogs", "equipe", rotuloSuporte, custoModelo);
+      }
       if (sub !== "suporte") {
-        if (tipo === "clt" || tipo === "empresa_fixo_escopo") atual.alocacaoFixa += custoModelo;
+        if (tipo === "clt" || tipo === "empresa_fixo_escopo")
+          atual.alocacaoFixa += custoModelo;
         else atual.alocacaoVariavel += custoModelo;
       }
-      const rotuloEquipe = item.rotulo;
       if (sub === "marketing") atual.smMarketing += custoModelo;
       else if (sub === "vendas") atual.smVendas += custoModelo;
       else if (sub === "outros_sm") atual.smOutros += custoModelo;
@@ -1139,11 +1634,19 @@ export async function agregarPorCenario(
         atual.alocacaoSm += custoModelo;
         for (const [pid, v] of Object.entries(item.porProduto)) {
           atual.equipePorProduto[pid] = (atual.equipePorProduto[pid] ?? 0) + v;
-          compor(atual, "sm", "equipe", rotuloEquipe, v, pid ? (nomeProduto.get(pid) ?? "") : "");
+          compor(
+            atual,
+            "sm",
+            "equipe",
+            rotuloEquipe,
+            v,
+            pid ? (nomeProduto.get(pid) ?? "") : "",
+          );
         }
-      }
-      else if (sub === "pd") compor(atual, "pd", "equipe", rotuloEquipe, custoModelo);
-      else if (sub === "ga") compor(atual, "ga", "equipe", rotuloEquipe, custoModelo);
+      } else if (sub === "pd")
+        compor(atual, "pd", "equipe", rotuloEquipe, custoModelo);
+      else if (sub === "ga")
+        compor(atual, "ga", "equipe", rotuloEquipe, custoModelo);
     }
 
     atual.custosEmpresa = custosEmpresa;
@@ -1153,11 +1656,18 @@ export async function agregarPorCenario(
   // (ver ComboInput em simulacao.ts), pra que a margem bruta por produto já venha líquida. Somar
   // de novo aqui contaria o desconto duas vezes.
 
-  const linhas = [...porMes.values()].sort((a, b) => (a.mes_referencia < b.mes_referencia ? -1 : 1));
+  const linhas = [...porMes.values()].sort((a, b) =>
+    a.mes_referencia < b.mes_referencia ? -1 : 1,
+  );
 
   // Tributação depois do Simples — alíquotas editáveis em Configurações (estimativa; validar com o contador).
-  const { data: tributosRaw } = await supabase.from("parametros_tributarios").select("*").maybeSingle();
-  const parametrosTributarios = parametrosTributariosDe(tributosRaw as Record<string, unknown> | null);
+  const { data: tributosRaw } = await supabase
+    .from("parametros_tributarios")
+    .select("*")
+    .maybeSingle();
+  const parametrosTributarios = parametrosTributariosDe(
+    tributosRaw as Record<string, unknown> | null,
+  );
   let acumuladoAno = 0;
   let foraDoSimples = false;
   let saiNoProximoMes = false;
@@ -1185,14 +1695,20 @@ export async function agregarPorCenario(
     if (mesDoAno === "01") acumuladoAno = 0;
     if (saiNoProximoMes) foraDoSimples = true;
     // Compras da empresa que geram crédito: COGS compartilhado, marketing lançado, feiras e eventos.
-    l.custosCreditaveis += l.empresaCogs + l.empresaMarketingLancado + l.smFeirasEventos;
+    l.custosCreditaveis +=
+      l.empresaCogs + l.empresaMarketingLancado + l.smFeirasEventos;
     if (!foraDoSimples) {
       const resultado = calcularImpostoSimples(l.receita, rbt12, fatorR);
       l.impostoMensal = resultado.impostoMensal;
       l.aliquotaEfetivaImposto = resultado.aliquotaEfetiva;
       l.regimeTributario = "simples";
     } else {
-      const r = calcularTributosPosSimples(l.receita, l.custosCreditaveis, Number(l.mes_referencia.slice(0, 4)), parametrosTributarios);
+      const r = calcularTributosPosSimples(
+        l.receita,
+        l.custosCreditaveis,
+        Number(l.mes_referencia.slice(0, 4)),
+        parametrosTributarios,
+      );
       l.impostoMensal = r.deducoes;
       l.aliquotaEfetivaImposto = r.aliquotaEfetiva;
       l.creditoTributos = r.credito;
@@ -1202,21 +1718,37 @@ export async function agregarPorCenario(
     // LC 123, art. 30: passou de R$ 4,8 mi no ano, sai em janeiro seguinte; passou de 20% acima
     // (R$ 5,76 mi), sai já no mês seguinte. Depois de sair, não volta.
     acumuladoAno += l.receita;
-    if (!foraDoSimples && acumuladoAno > LIMITE_SIMPLES_ANUAL * 1.2) saiNoProximoMes = true;
-    if (!foraDoSimples && mesDoAno === "12" && acumuladoAno > LIMITE_SIMPLES_ANUAL) saiNoProximoMes = true;
+    if (!foraDoSimples && acumuladoAno > LIMITE_SIMPLES_ANUAL * 1.2)
+      saiNoProximoMes = true;
+    if (
+      !foraDoSimples &&
+      mesDoAno === "12" &&
+      acumuladoAno > LIMITE_SIMPLES_ANUAL
+    )
+      saiNoProximoMes = true;
   }
 
   // EBITDA em cascata, só depois de ter os impostos do mês: Receita (–) COGS (–) Impostos
   // (=) Margem Bruta (–) S&M (–) P&D (–) G&A (=) EBITDA.
   for (const l of linhas) {
-    l.ebitda = l.receita - l.cogs - l.impostoMensal - l.smMarketing - l.smVendas - l.smOutros - l.opexPd - l.opexGa;
+    l.ebitda =
+      l.receita -
+      l.cogs -
+      l.impostoMensal -
+      l.smMarketing -
+      l.smVendas -
+      l.smOutros -
+      l.opexPd -
+      l.opexGa;
   }
 
   // O retorno é calculado só sobre o investimento NOVO (o que ainda não está aplicado) — a regra
   // inteira mora em carregarAportes, que também alimenta a linha de aportes das telas.
   const aportes = await carregarAportes(supabase, cenarioId);
   const periodo = {
-    inicio: (cenarioRow as { data_inicio?: string | null } | null)?.data_inicio ?? null,
+    inicio:
+      (cenarioRow as { data_inicio?: string | null } | null)?.data_inicio ??
+      null,
     fim: (cenarioRow as { data_fim?: string | null } | null)?.data_fim ?? null,
   };
 

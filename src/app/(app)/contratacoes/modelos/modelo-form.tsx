@@ -373,15 +373,43 @@ export function ModeloForm({
               />
             </div>
             {tipo === "pj" && (
-              <label className="col-span-2 flex items-center gap-2 text-[11px] text-text-muted">
-                <input
-                  type="checkbox"
-                  name="fixo_por_pessoa_inteira"
-                  defaultChecked={p.fixo_por_pessoa_inteira === true}
-                />
-                Fixo mensal por pessoa inteira
-                <InfoTooltip texto="Marque quando o PJ tem um fixo de contrato (ex: vendedor R$ 4.500/mês): cada pessoa necessária paga o fixo cheio. Desmarcado, o PJ é proporcional às horas/volume usados — como um suporte por hora ou uma SDR que só cobra por reunião." />
-              </label>
+              <>
+                <label className="col-span-2 flex items-center gap-2 text-[11px] text-text-muted">
+                  <input
+                    type="checkbox"
+                    name="fixo_por_pessoa_inteira"
+                    defaultChecked={p.fixo_por_pessoa_inteira === true}
+                  />
+                  Fixo mensal por pessoa inteira
+                  <InfoTooltip texto="Marque quando o PJ tem um fixo de contrato (ex: vendedor R$ 4.500/mês): cada pessoa necessária paga o fixo cheio. Desmarcado, o PJ é proporcional às horas/volume usados — como um suporte por hora ou uma SDR que só cobra por reunião." />
+                </label>
+                <div className="form-linha mt-2">
+                  <div className="form-campo">
+                    <label>
+                      Vira CLT acima de (pessoas)
+                      <InfoTooltip texto="Até este número de pessoas cheias o PJ é pago proporcional às horas. Acima, a empresa passa a ter pessoas CLT inteiras e só contrata a próxima quando a demanda exige mais uma cheia — operando acima da capacidade no meio. 0 = sempre PJ." />
+                    </label>
+                    <input
+                      name="clt_apos_unidades"
+                      type="number"
+                      step="1"
+                      defaultValue={p.clt_apos_unidades ?? 0}
+                      className="input campo-num"
+                    />
+                  </div>
+                  <div className="form-campo">
+                    <label>Custo de 1 pessoa CLT (R$/mês)</label>
+                    <input
+                      name="clt_custo_pessoa"
+                      type="number"
+                      step="0.01"
+                      defaultValue={p.clt_custo_pessoa ?? 0}
+                      placeholder="salário + encargos + estrutura"
+                      className="input campo-dinheiro"
+                    />
+                  </div>
+                </div>
+              </>
             )}
             {tipo === "pj" && (
               <div className="col-span-2">
