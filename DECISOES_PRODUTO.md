@@ -315,3 +315,9 @@ Base, Batch 13 Otimista (ex-"Batch 13") e Batch 13 Realista carregam a mesma est
 - **P&D pelo estudo de mercado**: complemento de 10% na fase Centelha; lote R$ 75 mil da Fase 2 (ago–dez/2027) + dev sênior PJ R$ 11 mil + conectores/nuvem R$ 1 mil (set–dez/2027); equipe de escala R$ 30/38/45 mil por clientes de 2028 em diante. Substitui a "Equipe técnica permanente" 20/30/40k.
 
 Motivo: TIR de 70% e margem EBITDA de ~50% em 2030 não são defensáveis numa SaaS que triplica a receita ao ano — a banca lê como time subdimensionado. Meta: margem 10–20% e TIR na casa de 40%.
+
+## Produto & Engenharia — 10% da receita a partir de 2029 (13/09/2026)
+
+Somos SaaS vertical B2B para PMEs de moda, não empresa de IA (a IA só traduz o acompanhamento em storytelling no Premium). Benchmark de P&D pra esse perfil: 10–15% na tração, 8–12% na escala. As faixas por clientes (R$ 30/38/45 mil) davam 3% da receita em 2030 — indefensável na banca.
+
+Regra nos três cenários: faixas por clientes só em 2028 (R$ 30 mil até 800, R$ 38 mil até 1.600); de 2029 em diante **10% da receita**, item "Produto & Engenharia". Realista: R$ 826 mil (2029) e R$ 1,63 mi (2030) ≈ 5 e 10 pessoas. Otimista: R$ 1,26 mi e R$ 2,8 mi. EBITDA 2030 Realista cai ~R$ 1,1 mi (margem ~50% → ~43%).
