@@ -123,7 +123,9 @@ export function GradeProdutos({
         <table className="w-full border-collapse">
           <thead>
             <tr className="text-left text-[10px] font-medium uppercase tracking-wide text-text-faint">
-              <th className="px-4 py-2">Produto</th>
+              <th className="sticky left-0 z-[1] bg-surface px-4 py-2">
+                Produto
+              </th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">Início dev.</th>
               <th className="px-3 py-2">Lançamento previsto</th>
@@ -197,7 +199,10 @@ function LinhaProduto({
   return (
     <>
       <tr className="border-t border-border-soft align-middle">
-        <td rowSpan={linhasFase} className="px-4 py-2">
+        <td
+          rowSpan={linhasFase}
+          className="sticky left-0 z-[1] bg-surface px-4 py-2 shadow-[1px_0_0_var(--color-border-soft)]"
+        >
           <Link
             href={href}
             className="text-[12.5px] font-semibold text-primary-deep hover:underline"

@@ -36,13 +36,6 @@ export type EtapaImplementacao = {
   ordem: number | null;
 };
 
-/** Canal que vende o produto no cenário, com o desconto que dá na implementação (1 = isento). */
-export type CanalImplementacao = {
-  nome: string;
-  percentualMix: number;
-  desconto: number;
-};
-
 /** Horas e R$/hora de uma etapa em edição — a simulação de margem acompanha antes de salvar. */
 type RascunhoCusto = { id: string; horas: number; valor_hora: number } | null;
 
@@ -89,6 +82,8 @@ function normalizarFormas(linhas: LinhaForma[]): FormaSimulada[] {
 
 const initialState: ActionState = { error: null };
 
+const FORM_ID = "implementacao-config";
+
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -112,7 +107,6 @@ export function ImplementacaoProduto({
   formasPagamento = null,
   etapas,
   tabelaCustoHora,
-  canais = [],
 }: {
   produtoId: string;
   cenarioId: string;
@@ -122,7 +116,6 @@ export function ImplementacaoProduto({
   formasPagamento?: FormaPagamento[] | null;
   etapas: EtapaImplementacao[];
   tabelaCustoHora: CustoHora[];
-  canais?: CanalImplementacao[];
 }) {
   const [configState, configAction, configPending] = useActionState(
     salvarConfigImplementacao,
@@ -179,52 +172,42 @@ export function ImplementacaoProduto({
 
   return (
     <div className="p-5">
-      <p className="mb-4 text-[11px] text-text-muted">
-        Vale só pra este produto — cliente que assina outro produto junto não
-        paga implementação dele. Preço e parcelas valem em todos os cenários; as
-        etapas (o custo) são deste cenário.
-      </p>
+      {/* O checkbox fica fora do <form> no DOM (vem antes das etapas), mas pertence a ele via form="…" —
+          a ordem de leitura é custo → preço → margem, como se decide na prática. */}
+      <label className="flex items-center gap-2 text-[12px]">
+        <input
+          type="checkbox"
+          name="tem_implementacao"
+          form={FORM_ID}
+          checked={ativo}
+          onChange={(e) => setAtivo(e.target.checked)}
+          className="h-4 w-4 rounded border-border"
+        />
+        Este produto cobra implementação
+        <InfoTooltip texto="Vale só pra este produto — cliente que assina outro produto junto não paga implementação dele. Preço e parcelas valem em todos os cenários; as etapas (o custo) são deste cenário. Desconto ou isenção por canal de venda se configura em Vendas → Canais de aquisição." />
+      </label>
+
+      {ativo && (
+        <div className="mt-3 border-t border-border-soft pt-3">
+          <EtapasImplementacao
+            produtoId={produtoId}
+            cenarioId={cenarioId}
+            etapas={etapas}
+            tabelaCustoHora={tabelaCustoHora}
+            custoTotal={custoTotal}
+            horasTotal={horasTotal}
+            custoEtapa={custoEtapa}
+            onRascunho={setRascunho}
+          />
+        </div>
+      )}
 
       <form
+        id={FORM_ID}
         action={configAction}
-        className="flex flex-col gap-2.5 border-b border-border-soft pb-4"
+        className="mt-3 flex flex-col gap-3 border-t border-border-soft pt-3"
       >
         <input type="hidden" name="produto_id" value={produtoId} />
-        <label className="flex items-center gap-2 text-[12px]">
-          <input
-            type="checkbox"
-            name="tem_implementacao"
-            checked={ativo}
-            onChange={(e) => setAtivo(e.target.checked)}
-            className="h-4 w-4 rounded border-border"
-          />
-          Este produto cobra implementação
-        </label>
-
-        {ativo && (
-          <div className="form-linha">
-            <div className="form-campo">
-              <label>Preço de venda (R$)</label>
-              <input
-                name="preco_implementacao"
-                type="number"
-                step="0.01"
-                value={precoDigitado}
-                onChange={(e) => setPrecoDigitado(e.target.value)}
-                placeholder="5000"
-                className="input campo-dinheiro"
-              />
-            </div>
-          </div>
-        )}
-
-        {ativo && (
-          <FormasPagamentoEditor
-            formas={formas}
-            onChange={setFormas}
-            somaPct={somaPct}
-          />
-        )}
         <input
           type="hidden"
           name="implementacao_formas"
@@ -237,11 +220,32 @@ export function ImplementacaoProduto({
         />
 
         {ativo && (
+          <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
+            <div className="form-campo">
+              <label>Preço de venda (R$)</label>
+              <input
+                name="preco_implementacao"
+                type="number"
+                step="0.01"
+                value={precoDigitado}
+                onChange={(e) => setPrecoDigitado(e.target.value)}
+                placeholder="5000"
+                className="input campo-dinheiro"
+              />
+            </div>
+            <FormasPagamentoEditor
+              formas={formas}
+              onChange={setFormas}
+              somaPct={somaPct}
+            />
+          </div>
+        )}
+
+        {ativo && (
           <SimulacaoMargem
             preco={precoVenda}
             formas={formasSimuladas}
             custo={custoTotal}
-            canais={canais}
             naoSalvo={naoSalvo}
             onUsarPreco={(v) => setPrecoDigitado(String(v))}
           />
@@ -272,19 +276,6 @@ export function ImplementacaoProduto({
           {configPending ? "Salvando e recalculando…" : "Salvar implementação"}
         </button>
       </form>
-
-      {ativo && (
-        <EtapasImplementacao
-          produtoId={produtoId}
-          cenarioId={cenarioId}
-          etapas={etapas}
-          tabelaCustoHora={tabelaCustoHora}
-          custoTotal={custoTotal}
-          horasTotal={horasTotal}
-          custoEtapa={custoEtapa}
-          onRascunho={setRascunho}
-        />
-      )}
     </div>
   );
 }
@@ -299,14 +290,12 @@ function SimulacaoMargem({
   preco,
   formas,
   custo,
-  canais,
   naoSalvo,
   onUsarPreco,
 }: {
   preco: number;
   formas: FormaSimulada[];
   custo: number;
-  canais: CanalImplementacao[];
   naoSalvo: boolean;
   onUsarPreco: (valor: number) => void;
 }) {
@@ -347,23 +336,6 @@ function SimulacaoMargem({
   const umaForma = formas.length === 1;
   const parcela = porForma[0]?.parcela ?? 0;
   const parcelas = formas[0]?.parcelas ?? 1;
-
-  const pesoTotal = canais.reduce((s, c) => s + c.percentualMix, 0);
-  const porCanal = canais.map((c) => {
-    const efetivo = recebido * (1 - Math.min(1, c.desconto));
-    return {
-      ...c,
-      efetivo,
-      margem: efetivo - custo,
-      margemPct: efetivo > 0 ? ((efetivo - custo) / efetivo) * 100 : null,
-    };
-  });
-  const precoMedio =
-    pesoTotal > 0
-      ? porCanal.reduce((s, c) => s + c.efetivo * c.percentualMix, 0) /
-        pesoTotal
-      : null;
-  const temDescontoCanal = canais.some((c) => c.desconto > 0);
 
   return (
     <div className="rounded-lg border border-primary-fill/50 bg-primary-soft/25 px-4 py-3.5">
@@ -507,72 +479,6 @@ function SimulacaoMargem({
           <span className="text-text-faint">· empate: {formatBRL(custo)}</span>
         </div>
       )}
-
-      {porCanal.length > 0 && preco > 0 && (
-        <div className="mt-3 border-t border-border-soft pt-2.5">
-          <p className="mb-1 flex items-center text-[10.5px] font-semibold text-text-muted">
-            Por canal de venda
-            <InfoTooltip texto="Desconto e isenção de implementação configurados em Vendas → Canais de aquisição, pra este produto. Isento: a implementação é feita (custo cheio) e não é cobrada. A média pondera pelo % das vendas de cada canal." />
-          </p>
-          <table className="w-full border-collapse text-[11px]">
-            <thead>
-              <tr className="text-left text-[9.5px] uppercase tracking-wide text-text-faint">
-                <th className="py-1 font-medium">Canal</th>
-                <th className="py-1 text-right font-medium">% das vendas</th>
-                <th className="py-1 text-right font-medium">Desconto</th>
-                <th className="py-1 text-right font-medium">Recebe</th>
-                <th className="py-1 text-right font-medium">Margem</th>
-              </tr>
-            </thead>
-            <tbody>
-              {porCanal.map((c) => (
-                <tr key={c.nome} className="border-t border-border-soft">
-                  <td className="py-1">{c.nome}</td>
-                  <td className="py-1 text-right font-mono">
-                    {pesoTotal > 0
-                      ? formatPct((c.percentualMix / pesoTotal) * 100)
-                      : "—"}
-                  </td>
-                  <td className="py-1 text-right font-mono">
-                    {c.desconto >= 1
-                      ? "isento"
-                      : c.desconto > 0
-                        ? formatPct(c.desconto * 100)
-                        : "—"}
-                  </td>
-                  <td className="py-1 text-right font-mono">
-                    {formatBRL(c.efetivo)}
-                  </td>
-                  <td
-                    className={`py-1 text-right font-mono font-semibold ${c.margem >= 0 ? "text-success" : "text-danger"}`}
-                  >
-                    {formatBRL(c.margem)}
-                    {c.margemPct != null ? ` · ${formatPct(c.margemPct)}` : ""}
-                  </td>
-                </tr>
-              ))}
-              {precoMedio != null && temDescontoCanal && (
-                <tr className="border-t border-border font-semibold">
-                  <td className="py-1">Média pelo mix de canais</td>
-                  <td></td>
-                  <td></td>
-                  <td className="py-1 text-right font-mono">
-                    {formatBRL(precoMedio)}
-                  </td>
-                  <td
-                    className={`py-1 text-right font-mono ${precoMedio - custo >= 0 ? "text-success" : "text-danger"}`}
-                  >
-                    {formatBRL(precoMedio - custo)}
-                    {precoMedio > 0
-                      ? ` · ${formatPct(((precoMedio - custo) / precoMedio) * 100)}`
-                      : ""}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }
@@ -591,31 +497,23 @@ function FormasPagamentoEditor({
     onChange(formas.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   const somaOk = Math.abs(somaPct - 100) < 0.05;
   return (
-    <div className="rounded-lg border border-border-soft px-3.5 py-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center text-[11.5px] font-semibold text-text-muted">
-          Formas de pagamento
-          <InfoTooltip texto="Quantos % dos clientes novos pagam à vista, em 3×, 5×, 10×... Cada forma pode ter um desconto (ex: à vista com 10% off). A projeção divide cada leva de clientes por este mix; o custo sai inteiro no mês do onboarding." />
-        </p>
+    <div className="form-campo">
+      <label className="flex items-center gap-2">
+        Formas de pagamento
+        <InfoTooltip texto="Quantos % dos clientes novos pagam à vista, em 3×, 5×, 10×... Cada forma pode ter um desconto (ex: à vista com 10% off). A projeção divide cada leva de clientes por este mix; o custo sai inteiro no mês do onboarding." />
         <button
           type="button"
           onClick={() => onChange(SUGESTAO_FORMAS)}
-          className="text-[11px] text-primary-deep underline decoration-dotted"
+          className="text-[10.5px] font-normal text-primary-deep underline decoration-dotted"
         >
           usar à vista / 3× / 5× / 10×
         </button>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <div className="grid grid-cols-[90px_110px_110px_auto] gap-2 text-[10px] text-text-faint">
-          <span>Parcelas</span>
-          <span>% dos clientes</span>
-          <span>Desconto (opcional)</span>
-          <span></span>
-        </div>
+      </label>
+      <div className="flex flex-col gap-1">
         {formas.map((f, i) => (
           <div
             key={i}
-            className="grid grid-cols-[90px_110px_110px_auto] items-center gap-2"
+            className="flex items-center gap-1.5 text-[11px] text-text-faint"
           >
             <input
               type="number"
@@ -623,71 +521,65 @@ function FormasPagamentoEditor({
               step="1"
               value={f.parcelas}
               onChange={(e) => atualizar(i, { parcelas: e.target.value })}
-              className="input"
+              className="input input-compacto w-[58px] text-right"
               aria-label="Parcelas"
             />
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                value={f.pct}
-                onChange={(e) => atualizar(i, { pct: e.target.value })}
-                className="input w-full"
-                aria-label="% dos clientes"
-              />
-              <span className="text-[11px] text-text-faint">%</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.5"
-                value={f.desconto}
-                onChange={(e) => atualizar(i, { desconto: e.target.value })}
-                placeholder="0"
-                className="input w-full"
-                aria-label="Desconto"
-              />
-              <span className="text-[11px] text-text-faint">%</span>
-            </div>
-            <div className="flex items-center gap-3 text-[11px]">
-              <span className="text-text-faint">
-                {nomeForma(Math.max(1, Math.round(Number(f.parcelas) || 1)))}
-              </span>
-              {formas.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => onChange(formas.filter((_, j) => j !== i))}
-                  className="text-danger"
-                  aria-label="Remover forma"
-                >
-                  ×
-                </button>
-              )}
-            </div>
+            <span className="w-[44px]">
+              {nomeForma(Math.max(1, Math.round(Number(f.parcelas) || 1)))}
+            </span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={f.pct}
+              onChange={(e) => atualizar(i, { pct: e.target.value })}
+              className="input input-compacto w-[58px] text-right"
+              aria-label="% dos clientes"
+            />
+            <span>% dos clientes</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.5"
+              value={f.desconto}
+              onChange={(e) => atualizar(i, { desconto: e.target.value })}
+              placeholder="0"
+              className="input input-compacto w-[58px] text-right"
+              aria-label="Desconto"
+            />
+            <span>% desc.</span>
+            {formas.length > 1 && (
+              <button
+                type="button"
+                onClick={() => onChange(formas.filter((_, j) => j !== i))}
+                className="ml-1 text-danger"
+                aria-label="Remover forma"
+              >
+                ×
+              </button>
+            )}
           </div>
         ))}
-      </div>
-      <div className="mt-2 flex items-center justify-between text-[10.5px]">
-        <button
-          type="button"
-          onClick={() =>
-            onChange([...formas, { parcelas: "", pct: "", desconto: "" }])
-          }
-          className="font-medium text-primary-deep"
-        >
-          + forma de pagamento
-        </button>
-        <span
-          className={somaOk ? "text-text-faint" : "font-medium text-danger"}
-        >
-          {somaOk
-            ? "soma 100% dos clientes"
-            : `soma ${somaPct.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% — ajuste pra 100% antes de salvar`}
-        </span>
+        <div className="flex items-center gap-3 text-[10.5px]">
+          <button
+            type="button"
+            onClick={() =>
+              onChange([...formas, { parcelas: "", pct: "", desconto: "" }])
+            }
+            className="font-medium text-primary-deep"
+          >
+            + forma
+          </button>
+          <span
+            className={somaOk ? "text-text-faint" : "font-medium text-danger"}
+          >
+            {somaOk
+              ? "soma 100%"
+              : `soma ${somaPct.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% — ajuste pra 100% antes de salvar`}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -786,7 +678,7 @@ function EtapasImplementacao({
     <div className="mt-4">
       <p className="mb-2 flex items-center text-[11.5px] font-semibold text-text-muted">
         Etapas da implantação
-        <InfoTooltip texto="O valor/hora é puxado automaticamente da tabela de custo/hora pelo cargo que executa as horas, a senioridade e o tipo de contratação. Clique em Editar pra ajustar uma etapa já lançada — a simulação de margem acima acompanha enquanto você edita." />
+        <InfoTooltip texto="O valor/hora é puxado automaticamente da tabela de custo/hora pelo cargo que executa as horas, a senioridade e o tipo de contratação. Clique em Editar pra ajustar uma etapa já lançada — a simulação de margem abaixo acompanha enquanto você edita." />
       </p>
 
       <div className="mb-3 overflow-x-auto">

@@ -93,6 +93,11 @@
     outline: none;
     border-color: var(--color-primary-fill);
   }
+  /* Campo curto em linha densa (grades, listas de parcelas): mesma borda, metade da altura. */
+  .input-compacto {
+    padding: 0.3rem 0.5rem;
+    font-size: 12px;
+  }
 
   /* Larguras por TIPO DE DADO. O problema que isso resolve: `.input` tem width:100%, então dentro
      de uma grade de 2 colunas todo campo ocupava meia tela — inclusive um "%" de dois dígitos.

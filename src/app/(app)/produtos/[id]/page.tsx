@@ -7,10 +7,7 @@ import { ModulosProduto } from "./modulos-produto";
 import { NiveisModulo } from "./niveis-modulo";
 import { TipoPrecificacaoToggle } from "./tipo-precificacao-toggle";
 import { DatasProduto } from "./datas-produto";
-import {
-  ImplementacaoProduto,
-  type CanalImplementacao,
-} from "./implementacao-produto";
+import { ImplementacaoProduto } from "./implementacao-produto";
 import { StatusProdutoControle } from "@/app/(app)/produtos/status-produto";
 import { LABEL_STATUS, type StatusProduto } from "@/lib/fases-produto";
 import { SecaoRecolhivel } from "@/components/secao-recolhivel";
@@ -132,33 +129,6 @@ export default async function ProdutoDetailPage({
       .order("cargo"),
   ]);
 
-  // Canais que vendem este produto no cenário: cada um pode dar desconto (ou isenção) na
-  // implementação — é o que faz a margem real variar conforme a origem do cliente.
-  const { data: canaisRaw } = cenarioAtual
-    ? await supabase
-        .from("canais_aquisicao")
-        .select(
-          "nome, tipo_canal, canal_produto(produto_id, percentual_mix, isencao_implementacao, desconto_implementacao_pct)",
-        )
-        .eq("cenario_id", cenarioAtual)
-        .order("created_at")
-    : { data: [] };
-  const canaisImplementacao: CanalImplementacao[] = (canaisRaw ?? []).flatMap(
-    (c) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((c.canal_produto ?? []) as any[])
-        .filter(
-          (cp) => cp.produto_id === id && Number(cp.percentual_mix ?? 0) > 0,
-        )
-        .map((cp) => ({
-          nome: c.nome,
-          percentualMix: Number(cp.percentual_mix),
-          desconto: cp.isencao_implementacao
-            ? 1
-            : Number(cp.desconto_implementacao_pct ?? 0),
-        })),
-  );
-
   const status = (produto.status ?? "planejado") as StatusProduto;
   const precosPlanos = (planos ?? [])
     .map((p) => Number(p.preco ?? 0))
@@ -271,7 +241,6 @@ export default async function ProdutoDetailPage({
             etapas={(etapasImplementacao ?? []) as any}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             tabelaCustoHora={(tabelaCustoHora ?? []) as any}
-            canais={canaisImplementacao}
           />
         </SecaoRecolhivel>
 
