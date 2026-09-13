@@ -15,7 +15,9 @@ export default async function ModelosContratacaoPage() {
     "SDR",
     "Coordenador",
     "Suporte",
-    ...new Set((alocacoesCargos ?? []).map((a) => a.cargo.trim()).filter(Boolean)),
+    ...new Set(
+      (alocacoesCargos ?? []).map((a) => a.cargo.trim()).filter(Boolean),
+    ),
   ];
 
   return (
@@ -27,11 +29,17 @@ export default async function ModelosContratacaoPage() {
       </div>
 
       <div className="mb-6">
-        <h1 className="font-heading text-[22px] font-semibold">Modelos de Contratação</h1>
+        <h1 className="font-heading text-[22px] font-semibold">
+          Modelos de Contratação
+        </h1>
         <p className="mt-1 text-[13px] text-text-muted">
-          Catálogo de custo por cargo — CLT, PJ ou Empresa prestadora. A comparação com a demanda real (quanto de cada
-          um você precisaria) fica em{" "}
-          <Link href="/contratacoes/necessidade" className="text-primary-deep underline">
+          Catálogo de custo por cargo — CLT, PJ ou Empresa prestadora. A
+          comparação com a demanda real (quanto de cada um você precisaria) fica
+          em{" "}
+          <Link
+            href="/contratacoes/necessidade"
+            className="text-primary-deep underline"
+          >
             Necessidade de Contratação
           </Link>
           .
@@ -40,7 +48,10 @@ export default async function ModelosContratacaoPage() {
 
       <div className="grid grid-cols-[380px_1fr] items-start gap-5">
         <ModeloForm cargosSugeridos={[...new Set(cargosSugeridos)]} />
-        <ModelosLista modelos={modelos ?? []} cargosSugeridos={[...new Set(cargosSugeridos)]} />
+        <ModelosLista
+          modelos={modelos ?? []}
+          cargosSugeridos={[...new Set(cargosSugeridos)]}
+        />
       </div>
     </div>
   );

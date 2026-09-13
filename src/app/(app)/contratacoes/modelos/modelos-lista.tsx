@@ -3,7 +3,11 @@
 import { useState, useTransition } from "react";
 import { excluirModeloContratacao } from "./actions";
 import { ModeloForm } from "./modelo-form";
-import { TIPO_MODELO_LABEL, type TipoModelo, type ParametrosModelo } from "@/lib/modelos-contratacao";
+import {
+  TIPO_MODELO_LABEL,
+  type TipoModelo,
+  type ParametrosModelo,
+} from "@/lib/modelos-contratacao";
 
 type Modelo = {
   id: string;
@@ -33,17 +37,32 @@ function resumoParametros(tipo: TipoModelo, p: ParametrosModelo): string {
     case "empresa_creditos":
       return `${formatBRL(p.valor_por_credito ?? 0)}/crédito · ${p.creditos_por_unidade ?? 1} crédito(s) por contato`;
     case "empresa_ia_atendimento": {
-      const pacote = p.capacidade_unidade_mes ? `até ${p.capacidade_unidade_mes} leads/mês` : "sem limite de leads";
+      const pacote = p.capacidade_unidade_mes
+        ? `até ${p.capacidade_unidade_mes} leads/mês`
+        : "sem limite de leads";
       const extras: string[] = [];
-      if (p.valor_por_lead_trabalhado) extras.push(`+${formatBRL(p.valor_por_lead_trabalhado)}/lead trabalhado`);
-      if (p.valor_por_lead_qualificado) extras.push(`+${formatBRL(p.valor_por_lead_qualificado)}/lead qualificado`);
-      if (p.valor_sessao_meta) extras.push(`+${formatBRL(p.valor_sessao_meta)}/sessão Meta`);
+      if (p.valor_por_lead_trabalhado)
+        extras.push(
+          `+${formatBRL(p.valor_por_lead_trabalhado)}/lead trabalhado`,
+        );
+      if (p.valor_por_lead_qualificado)
+        extras.push(
+          `+${formatBRL(p.valor_por_lead_qualificado)}/lead qualificado`,
+        );
+      if (p.valor_sessao_meta)
+        extras.push(`+${formatBRL(p.valor_sessao_meta)}/sessão Meta`);
       return `${formatBRL(p.valor_mensal ?? 0)}/mês · ${pacote}${extras.length ? " · " + extras.join(" · ") : ""}`;
     }
   }
 }
 
-export function ModelosLista({ modelos, cargosSugeridos }: { modelos: Modelo[]; cargosSugeridos: string[] }) {
+export function ModelosLista({
+  modelos,
+  cargosSugeridos,
+}: {
+  modelos: Modelo[];
+  cargosSugeridos: string[];
+}) {
   const [isPending, startTransition] = useTransition();
   const [editandoId, setEditandoId] = useState<string | null>(null);
 
@@ -57,7 +76,9 @@ export function ModelosLista({ modelos, cargosSugeridos }: { modelos: Modelo[]; 
   if (modelos.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-8 text-center">
-        <p className="text-sm text-text-muted">Nenhum modelo cadastrado ainda.</p>
+        <p className="text-sm text-text-muted">
+          Nenhum modelo cadastrado ainda.
+        </p>
       </div>
     );
   }
@@ -65,33 +86,67 @@ export function ModelosLista({ modelos, cargosSugeridos }: { modelos: Modelo[]; 
   return (
     <div className="flex flex-col gap-4">
       {[...porCargo.entries()].map(([cargo, itens]) => (
-        <div key={cargo} className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-3 font-heading text-[13px] font-semibold">{cargo}</h2>
+        <div
+          key={cargo}
+          className="rounded-xl border border-border bg-surface p-5"
+        >
+          <h2 className="mb-3 font-heading text-[13px] font-semibold">
+            {cargo}
+          </h2>
           <div className="flex flex-col gap-2">
             {itens.map((m) =>
               editandoId === m.id ? (
-                <ModeloForm key={m.id} cargosSugeridos={cargosSugeridos} modeloExistente={m} onSaved={() => setEditandoId(null)} onCancelar={() => setEditandoId(null)} />
+                <ModeloForm
+                  key={m.id}
+                  cargosSugeridos={cargosSugeridos}
+                  modeloExistente={m}
+                  onSaved={() => setEditandoId(null)}
+                  onCancelar={() => setEditandoId(null)}
+                />
               ) : (
-                <div key={m.id} className="flex items-center justify-between rounded-lg border border-border-soft px-3 py-2.5">
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between rounded-lg border border-border-soft px-3 py-2.5"
+                >
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[12.5px] font-semibold">{m.nome}</span>
-                      <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[9.5px] font-semibold text-primary-deep">
-                        {TIPO_MODELO_LABEL[m.tipo_modelo as TipoModelo] ?? m.tipo_modelo}
+                      <span className="text-[12.5px] font-semibold">
+                        {m.nome}
                       </span>
-                      <span className="text-[9.5px] uppercase text-text-faint">{m.categoria}</span>
+                      <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[9.5px] font-semibold text-primary-deep">
+                        {TIPO_MODELO_LABEL[m.tipo_modelo as TipoModelo] ??
+                          m.tipo_modelo}
+                      </span>
+                      <span className="text-[9.5px] uppercase text-text-faint">
+                        {m.categoria}
+                      </span>
                     </div>
-                    <div className="mt-0.5 text-[10.5px] text-text-faint">{resumoParametros(m.tipo_modelo as TipoModelo, m.parametros)}</div>
-                    {m.observacoes && <div className="mt-0.5 text-[10.5px] text-text-faint">{m.observacoes}</div>}
+                    <div className="mt-0.5 text-[10.5px] text-text-faint">
+                      {resumoParametros(
+                        m.tipo_modelo as TipoModelo,
+                        m.parametros,
+                      )}
+                    </div>
+                    {m.observacoes && (
+                      <div className="mt-0.5 text-[10.5px] text-text-faint">
+                        {m.observacoes}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setEditandoId(m.id)} className="text-[11px] text-primary-deep">
+                    <button
+                      type="button"
+                      onClick={() => setEditandoId(m.id)}
+                      className="text-[11px] text-primary-deep"
+                    >
                       Editar
                     </button>
                     <button
                       type="button"
                       disabled={isPending}
-                      onClick={() => startTransition(() => excluirModeloContratacao(m.id))}
+                      onClick={() =>
+                        startTransition(() => excluirModeloContratacao(m.id))
+                      }
                       className="text-[11px] text-danger"
                     >
                       Remover

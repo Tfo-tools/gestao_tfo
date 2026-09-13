@@ -52,6 +52,10 @@ export type ParametrosModelo = {
   /** PJ com fixo mensal de contrato (ex: vendedor R$ 4.500): cobra a pessoa inteira, não a fração
    *  das horas usadas. Sem isso o PJ é proporcional à demanda (suporte por hora, SDR por reunião). */
   fixo_por_pessoa_inteira?: boolean;
+  /** Só contrata quando a demanda do mês chega a este volume (na unidade do cargo). Abaixo, as
+   *  sócias absorvem e o custo é zero — PJ fecha com ≥ 1 semana de trabalho (≈ ¼ da capacidade),
+   *  CLT só com ≥ 1 mês (a capacidade inteira). */
+  demanda_minima_mes?: number;
 };
 
 export const TIPO_MODELO_LABEL: Record<TipoModelo, string> = {
@@ -85,31 +89,48 @@ export type ContextoCusto = {
 
 /** Bot de SDR (IA): cobra por lead e escala em pacotes — não tem teto de ligações por pessoa. */
 function ehBotDeLeads(parametros: ParametrosModelo): boolean {
-  return parametros.leads_maximos_pacote != null || parametros.valor_por_lead_trabalhado != null;
+  return (
+    parametros.leads_maximos_pacote != null ||
+    parametros.valor_por_lead_trabalhado != null
+  );
 }
 
 /** Ligações necessárias pra agendar as reuniões do mês, na eficiência deste modelo. Respeita o
  *  teto combinado: com PJ dá pra contratar produtividade menor e pagar menos. */
-function ligacoesDoMes(parametros: ParametrosModelo, contexto: ContextoCusto): number {
+function ligacoesDoMes(
+  parametros: ParametrosModelo,
+  contexto: ContextoCusto,
+): number {
   if (contexto.leads != null) return contexto.leads;
   if (contexto.ligacoes != null) return contexto.ligacoes;
   const reunioes = contexto.reunioes ?? 0;
   // No bot, a oportunidade é o lead QUALIFICADO — a mesma taxa que ele usa pra cobrar o
   // qualificado. Um número só, pra custo e dimensionamento não discordarem.
   const bot = ehBotDeLeads(parametros);
-  const taxa = bot ? (parametros.taxa_qualificacao_estimada || parametros.taxa_qualificacao || 0) : (parametros.taxa_qualificacao ?? 0);
+  const taxa = bot
+    ? parametros.taxa_qualificacao_estimada || parametros.taxa_qualificacao || 0
+    : (parametros.taxa_qualificacao ?? 0);
   const necessarias = taxa > 0 ? reunioes / taxa : 0;
   if (bot) return necessarias;
-  const teto = (parametros.ligacoes_maximas_mes ?? 0) * Math.max(1, Math.ceil((contexto.unidades ?? 1) - 1e-9));
+  const teto =
+    (parametros.ligacoes_maximas_mes ?? 0) *
+    Math.max(1, Math.ceil((contexto.unidades ?? 1) - 1e-9));
   return teto > 0 ? Math.min(necessarias, teto) : necessarias;
 }
 
 /** Parte variável comum a CLT e PJ: por reunião, por ligação e comissão de venda. */
-function remuneracaoVariavel(parametros: ParametrosModelo, contexto: ContextoCusto): number {
-  const porReuniao = (contexto.reunioes ?? 0) * (parametros.valor_por_reuniao ?? 0);
-  const porLigacao = ligacoesDoMes(parametros, contexto) * (parametros.valor_por_ligacao ?? 0);
+function remuneracaoVariavel(
+  parametros: ParametrosModelo,
+  contexto: ContextoCusto,
+): number {
+  const porReuniao =
+    (contexto.reunioes ?? 0) * (parametros.valor_por_reuniao ?? 0);
+  const porLigacao =
+    ligacoesDoMes(parametros, contexto) * (parametros.valor_por_ligacao ?? 0);
   const porVenda = (contexto.vendas ?? 0) * (parametros.valor_por_venda ?? 0);
-  const comissao = (contexto.receitaNovasVendas ?? 0) * (parametros.comissao_por_venda_pct ?? 0);
+  const comissao =
+    (contexto.receitaNovasVendas ?? 0) *
+    (parametros.comissao_por_venda_pct ?? 0);
   return porReuniao + porLigacao + porVenda + comissao;
 }
 
@@ -127,14 +148,30 @@ export function custoMensalModelo(
   contexto: ContextoCusto = {},
 ): { custoMensal: number; unidades: number } {
   const demandaConvertida = contexto.reunioes;
+  // Abaixo do volume mínimo combinado ninguém é contratado: as sócias cobrem, sem custo.
+  const minimo = parametros.demanda_minima_mes ?? 0;
+  if (
+    (tipoModelo === "clt" || tipoModelo === "pj") &&
+    minimo > 0 &&
+    demanda < minimo
+  ) {
+    return { custoMensal: 0, unidades: 0 };
+  }
   switch (tipoModelo) {
     case "clt": {
       const capacidade = parametros.capacidade_unidade_mes ?? 0;
       const unidades = capacidade > 0 ? Math.ceil(demanda / capacidade) : 0;
       const custoUnitario =
-        (parametros.salario_bruto ?? 0) * (1 + (parametros.aliquota_encargos ?? 0)) + (parametros.custo_estrutura_mensal ?? 0);
+        (parametros.salario_bruto ?? 0) *
+          (1 + (parametros.aliquota_encargos ?? 0)) +
+        (parametros.custo_estrutura_mensal ?? 0);
       // O fixo é por cabeça; o variável é do volume do mês, que já está distribuído entre elas.
-      return { custoMensal: unidades * custoUnitario + remuneracaoVariavel(parametros, { ...contexto, unidades }), unidades };
+      return {
+        custoMensal:
+          unidades * custoUnitario +
+          remuneracaoVariavel(parametros, { ...contexto, unidades }),
+        unidades,
+      };
     }
     case "pj": {
       // PJ é contratado só pela quantidade de horas necessária — custo proporcional à demanda
@@ -149,9 +186,13 @@ export function custoMensalModelo(
       const custoEstrutura = pessoas * (parametros.custo_estrutura_mensal ?? 0);
       // PJ sem fixo (valor_mensal 0) fica só com o variável — é o caso da SDR que cobra por
       // reunião e produtividade, sem salário.
-      const fixo = (inteiro ? pessoas : unidades) * (parametros.valor_mensal ?? 0);
+      const fixo =
+        (inteiro ? pessoas : unidades) * (parametros.valor_mensal ?? 0);
       return {
-        custoMensal: fixo + custoEstrutura + remuneracaoVariavel(parametros, { ...contexto, unidades: pessoas }),
+        custoMensal:
+          fixo +
+          custoEstrutura +
+          remuneracaoVariavel(parametros, { ...contexto, unidades: pessoas }),
         unidades: inteiro ? pessoas : unidades,
       };
     }
@@ -159,13 +200,18 @@ export function custoMensalModelo(
       // Pacote de agência: compra-se em unidades inteiras de capacidade (não dá pra comprar "meio pacote").
       const capacidade = parametros.capacidade_unidade_mes ?? 0;
       const unidades = capacidade > 0 ? Math.ceil(demanda / capacidade) : 0;
-      return { custoMensal: unidades * (parametros.valor_mensal ?? 0), unidades };
+      return {
+        custoMensal: unidades * (parametros.valor_mensal ?? 0),
+        unidades,
+      };
     }
     case "empresa_hibrido": {
       // O "por unidade convertida" é por REUNIÃO gerada, não por lead trabalhado.
       const convertidas = demandaConvertida ?? demanda;
       return {
-        custoMensal: (parametros.valor_fixo_mensal ?? 0) + convertidas * (parametros.valor_por_unidade_convertida ?? 0),
+        custoMensal:
+          (parametros.valor_fixo_mensal ?? 0) +
+          convertidas * (parametros.valor_por_unidade_convertida ?? 0),
         unidades: 0,
       };
     }
@@ -173,7 +219,10 @@ export function custoMensalModelo(
       // A agência de créditos/IA cobra por REUNIÃO VALIDADA (R$150-300), não por lead disparado —
       // o volume de disparo é problema dela. Por isso multiplica a demanda em reuniões direto.
       return {
-        custoMensal: demanda * (parametros.creditos_por_unidade ?? 1) * (parametros.valor_por_credito ?? 0),
+        custoMensal:
+          demanda *
+          (parametros.creditos_por_unidade ?? 1) *
+          (parametros.valor_por_credito ?? 0),
         unidades: 0,
       };
     case "empresa_ia_atendimento": {
@@ -183,23 +232,34 @@ export function custoMensalModelo(
       const leads = ligacoesDoMes(parametros, contexto) || demanda;
       // O pacote do bot é dimensionado por LEADS incluídos, não pelas reuniões que ele entrega.
       const tetoLeads = parametros.leads_maximos_pacote ?? 0;
-      const unidades = tetoLeads > 0 ? Math.ceil(leads / tetoLeads) : leads > 0 ? 1 : 0;
+      const unidades =
+        tetoLeads > 0 ? Math.ceil(leads / tetoLeads) : leads > 0 ? 1 : 0;
       const custoBase = unidades * (parametros.valor_mensal ?? 0);
       const custoPorLead = leads * (parametros.valor_por_lead_trabalhado ?? 0);
       const custoQualificacao =
-        leads * (parametros.taxa_qualificacao_estimada ?? 0) * (parametros.valor_por_lead_qualificado ?? 0);
+        leads *
+        (parametros.taxa_qualificacao_estimada ?? 0) *
+        (parametros.valor_por_lead_qualificado ?? 0);
       // Custo repassado da API oficial da Meta (cobrada por sessão de conversa de 24h) — separado
       // do valor do próprio serviço, porque a Meta cobra isso direto, não a empresa de IA.
-      const custoMeta = leads * (parametros.sessoes_meta_por_lead ?? 0) * (parametros.valor_sessao_meta ?? 0);
-      return { custoMensal: custoBase + custoPorLead + custoQualificacao + custoMeta, unidades };
+      const custoMeta =
+        leads *
+        (parametros.sessoes_meta_por_lead ?? 0) *
+        (parametros.valor_sessao_meta ?? 0);
+      return {
+        custoMensal: custoBase + custoPorLead + custoQualificacao + custoMeta,
+        unidades,
+      };
     }
   }
 }
 
-
 /** Leads/ligações que este modelo precisa trabalhar pras reuniões do mês — só pra exibir na
  *  comparação. O custo já calcula isso internamente em quem cobra por lead. */
-export function leadsParaReunioes(parametros: ParametrosModelo, reunioes: number): number {
+export function leadsParaReunioes(
+  parametros: ParametrosModelo,
+  reunioes: number,
+): number {
   return ligacoesDoMes(parametros, { reunioes });
 }
 
@@ -219,7 +279,8 @@ export function volumeCobertoPelaAlocacao(
   demandaDoMes: number,
 ): { coberto: number; cobrado: number } {
   const capacidade = parametros.capacidade_unidade_mes ?? 0;
-  const teto = quantidade > 0 && capacidade > 0 ? quantidade * capacidade : null;
+  const teto =
+    quantidade > 0 && capacidade > 0 ? quantidade * capacidade : null;
   if (tipo === "clt" || tipo === "empresa_fixo_escopo") {
     const contratado = teto ?? demandaDoMes;
     return { coberto: Math.min(demandaDoMes, contratado), cobrado: contratado };

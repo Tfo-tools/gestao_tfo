@@ -827,7 +827,7 @@ export async function agregarPorCenario(
       };
     })
     .filter((f): f is FunilPremissaInput => f !== null);
-  const simulacaoInput: SimulacaoMesInput[] = ((simRows ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number; novos_direto?: number | null; novos_representante?: number | null; novos_associacao?: number | null }[]).map((s) => ({
+  const simulacaoInput: SimulacaoMesInput[] = ((simRows ?? []) as { produto_id: string; mes_referencia: string; novos_clientes: number; clientes_ativos: number; novos_direto?: number | null; novos_representante?: number | null; novos_associacao?: number | null; novos_acoes?: number | null }[]).map((s) => ({
     produtoId: s.produto_id,
     mes_referencia: s.mes_referencia,
     novos_clientes: Number(s.novos_clientes),
@@ -835,6 +835,7 @@ export async function agregarPorCenario(
     novos_direto: s.novos_direto != null ? Number(s.novos_direto) : undefined,
     novos_representante: s.novos_representante != null ? Number(s.novos_representante) : undefined,
     novos_associacao: s.novos_associacao != null ? Number(s.novos_associacao) : undefined,
+    novos_acoes: s.novos_acoes != null ? Number(s.novos_acoes) : undefined,
   }));
   const qualificacaoPorModelo = new Map(
     ((modelosRaw ?? []) as { id: string; parametros: ParametrosModelo }[]).map((m) => [

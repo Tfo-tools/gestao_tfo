@@ -53,7 +53,7 @@ export default async function NecessidadeContratacaoPage({
       : Promise.resolve({ data: [] }),
     supabase
       .from("simulacao_mensal")
-      .select("produto_id, mes_referencia, novos_clientes, clientes_ativos, receita_bruta, novos_direto, novos_representante, novos_associacao")
+      .select("produto_id, mes_referencia, novos_clientes, clientes_ativos, receita_bruta, novos_direto, novos_representante, novos_associacao, novos_acoes")
       .eq("cenario_id", cenarioAtual),
     supabase.from("modelos_contratacao").select("*").order("cargo"),
     supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioAtual),
@@ -89,6 +89,7 @@ export default async function NecessidadeContratacaoPage({
     novos_direto: s.novos_direto != null ? Number(s.novos_direto) : undefined,
     novos_representante: s.novos_representante != null ? Number(s.novos_representante) : undefined,
     novos_associacao: s.novos_associacao != null ? Number(s.novos_associacao) : undefined,
+    novos_acoes: s.novos_acoes != null ? Number(s.novos_acoes) : undefined,
   }));
 
   const { data: canaisRaw } = await supabase
