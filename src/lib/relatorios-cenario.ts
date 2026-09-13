@@ -102,8 +102,8 @@ export type Agregado = {
   alocacaoVendedor: number;
   alocacaoCoordenador: number;
   alocacaoSuporte: number;
-  /** Suporte pelas regras de COGS (horas × custo/hora) dos produtos — substituído pela equipe de
-   *  suporte alocada quando ela existe no mês. */
+  /** Suporte REATIVO pelas regras de COGS (horas × custo/hora) dos produtos — substituído pela
+   *  equipe de suporte alocada quando ela existe no mês. O CS proativo fica sempre na regra. */
   cogsSuporteRegra: number;
   alocacaoOutros: number;
   empresaSm: number;
@@ -1268,7 +1268,8 @@ export async function agregarPorCenario(
       n("cogs_llm"),
       produto,
     );
-    atual.cogsSuporteRegra += n("cogs_suporte_reativo") + n("cogs_cs_proativo");
+    // Só o reativo é substituído pela alocação de Suporte; o CS proativo (CSM) segue pela regra.
+    atual.cogsSuporteRegra += n("cogs_suporte_reativo");
     compor(
       atual,
       "cogs",
