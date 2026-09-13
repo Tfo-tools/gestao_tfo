@@ -9,7 +9,7 @@ export type MetasCenario = {
   meta_receita_mensal: number | null;
   meta_cac: number | null;
   meta_ltv: number | null;
-  meta_roi_pct: number | null;
+  meta_margem_bruta_pct: number | null;
   meta_tir_pct: number | null;
 };
 
@@ -17,14 +17,15 @@ export type IndicadoresAtuais = {
   receitaMensal: number | null;
   cac: number | null;
   ltv: number | null;
-  roiPct: number | null;
+  /** Margem bruta acumulada do período (lucro bruto ÷ receita líquida), em %. */
+  margemBrutaPct: number | null;
   tirPct: number | null;
 };
 
 /** Fica fixo no topo enquanto a tela rola — mostra o quanto o plano já construído está perto (ou
  * longe) da meta definida no início, sempre visível, do jeito que o Fashion Mind faz. */
 export function MetasHeader({ metas, atuais }: { metas: MetasCenario; atuais: IndicadoresAtuais }) {
-  const temAlgumaMeta = [metas.meta_receita_mensal, metas.meta_cac, metas.meta_ltv, metas.meta_roi_pct, metas.meta_tir_pct].some(
+  const temAlgumaMeta = [metas.meta_receita_mensal, metas.meta_cac, metas.meta_ltv, metas.meta_margem_bruta_pct, metas.meta_tir_pct].some(
     (v) => v != null,
   );
   if (!temAlgumaMeta) return null;
@@ -35,7 +36,7 @@ export function MetasHeader({ metas, atuais }: { metas: MetasCenario; atuais: In
         <Indicador label="Receita mensal" atual={atuais.receitaMensal} meta={metas.meta_receita_mensal} formatar={formatBRL} maiorMelhor />
         <Indicador label="CAC" atual={atuais.cac} meta={metas.meta_cac} formatar={formatBRL} maiorMelhor={false} />
         <Indicador label="LTV" atual={atuais.ltv} meta={metas.meta_ltv} formatar={formatBRL} maiorMelhor />
-        <Indicador label="ROI" atual={atuais.roiPct} meta={metas.meta_roi_pct} formatar={formatPct} maiorMelhor />
+        <Indicador label="Margem bruta" atual={atuais.margemBrutaPct} meta={metas.meta_margem_bruta_pct} formatar={formatPct} maiorMelhor />
         <Indicador label="TIR" atual={atuais.tirPct} meta={metas.meta_tir_pct} formatar={formatPct} maiorMelhor />
       </div>
     </div>

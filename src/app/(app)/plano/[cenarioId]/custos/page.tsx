@@ -43,7 +43,7 @@ export default async function PlanoCustosPage({
   const [{ data: cenario }, { data: produtos }, { data: planoContas }] = await Promise.all([
     supabase
       .from("cenarios")
-      .select("id, nome, data_inicio, data_fim, meta_receita_mensal, meta_cac, meta_ltv, meta_roi_pct, meta_tir_pct")
+      .select("id, nome, data_inicio, data_fim, meta_receita_mensal, meta_cac, meta_ltv, meta_margem_bruta_pct, meta_tir_pct")
       .eq("id", cenarioId)
       .single(),
     supabase.from("produtos").select("id, nome").order("nome"),
@@ -392,7 +392,7 @@ export default async function PlanoCustosPage({
           receitaMensal: ultimaLinha?.receita ?? null,
           cac: metricas.cacMedio,
           ltv: metricas.ltvMedio,
-          roiPct: metricas.roiPct,
+          margemBrutaPct: metricas.margemBruta,
           tirPct: metricas.tirAnualPct,
         }}
       />

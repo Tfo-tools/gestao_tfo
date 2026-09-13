@@ -9,7 +9,7 @@ const initialState: CenarioFormState = { error: null };
 export function MetasForm({ cenarioId, metas }: { cenarioId: string; metas: MetasCenario }) {
   const [state, formAction, pending] = useActionState(salvarMetasCenario, initialState);
   const [aberto, setAberto] = useState(
-    metas.meta_receita_mensal == null && metas.meta_cac == null && metas.meta_ltv == null && metas.meta_roi_pct == null && metas.meta_tir_pct == null,
+    metas.meta_receita_mensal == null && metas.meta_cac == null && metas.meta_ltv == null && metas.meta_margem_bruta_pct == null && metas.meta_tir_pct == null,
   );
 
   if (!aberto) {
@@ -38,8 +38,8 @@ export function MetasForm({ cenarioId, metas }: { cenarioId: string; metas: Meta
         <Campo label="LTV alvo (R$)">
           <input name="meta_ltv" type="number" step="0.01" min="0" defaultValue={metas.meta_ltv ?? ""} className="input w-[130px]" />
         </Campo>
-        <Campo label="ROI alvo (%)">
-          <input name="meta_roi_pct" type="number" step="0.1" min="0" defaultValue={metas.meta_roi_pct ?? ""} className="input w-[110px]" />
+        <Campo label="Margem bruta alvo (%)">
+          <input name="meta_margem_bruta_pct" type="number" step="0.1" min="0" max="100" defaultValue={metas.meta_margem_bruta_pct ?? ""} className="input w-[110px]" />
         </Campo>
         <Campo label="TIR alvo (% a.a.)">
           <input name="meta_tir_pct" type="number" step="0.1" min="0" defaultValue={metas.meta_tir_pct ?? ""} className="input w-[110px]" />

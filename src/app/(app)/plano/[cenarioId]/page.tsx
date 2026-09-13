@@ -18,7 +18,7 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
 
   const { data: cenario } = await supabase
     .from("cenarios")
-    .select("id, nome, descricao, is_base, status, cenario_origem_id, meta_receita_mensal, meta_cac, meta_ltv, meta_roi_pct, meta_tir_pct")
+    .select("id, nome, descricao, is_base, status, cenario_origem_id, meta_receita_mensal, meta_cac, meta_ltv, meta_margem_bruta_pct, meta_tir_pct")
     .eq("id", cenarioId)
     .single();
   if (!cenario) notFound();
@@ -103,7 +103,7 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
           receitaMensal: ultimaLinha?.receita ?? null,
           cac: metricas.cacMedio,
           ltv: metricas.ltvMedio,
-          roiPct: metricas.roiPct,
+          margemBrutaPct: metricas.margemBruta,
           tirPct: metricas.tirAnualPct,
         }}
       />

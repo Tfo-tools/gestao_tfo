@@ -101,7 +101,7 @@ export async function salvarMetasCenario(
       meta_receita_mensal: numOuNull("meta_receita_mensal"),
       meta_cac: numOuNull("meta_cac"),
       meta_ltv: numOuNull("meta_ltv"),
-      meta_roi_pct: numOuNull("meta_roi_pct"),
+      meta_margem_bruta_pct: numOuNull("meta_margem_bruta_pct"),
       meta_tir_pct: numOuNull("meta_tir_pct"),
     })
     .eq("id", id);
@@ -143,7 +143,7 @@ export async function criarCenario(
   const { data: origem } = duplicarDe
     ? await supabase
         .from("cenarios")
-        .select("meta_receita_mensal, meta_cac, meta_ltv, meta_roi_pct, meta_tir_pct")
+        .select("meta_receita_mensal, meta_cac, meta_ltv, meta_margem_bruta_pct, meta_tir_pct")
         .eq("id", duplicarDe)
         .single()
     : { data: null };
@@ -162,7 +162,7 @@ export async function criarCenario(
       meta_receita_mensal: origem?.meta_receita_mensal ?? null,
       meta_cac: origem?.meta_cac ?? null,
       meta_ltv: origem?.meta_ltv ?? null,
-      meta_roi_pct: origem?.meta_roi_pct ?? null,
+      meta_margem_bruta_pct: origem?.meta_margem_bruta_pct ?? null,
       meta_tir_pct: origem?.meta_tir_pct ?? null,
     })
     .select("id")
