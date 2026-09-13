@@ -7,9 +7,23 @@ import { ModulosProduto } from "./modulos-produto";
 import { NiveisModulo } from "./niveis-modulo";
 import { TipoPrecificacaoToggle } from "./tipo-precificacao-toggle";
 import { DatasProduto } from "./datas-produto";
-import { ImplementacaoProduto, type CanalImplementacao } from "./implementacao-produto";
+import {
+  ImplementacaoProduto,
+  type CanalImplementacao,
+} from "./implementacao-produto";
 import { StatusProdutoControle } from "@/app/(app)/produtos/status-produto";
-import type { StatusProduto } from "@/lib/fases-produto";
+import { LABEL_STATUS, type StatusProduto } from "@/lib/fases-produto";
+import { SecaoRecolhivel } from "@/components/secao-recolhivel";
+import { SeloStatus } from "@/app/(app)/produtos/status-produto";
+
+const brl = (v: number) =>
+  v.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
+const dataBR = (d: string | null) =>
+  d ? new Date(d + "T00:00:00").toLocaleDateString("pt-BR") : "—";
 
 // Salvar a implementação recalcula a projeção do produto nos cenários — leva alguns segundos.
 export const maxDuration = 60;
@@ -38,21 +52,41 @@ export default async function ProdutoDetailPage({
 
   if (!produto) notFound();
 
-  const cenarioAtual = cenario ?? (cenarios ?? []).find((c) => c.is_base)?.id ?? (cenarios ?? [])[0]?.id ?? "";
+  const cenarioAtual =
+    cenario ??
+    (cenarios ?? []).find((c) => c.is_base)?.id ??
+    (cenarios ?? [])[0]?.id ??
+    "";
 
   const [{ data: planos }, { data: modulos }] = await Promise.all([
-    supabase.from("planos_precificacao").select("*").eq("produto_id", id).eq("cenario_id", cenarioAtual).order("preco"),
-    supabase.from("modulos_produto").select("*").eq("produto_id", id).eq("cenario_id", cenarioAtual).order("created_at"),
+    supabase
+      .from("planos_precificacao")
+      .select("*")
+      .eq("produto_id", id)
+      .eq("cenario_id", cenarioAtual)
+      .order("preco"),
+    supabase
+      .from("modulos_produto")
+      .select("*")
+      .eq("produto_id", id)
+      .eq("cenario_id", cenarioAtual)
+      .order("created_at"),
   ]);
 
   const planoIds = (planos ?? []).map((p) => p.id);
   const moduloIds = (modulos ?? []).map((m) => m.id);
   const [{ data: precosFase }, { data: betasModuloRaw }] = await Promise.all([
     planoIds.length > 0
-      ? supabase.from("planos_precificacao_fases").select("*").in("plano_id", planoIds)
+      ? supabase
+          .from("planos_precificacao_fases")
+          .select("*")
+          .in("plano_id", planoIds)
       : Promise.resolve({ data: [] }),
     moduloIds.length > 0
-      ? supabase.from("beta_testers_modulo").select("*").in("modulo_id", moduloIds)
+      ? supabase
+          .from("beta_testers_modulo")
+          .select("*")
+          .in("modulo_id", moduloIds)
       : Promise.resolve({ data: [] }),
   ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,20 +97,39 @@ export default async function ProdutoDetailPage({
     atual.push(b);
     betasModuloByModuloId.set(b.modulo_id, atual);
   }
-  const modulosComBeta = (modulos ?? []).map((m) => ({ ...m, betaTesters: betasModuloByModuloId.get(m.id) ?? [] }));
+  const modulosComBeta = (modulos ?? []).map((m) => ({
+    ...m,
+    betaTesters: betasModuloByModuloId.get(m.id) ?? [],
+  }));
 
   // Só as datas das fases (pro "Preço por fase" dos planos) — crescimento, churn, canais e funil são
   // decisão de Vendas, não daqui.
-  const [{ data: fases }, { data: betas }, { data: etapasImplementacao }, { data: tabelaCustoHora }] = await Promise.all([
-    supabase.from("fases_produto").select("fase, data_inicio, data_fim").eq("produto_id", id).eq("cenario_id", cenarioAtual),
-    supabase.from("beta_testers_config").select("*").eq("produto_id", id).eq("cenario_id", cenarioAtual),
+  const [
+    { data: fases },
+    { data: betas },
+    { data: etapasImplementacao },
+    { data: tabelaCustoHora },
+  ] = await Promise.all([
+    supabase
+      .from("fases_produto")
+      .select("fase, data_inicio, data_fim")
+      .eq("produto_id", id)
+      .eq("cenario_id", cenarioAtual),
+    supabase
+      .from("beta_testers_config")
+      .select("*")
+      .eq("produto_id", id)
+      .eq("cenario_id", cenarioAtual),
     supabase
       .from("implementacao_etapas")
       .select("*")
       .eq("produto_id", id)
       .eq("cenario_id", cenarioAtual)
       .order("ordem", { nullsFirst: false }),
-    supabase.from("tabela_custo_hora").select("area, cargo, tipo_contratacao, senioridade, valor_hora").order("cargo"),
+    supabase
+      .from("tabela_custo_hora")
+      .select("area, cargo, tipo_contratacao, senioridade, valor_hora")
+      .order("cargo"),
   ]);
 
   // Canais que vendem este produto no cenário: cada um pode dar desconto (ou isenção) na
@@ -84,20 +137,55 @@ export default async function ProdutoDetailPage({
   const { data: canaisRaw } = cenarioAtual
     ? await supabase
         .from("canais_aquisicao")
-        .select("nome, tipo_canal, canal_produto(produto_id, percentual_mix, isencao_implementacao, desconto_implementacao_pct)")
+        .select(
+          "nome, tipo_canal, canal_produto(produto_id, percentual_mix, isencao_implementacao, desconto_implementacao_pct)",
+        )
         .eq("cenario_id", cenarioAtual)
         .order("created_at")
     : { data: [] };
-  const canaisImplementacao: CanalImplementacao[] = (canaisRaw ?? []).flatMap((c) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((c.canal_produto ?? []) as any[])
-      .filter((cp) => cp.produto_id === id && Number(cp.percentual_mix ?? 0) > 0)
-      .map((cp) => ({
-        nome: c.nome,
-        percentualMix: Number(cp.percentual_mix),
-        desconto: cp.isencao_implementacao ? 1 : Number(cp.desconto_implementacao_pct ?? 0),
-      })),
+  const canaisImplementacao: CanalImplementacao[] = (canaisRaw ?? []).flatMap(
+    (c) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((c.canal_produto ?? []) as any[])
+        .filter(
+          (cp) => cp.produto_id === id && Number(cp.percentual_mix ?? 0) > 0,
+        )
+        .map((cp) => ({
+          nome: c.nome,
+          percentualMix: Number(cp.percentual_mix),
+          desconto: cp.isencao_implementacao
+            ? 1
+            : Number(cp.desconto_implementacao_pct ?? 0),
+        })),
   );
+
+  const status = (produto.status ?? "planejado") as StatusProduto;
+  const precosPlanos = (planos ?? [])
+    .map((p) => Number(p.preco ?? 0))
+    .filter((v) => v > 0);
+  const somaMix = (planos ?? []).reduce(
+    (a, p) => a + Number(p.mix_percentual ?? 0),
+    0,
+  );
+  const resumoPlanos =
+    (planos ?? []).length === 0
+      ? "nenhum plano ainda"
+      : `${(planos ?? []).length} plano${(planos ?? []).length === 1 ? "" : "s"} · ${brl(Math.min(...precosPlanos))}–${brl(Math.max(...precosPlanos))}/mês · mix ${somaMix}%`;
+  const precosNiveis = modulosComBeta
+    .map((m) => Number(m.preco ?? 0))
+    .filter((v) => v > 0);
+  const resumoNiveis =
+    modulosComBeta.length === 0
+      ? "nenhum nível ainda"
+      : `${modulosComBeta.length} níve${modulosComBeta.length === 1 ? "l" : "is"} · ${brl(Math.min(...precosNiveis))}–${brl(Math.max(...precosNiveis))}/mês`;
+  const resumoModulos =
+    modulosComBeta.length === 0
+      ? "nenhum módulo"
+      : `${modulosComBeta.length} módulo${modulosComBeta.length === 1 ? "" : "s"}`;
+  const nEtapas = (etapasImplementacao ?? []).length;
+  const resumoImplementacao = produto.tem_implementacao
+    ? `${brl(Number(produto.preco_implementacao ?? 0))} · até ${produto.implementacao_parcelas ?? 1}× · ${nEtapas} etapa${nEtapas === 1 ? "" : "s"} de entrega`
+    : "não cobra implementação";
 
   return (
     <div>
@@ -109,16 +197,28 @@ export default async function ProdutoDetailPage({
 
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="font-heading text-[22px] font-semibold">{produto.nome}</h1>
-          <p className="mt-1 text-[13px] text-text-muted">{produto.descricao ?? "Sem descrição."}</p>
+          <h1 className="font-heading text-[22px] font-semibold">
+            {produto.nome}
+          </h1>
+          <p className="mt-1 text-[13px] text-text-muted">
+            {produto.descricao ?? "Sem descrição."}
+          </p>
           <p className="mt-0.5 text-[11px] text-text-faint">
-            Planos, preços e módulos ficam aqui — início/fim de fase ficam na lista de Produtos; canais de aquisição,
-            crescimento, churn, conversão e capacidade ficam em Vendas
+            Precificação deste produto — fases ficam na lista de Produtos;
+            canais, crescimento e churn ficam em Vendas
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <TipoPrecificacaoToggle produtoId={id} tipoAtual={produto.tipo_precificacao} />
-          {cenarioAtual && <CenarioSelector cenarios={cenarios ?? []} cenarioAtual={cenarioAtual} />}
+          <TipoPrecificacaoToggle
+            produtoId={id}
+            tipoAtual={produto.tipo_precificacao}
+          />
+          {cenarioAtual && (
+            <CenarioSelector
+              cenarios={cenarios ?? []}
+              cenarioAtual={cenarioAtual}
+            />
+          )}
           {cenarioAtual && (
             <Link
               href={`/plano/${cenarioAtual}/vendas`}
@@ -130,44 +230,95 @@ export default async function ProdutoDetailPage({
         </div>
       </div>
 
-      <DatasProduto
-        produtoId={id}
-        dataInicioDesenvolvimento={produto.data_inicio_desenvolvimento}
-        dataLancamentoEstimada={produto.data_lancamento_estimada}
-      />
+      {/* Cada assunto numa linha com o resumo; o "+" abre só o que se vai mexer — sem rolagem por card gigante. */}
+      <div className="flex flex-col gap-2.5">
+        <SecaoRecolhivel
+          titulo="Status e datas"
+          resumo={`${LABEL_STATUS[status]} · início dev. ${dataBR(produto.data_inicio_desenvolvimento)} · lançamento ${dataBR(produto.data_lancamento_estimada)}`}
+          tooltip="Início do desenvolvimento é o mês 1 da simulação; lançamento é quando o produto começa a vender (pró-rata no mês, reajuste anual e gatilhos de módulos contam a partir dele). Início e fim de cada fase ficam na lista de Produtos."
+          acao={<SeloStatus status={status} />}
+        >
+          <DatasProduto
+            produtoId={id}
+            dataInicioDesenvolvimento={produto.data_inicio_desenvolvimento}
+            dataLancamentoEstimada={produto.data_lancamento_estimada}
+          />
+          <div className="border-t border-border-soft">
+            <StatusProdutoControle
+              produtoId={id}
+              status={status}
+              nome={produto.nome}
+            />
+          </div>
+        </SecaoRecolhivel>
 
-      <div className="mt-5">
-        <StatusProdutoControle produtoId={id} status={(produto.status ?? "planejado") as StatusProduto} nome={produto.nome} />
-      </div>
+        <SecaoRecolhivel
+          titulo="Implementação"
+          resumo={resumoImplementacao}
+          tooltip="Cobrança única na primeira contratação do produto: se o cliente adicionar um módulo depois, não cobra de novo; se comprar tudo junto, é a mesma cobrança única. O custo das etapas entra em COGS no mês do onboarding (o trabalho acontece ali, mesmo que o cliente pague parcelado), e é o que permite medir margem bruta do produto."
+        >
+          <ImplementacaoProduto
+            produtoId={id}
+            cenarioId={cenarioAtual}
+            temImplementacao={produto.tem_implementacao}
+            precoImplementacao={produto.preco_implementacao}
+            parcelas={produto.implementacao_parcelas ?? 1}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            formasPagamento={
+              (produto.implementacao_formas_pagamento as any) ?? null
+            }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            etapas={(etapasImplementacao ?? []) as any}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            tabelaCustoHora={(tabelaCustoHora ?? []) as any}
+            canais={canaisImplementacao}
+          />
+        </SecaoRecolhivel>
 
-      <div className="mt-5 flex flex-col gap-5">
-        <ImplementacaoProduto
-          produtoId={id}
-          cenarioId={cenarioAtual}
-          temImplementacao={produto.tem_implementacao}
-          precoImplementacao={produto.preco_implementacao}
-          parcelas={produto.implementacao_parcelas ?? 1}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          formasPagamento={(produto.implementacao_formas_pagamento as any) ?? null}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          etapas={(etapasImplementacao ?? []) as any}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          tabelaCustoHora={(tabelaCustoHora ?? []) as any}
-          canais={canaisImplementacao}
-        />
         {produto.tipo_precificacao === "modulos" ? (
-          <NiveisModulo produtoId={id} cenarioId={cenarioAtual} niveis={modulosComBeta} />
-        ) : (
-          <>
-            <PlanosPrecificacao
+          <SecaoRecolhivel
+            titulo="Planos por módulo"
+            resumo={resumoNiveis}
+            aberto={modulosComBeta.length === 0}
+            tooltip="Cada nível representa um combo cumulativo (ex: Basic → Starter → Premium). O preço cadastrado é sempre o valor MENSAL total cobrado do cliente nesse nível (não um acréscimo sobre o nível anterior, e não o total do ano). A cobrança (anual/mensal) só define o tempo mínimo de permanência. A adesão inicial e o crescimento mensal definem a curva de adoção até estabilizar no % de permanência estimado."
+          >
+            <NiveisModulo
               produtoId={id}
               cenarioId={cenarioAtual}
-              planos={planos ?? []}
-              precosFase={precosFase ?? []}
-              fases={(fases ?? []).map((f) => ({ fase: f.fase, data_inicio: f.data_inicio, data_fim: f.data_fim }))}
-              betaTesters={betas ?? []}
+              niveis={modulosComBeta}
             />
-            <ModulosProduto produtoId={id} cenarioId={cenarioAtual} modulos={modulosComBeta} />
+          </SecaoRecolhivel>
+        ) : (
+          <>
+            <SecaoRecolhivel
+              titulo="Planos de precificação"
+              resumo={resumoPlanos}
+              aberto={(planos ?? []).length === 0}
+            >
+              <PlanosPrecificacao
+                produtoId={id}
+                cenarioId={cenarioAtual}
+                planos={planos ?? []}
+                precosFase={precosFase ?? []}
+                fases={(fases ?? []).map((f) => ({
+                  fase: f.fase,
+                  data_inicio: f.data_inicio,
+                  data_fim: f.data_fim,
+                }))}
+                betaTesters={betas ?? []}
+              />
+            </SecaoRecolhivel>
+            <SecaoRecolhivel
+              titulo="Módulos add-on"
+              resumo={resumoModulos}
+              tooltip="Para produtos com combo de módulos: cada módulo tem preço próprio e aumenta o valor pago pelo cliente a partir do momento em que entra. Pode ser lançado numa fase específica do ciclo de vida, ou N meses após o lançamento comercial do produto. A adesão começa num % inicial da base de clientes e cresce todo mês até saturar em 100% — para um módulo que já entra valendo para todos, use 100% de adesão inicial e 0% de crescimento."
+            >
+              <ModulosProduto
+                produtoId={id}
+                cenarioId={cenarioAtual}
+                modulos={modulosComBeta}
+              />
+            </SecaoRecolhivel>
           </>
         )}
       </div>

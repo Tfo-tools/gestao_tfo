@@ -15,14 +15,13 @@ export function DatasProduto({
   dataInicioDesenvolvimento: string | null;
   dataLancamentoEstimada: string | null;
 }) {
-  const [state, formAction, pending] = useActionState(atualizarDatasProduto, initialState);
+  const [state, formAction, pending] = useActionState(
+    atualizarDatasProduto,
+    initialState,
+  );
 
   return (
-    <div className="mb-5 rounded-xl border border-border bg-surface p-5">
-      <h2 className="mb-1 font-heading text-[13px] font-semibold">Datas do produto</h2>
-      <p className="mb-4 text-[11px] text-text-muted">
-        Usadas pelo cálculo da projeção — preencha aqui, não em nenhuma fase
-      </p>
+    <div className="p-5">
       <form action={formAction} className="flex flex-wrap items-end gap-3">
         <input type="hidden" name="produto_id" value={produtoId} />
         <div>
@@ -42,7 +41,12 @@ export function DatasProduto({
             Lançamento estimado
             <InfoTooltip texto="Data em que o produto começa a vender de verdade. Usada pra 3 coisas: (1) calcular a receita pró-rata no mês exato do lançamento, (2) contar 1 ano pra começar a aplicar o reajuste anual de preço, (3) contar os meses pra ativar módulos com gatilho 'por tempo' (ex: melhorias do Fashion Mind em 12/24 meses)." />
           </label>
-          <input type="date" name="data_lancamento_estimada" defaultValue={dataLancamentoEstimada ?? ""} className="input" />
+          <input
+            type="date"
+            name="data_lancamento_estimada"
+            defaultValue={dataLancamentoEstimada ?? ""}
+            className="input"
+          />
         </div>
         <button
           type="submit"
@@ -51,8 +55,12 @@ export function DatasProduto({
         >
           {pending ? "Salvando…" : "Salvar datas"}
         </button>
-        {state.error && <p className="w-full text-[11px] text-danger">{state.error}</p>}
-        {state.success && <p className="w-full text-[11px] text-success">Datas salvas.</p>}
+        {state.error && (
+          <p className="w-full text-[11px] text-danger">{state.error}</p>
+        )}
+        {state.success && (
+          <p className="w-full text-[11px] text-success">Datas salvas.</p>
+        )}
       </form>
     </div>
   );

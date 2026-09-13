@@ -1,6 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import {
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import {
   criarCanalAquisicao,
   atualizarCanalAquisicao,
@@ -70,22 +76,33 @@ function formatPct(v: number | null | undefined) {
   return v != null ? `${(v * 100).toFixed(1)}%` : "—";
 }
 function formatBRL(v: number | null | undefined) {
-  return v != null ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "—";
+  return v != null
+    ? v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+    : "—";
 }
-const pctOuVazio = (v: number | null | undefined) => (v != null ? (v * 100).toFixed(2) : "");
-const numOuVazio = (v: number | null | undefined) => (v != null ? String(v) : "");
+const pctOuVazio = (v: number | null | undefined) =>
+  v != null ? (v * 100).toFixed(2) : "";
+const numOuVazio = (v: number | null | undefined) =>
+  v != null ? String(v) : "";
 
 function resumoParametros(c: CanalAquisicao): string | null {
   if (c.tipo_canal === "direto") return null;
   const p = c.parametros ?? {};
   const partes: string[] = [];
-  if (p.custo_mensal_parceiro != null) partes.push(`${formatBRL(p.custo_mensal_parceiro)}/mês por parceiro`);
-  if (p.comissao_pct != null) partes.push(`comissão ${formatPct(p.comissao_pct)}`);
-  if (p.valor_fixo_fechamento != null) partes.push(`${formatBRL(p.valor_fixo_fechamento)} fixo no fechamento`);
+  if (p.custo_mensal_parceiro != null)
+    partes.push(`${formatBRL(p.custo_mensal_parceiro)}/mês por parceiro`);
+  if (p.comissao_pct != null)
+    partes.push(`comissão ${formatPct(p.comissao_pct)}`);
+  if (p.valor_fixo_fechamento != null)
+    partes.push(`${formatBRL(p.valor_fixo_fechamento)} fixo no fechamento`);
   if (p.credito_uso_valor != null)
-    partes.push(`crédito ${formatBRL(p.credito_uso_valor)} pro ${p.credito_uso_destino === "parceiro" ? "parceiro" : "cliente"}`);
+    partes.push(
+      `crédito ${formatBRL(p.credito_uso_valor)} pro ${p.credito_uso_destino === "parceiro" ? "parceiro" : "cliente"}`,
+    );
   if (p.custo_por_trial != null)
-    partes.push(`${formatBRL(p.custo_por_trial)}/teste, ${formatPct(p.taxa_conversao_trial)} viram cliente`);
+    partes.push(
+      `${formatBRL(p.custo_por_trial)}/teste, ${formatPct(p.taxa_conversao_trial)} viram cliente`,
+    );
   if (p.media_clientes_parceiro_inicial != null)
     partes.push(
       `~${p.media_clientes_parceiro_inicial} cliente(s)/parceiro/mês, caindo ${formatPct(p.queda_intensidade_mensal_pct)}/mês até ${p.media_clientes_parceiro_minima ?? 0}`,
@@ -104,16 +121,24 @@ export function CanaisAquisicao({
   modelos: ModeloContratacaoOpcao[];
   produtos: ProdutoOpcao[];
 }) {
-  const [state, formAction, pending] = useActionState(criarCanalAquisicao, initialState);
+  const [state, formAction, pending] = useActionState(
+    criarCanalAquisicao,
+    initialState,
+  );
   const formRef = useRef<HTMLFormElement>(null);
-  const [tipoCanal, setTipoCanal] = useState<"direto" | "self_service" | "representante" | "associacao">("direto");
+  const [tipoCanal, setTipoCanal] = useState<
+    "direto" | "self_service" | "representante" | "associacao"
+  >("direto");
   const modeloById = new Map(modelos.map((m) => [m.id, m]));
 
   // O mix soma por PRODUTO (cada produto reparte 100% entre os canais), não por canal.
   const mixPorProduto = new Map<string, number>();
   for (const c of canais) {
     for (const cp of c.produtos) {
-      mixPorProduto.set(cp.produto_id, (mixPorProduto.get(cp.produto_id) ?? 0) + Number(cp.percentual_mix));
+      mixPorProduto.set(
+        cp.produto_id,
+        (mixPorProduto.get(cp.produto_id) ?? 0) + Number(cp.percentual_mix),
+      );
     }
   }
   const produtosForaDe100 = produtos.filter((p) => {
@@ -128,19 +153,37 @@ export function CanaisAquisicao({
         <InfoTooltip texto="O canal é da empresa, não do produto: você se associa uma vez e a associação serve o portfólio inteiro. O custo de manter o parceiro e a remuneração dele ficam no canal; a conversão, o mix e o benefício ao cliente variam por produto, na tabela dentro de cada canal." />
       </h2>
       <p className="mb-4 text-[11px] text-text-muted">
-        Um canal atende todos os produtos — o que muda por produto é a conversão e o benefício que você decide dar.
+        Um canal atende todos os produtos — o que muda por produto é a conversão
+        e o benefício que você decide dar.
       </p>
 
       {produtosForaDe100.length > 0 && (
         <div className="mb-3 rounded-lg border border-dashed border-danger bg-danger-soft px-3 py-2 text-[11px] text-danger">
-          O mix não soma 100% em: {produtosForaDe100.map((p) => `${p.nome} (${((mixPorProduto.get(p.id) ?? 0) * 100).toFixed(0)}%)`).join(", ")}
+          O mix não soma 100% em:{" "}
+          {produtosForaDe100
+            .map(
+              (p) =>
+                `${p.nome} (${((mixPorProduto.get(p.id) ?? 0) * 100).toFixed(0)}%)`,
+            )
+            .join(", ")}
         </div>
       )}
 
       <div className="mb-4 flex flex-col gap-3">
-        {canais.length === 0 && <p className="text-[12px] text-text-faint">Nenhum canal cadastrado ainda.</p>}
+        {canais.length === 0 && (
+          <p className="text-[12px] text-text-faint">
+            Nenhum canal cadastrado ainda.
+          </p>
+        )}
         {canais.map((c) => (
-          <CanalRow key={c.id} canal={c} cenarioId={cenarioId} modelos={modelos} modeloById={modeloById} produtos={produtos} />
+          <CanalRow
+            key={c.id}
+            canal={c}
+            cenarioId={cenarioId}
+            modelos={modelos}
+            modeloById={modeloById}
+            produtos={produtos}
+          />
         ))}
       </div>
 
@@ -156,7 +199,9 @@ export function CanaisAquisicao({
         <input type="hidden" name="cenario_id" value={cenarioId} />
 
         <div className="flex gap-1 rounded-lg bg-bg p-1">
-          {(["direto", "self_service", "representante", "associacao"] as const).map((t) => (
+          {(
+            ["direto", "self_service", "representante", "associacao"] as const
+          ).map((t) => (
             <button
               key={t}
               type="button"
@@ -173,7 +218,11 @@ export function CanaisAquisicao({
 
         <CamposCanal tipoCanal={tipoCanal} modelos={modelos} />
 
-        {state.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>}
+        {state.error && (
+          <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+            {state.error}
+          </p>
+        )}
 
         <button
           type="submit"
@@ -183,7 +232,8 @@ export function CanaisAquisicao({
           {pending ? "Salvando…" : "Salvar canal"}
         </button>
         <p className="text-[10px] text-text-faint">
-          Depois de salvar, defina dentro do canal a conversão e o benefício de cada produto.
+          Depois de salvar, defina dentro do canal a conversão e o benefício de
+          cada produto.
         </p>
       </form>
     </div>
@@ -204,7 +254,10 @@ function CanalRow({
   produtos: ProdutoOpcao[];
 }) {
   const [editando, setEditando] = useState(false);
-  const [state, formAction, pending] = useActionState(atualizarCanalAquisicao, initialState);
+  const [state, formAction, pending] = useActionState(
+    atualizarCanalAquisicao,
+    initialState,
+  );
   const [isPending, startTransition] = useTransition();
   const foiPending = useRef(false);
 
@@ -227,9 +280,17 @@ function CanalRow({
             <span className="text-[11.5px] text-text-muted">editando</span>
           </div>
 
-          <CamposCanal tipoCanal={canal.tipo_canal} modelos={modelos} valores={canal} />
+          <CamposCanal
+            tipoCanal={canal.tipo_canal}
+            modelos={modelos}
+            valores={canal}
+          />
 
-          {state.error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-[11px] text-danger">{state.error}</p>}
+          {state.error && (
+            <p className="rounded-lg bg-danger-soft px-3 py-2 text-[11px] text-danger">
+              {state.error}
+            </p>
+          )}
           <div className="flex gap-2">
             <button
               type="submit"
@@ -251,7 +312,9 @@ function CanalRow({
     );
   }
 
-  const modelo = canal.modelo_contratacao_id ? modeloById.get(canal.modelo_contratacao_id) : null;
+  const modelo = canal.modelo_contratacao_id
+    ? modeloById.get(canal.modelo_contratacao_id)
+    : null;
   const resumo = resumoParametros(canal);
 
   return (
@@ -274,13 +337,19 @@ function CanalRow({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setEditando(true)} className="text-[11px] text-primary-deep">
+          <button
+            type="button"
+            onClick={() => setEditando(true)}
+            className="text-[11px] text-primary-deep"
+          >
             Editar
           </button>
           <button
             type="button"
             disabled={isPending}
-            onClick={() => startTransition(() => excluirCanalAquisicao(canal.id, cenarioId))}
+            onClick={() =>
+              startTransition(() => excluirCanalAquisicao(canal.id, cenarioId))
+            }
             className="text-[11px] text-danger"
           >
             Remover
@@ -292,12 +361,17 @@ function CanalRow({
 
       {canal.tipo_canal === "self_service" ? (
         <p className="mt-1.5 border-t border-border-soft pt-1.5 text-[10px] text-text-faint">
-          Sem SDR e sem vendedor — o custo deste canal é a verba de mídia acima, lançada em Marketing.
+          Sem SDR e sem vendedor — o custo deste canal é a verba de mídia acima,
+          lançada em Marketing.
         </p>
       ) : canal.tipo_canal === "direto" ? (
         <p className="mt-1.5 border-t border-border-soft pt-1.5 text-[10px] text-text-faint">
-          O custo deste canal é o da equipe que prospecta — defina o modelo e o período em{" "}
-          <a href="/contratacoes/necessidade" className="text-primary-deep underline">
+          O custo deste canal é o da equipe que prospecta — defina o modelo e o
+          período em{" "}
+          <a
+            href="/contratacoes/necessidade"
+            className="text-primary-deep underline"
+          >
             Necessidade de Contratação
           </a>
           .
@@ -324,7 +398,10 @@ function MatrizProdutos({
   cenarioId: string;
   produtos: ProdutoOpcao[];
 }) {
-  const [state, formAction, pending] = useActionState(salvarCanalProdutos, initialState);
+  const [state, formAction, pending] = useActionState(
+    salvarCanalProdutos,
+    initialState,
+  );
   const porProduto = new Map(canal.produtos.map((cp) => [cp.produto_id, cp]));
 
   return (
@@ -362,7 +439,9 @@ function MatrizProdutos({
         <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th className="w-full px-1.5 py-1 text-left text-[9px] font-medium uppercase tracking-wide text-text-faint">Produto</th>
+              <th className="w-full px-1.5 py-1 text-left text-[9px] font-medium uppercase tracking-wide text-text-faint">
+                Produto
+              </th>
               <th className="whitespace-nowrap px-1.5 py-1 text-left text-[9px] font-medium uppercase tracking-wide text-text-faint">
                 <span className="flex items-center">
                   % das vendas
@@ -478,7 +557,9 @@ function MatrizProdutos({
         >
           {pending ? "Salvando…" : "Salvar produtos"}
         </button>
-        {state.error && <p className="text-[10.5px] text-danger">{state.error}</p>}
+        {state.error && (
+          <p className="text-[10.5px] text-danger">{state.error}</p>
+        )}
         {state.success && <p className="text-[10.5px] text-success">Salvo.</p>}
       </div>
     </form>
@@ -500,11 +581,23 @@ function CamposCanal({
     <>
       <div className="form-linha">
         <div className="form-campo">
-          <label>{tipoCanal === "associacao" ? "Nome do canal" : tipoCanal === "representante" ? "Nome do canal" : "Canal"}</label>
+          <label>
+            {tipoCanal === "associacao"
+              ? "Nome do canal"
+              : tipoCanal === "representante"
+                ? "Nome do canal"
+                : "Canal"}
+          </label>
           <input
             name="nome"
-            defaultValue={valores?.nome ?? (tipoCanal === "direto" ? "Direto (SDR)" : "")}
-            placeholder={tipoCanal === "associacao" ? "Ex: Associações Piloto" : "Ex: Representantes"}
+            defaultValue={
+              valores?.nome ?? (tipoCanal === "direto" ? "Direto (SDR)" : "")
+            }
+            placeholder={
+              tipoCanal === "associacao"
+                ? "Ex: Associações Piloto"
+                : "Ex: Representantes"
+            }
             className="input campo-nome"
             required
           />
@@ -551,7 +644,11 @@ function CamposCanal({
               Modelo que executa
               <InfoTooltip texto="Quem faz a prospecção — cadastrado em Contratações → Modelos de Contratação. A taxa de qualificação (lead → reunião) e a capacidade de leads vêm de lá. O custo entra pela alocação em Necessidade de Contratação." />
             </label>
-            <select name="modelo_contratacao_id" className="input campo-select" defaultValue={valores?.modelo_contratacao_id ?? ""}>
+            <select
+              name="modelo_contratacao_id"
+              className="input campo-select"
+              defaultValue={valores?.modelo_contratacao_id ?? ""}
+            >
               <option value="">Nenhum</option>
               {modelos.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -563,7 +660,12 @@ function CamposCanal({
         )}
         <div className="form-campo campo-texto">
           <label>Descrição</label>
-          <input name="descricao" defaultValue={valores?.descricao ?? ""} placeholder="Ex: sindicatos e associações do setor" className="input" />
+          <input
+            name="descricao"
+            defaultValue={valores?.descricao ?? ""}
+            placeholder="Ex: sindicatos e associações do setor"
+            className="input"
+          />
         </div>
       </div>
 
@@ -628,7 +730,11 @@ function CamposCanal({
             </div>
             <div className="form-campo">
               <label>Crédito vai pra</label>
-              <select name="credito_uso_destino" className="input campo-select" defaultValue={p.credito_uso_destino ?? "cliente"}>
+              <select
+                name="credito_uso_destino"
+                className="input campo-select"
+                defaultValue={p.credito_uso_destino ?? "cliente"}
+              >
                 <option value="cliente">Cliente</option>
                 <option value="parceiro">Parceiro</option>
               </select>
@@ -699,14 +805,25 @@ function ParceirosPorFase({
   parametros: ParametrosCanal | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [state, formAction, pending] = useActionState(salvarParceirosCanal, initialState);
-  const quantidadeByFase = new Map(parceirosPorFase.map((p) => [p.fase, p.quantidade_parceiros]));
-  const total = parceirosPorFase.reduce((acc, p) => acc + p.quantidade_parceiros, 0);
+  const [state, formAction, pending] = useActionState(
+    salvarParceirosCanal,
+    initialState,
+  );
+  const quantidadeByFase = new Map(
+    parceirosPorFase.map((p) => [p.fase, p.quantidade_parceiros]),
+  );
+  const total = parceirosPorFase.reduce(
+    (acc, p) => acc + p.quantidade_parceiros,
+    0,
+  );
 
   // As levas se somam: quem entrou na validação continua ativo na maturidade. E a curva tem piso,
   // então cada parceiro nunca para de trazer cliente. Mostrar o volume que isso gera evita
   // preencher "2 clientes/parceiro" achando que é o total da parceria, e não todo mês, pra sempre.
-  const piso = parametros?.media_clientes_parceiro_minima ?? parametros?.media_clientes_parceiro_inicial ?? 0;
+  const piso =
+    parametros?.media_clientes_parceiro_minima ??
+    parametros?.media_clientes_parceiro_inicial ??
+    0;
   const inicial = parametros?.media_clientes_parceiro_inicial ?? 0;
   let acumulado = 0;
   const projecao = FASES.map((f) => {
@@ -717,8 +834,13 @@ function ParceirosPorFase({
 
   return (
     <div className="mt-2 border-t border-border-soft pt-2">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex items-center text-[10.5px] font-medium text-primary-deep">
-        Novos parceiros por fase {total > 0 ? `(${total} no total)` : ""} {open ? "▲" : "▼"}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center text-[10.5px] font-medium text-primary-deep"
+      >
+        Novos parceiros por fase {total > 0 ? `(${total} no total)` : ""}{" "}
+        {open ? "▲" : "▼"}
         <InfoTooltip texto="Quantos parceiros NOVOS entram em cada fase (não é acumulado). Cada leva começa sua própria curva de intensidade, e o custo mensal por parceiro passa a contar a partir da entrada dela." />
       </button>
       {open && (
@@ -749,26 +871,36 @@ function ParceirosPorFase({
             >
               {pending ? "Salvando…" : "Salvar parceiros"}
             </button>
-            {state.error && <p className="text-[10.5px] text-danger">{state.error}</p>}
+            {state.error && (
+              <p className="text-[10.5px] text-danger">{state.error}</p>
+            )}
           </div>
 
           {projecao.length > 0 && (
             <div className="rounded-lg bg-bg p-2.5">
               <p className="mb-1.5 text-[10.5px] font-medium text-text-muted">
-                O que essa configuração gera (parceiros ativos acumulados × piso da curva)
+                O que essa configuração gera (parceiros ativos acumulados × piso
+                da curva)
               </p>
               <div className="flex flex-wrap gap-x-4 gap-y-1">
                 {projecao.map((l) => (
                   <span key={l.label} className="text-[10.5px] text-text-muted">
-                    {l.label}: <strong className="text-text">{l.parceiros}</strong> ativos ·{" "}
-                    <strong className="text-text">{l.novosMes.toFixed(1)}</strong> novos/mês
+                    {l.label}:{" "}
+                    <strong className="text-text">{l.parceiros}</strong> ativos
+                    ·{" "}
+                    <strong className="text-text">
+                      {l.novosMes.toFixed(1)}
+                    </strong>{" "}
+                    novos/mês
                   </span>
                 ))}
               </div>
               {ultima && (
                 <p className="mt-1.5 text-[10px] text-text-faint">
-                  Na última fase isso são ~{Math.round(ultima.novosMes * 12)} clientes por ano só deste canal, todo ano — cada
-                  parceiro entrega {inicial} cliente(s)/mês no começo e nunca cai abaixo de {piso}/mês.
+                  Na última fase isso são ~{Math.round(ultima.novosMes * 12)}{" "}
+                  clientes por ano só deste canal, todo ano — cada parceiro
+                  entrega {inicial} cliente(s)/mês no começo e nunca cai abaixo
+                  de {piso}/mês.
                 </p>
               )}
             </div>

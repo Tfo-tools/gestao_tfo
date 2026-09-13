@@ -937,3 +937,54 @@ export async function atualizarDatasProduto(
   revalidatePath(`/produtos/${produto_id}`);
   return { error: null, success: true };
 }
+
+// ─── Grade de produtos (lista) ────────────────────────────────────────────────────────────────
+// Um salvar só pra tudo que está na grade: datas do produto (início dev., lançamento) e início/fim
+// de cada fase, de todos os produtos. Produto iniciado tem as fases congeladas: a grade nem manda.
+
+type LinhaGrade = {
+  produto_id: string;
+  data_inicio_desenvolvimento: string | null;
+  data_lancamento_estimada: string | null;
+  fases: { fase: string; data_inicio: string | null; data_fim: string | null }[];
+};
+
+export async function salvarGradeProdutos(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  let linhas: LinhaGrade[];
+  try {
+    linhas = JSON.parse(String(formData.get("linhas") || "[]"));
+  } catch {
+    return { error: "Não foi possível ler a grade." };
+  }
+  if (linhas.length === 0) return { error: null, success: true };
+
+  const supabase = await createClient();
+  const { data: produtos } = await supabase
+    .from("produtos")
+    .select("id, status")
+    .in("id", linhas.map((l) => l.produto_id));
+  const statusPorId = new Map((produtos ?? []).map((p) => [p.id, (p.status ?? "planejado") as StatusProduto]));
+
+  for (const l of linhas) {
+    const { error } = await supabase
+      .from("produtos")
+      .update({ data_inicio_desenvolvimento: l.data_inicio_desenvolvimento, data_lancamento_estimada: l.data_lancamento_estimada })
+      .eq("id", l.produto_id);
+    if (error) return { error: "Não foi possível salvar as datas de um produto." };
+
+    if (datasTravadas(statusPorId.get(l.produto_id) ?? "planejado")) continue;
+    for (const f of l.fases) {
+      const { error: erroFase } = await supabase.from("produto_fases").upsert(
+        { produto_id: l.produto_id, fase: f.fase, data_inicio: f.data_inicio, data_fim: f.data_fim, updated_at: new Date().toISOString() },
+        { onConflict: "produto_id,fase" },
+      );
+      if (erroFase) return { error: "Não foi possível salvar a fase de um dos produtos." };
+    }
+  }
+
+  revalidatePath("/produtos");
+  revalidatePath("/plano", "layout");
+  revalidatePath("/contratacoes/necessidade");
+  revalidatePath("/relatorios");
+  return { error: null, success: true };
+}

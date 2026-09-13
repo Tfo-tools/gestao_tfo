@@ -2,10 +2,19 @@
 
 import { useState, useTransition } from "react";
 import { alterarStatusProduto } from "./status-actions";
-import { AJUDA_STATUS, LABEL_STATUS, type StatusProduto } from "@/lib/fases-produto";
+import {
+  AJUDA_STATUS,
+  LABEL_STATUS,
+  type StatusProduto,
+} from "@/lib/fases-produto";
 import { InfoTooltip } from "@/components/info-tooltip";
 
-const ORDEM: StatusProduto[] = ["planejado", "aprovado", "iniciado", "descartado"];
+const ORDEM: StatusProduto[] = [
+  "planejado",
+  "aprovado",
+  "iniciado",
+  "descartado",
+];
 
 const COR: Record<StatusProduto, string> = {
   planejado: "bg-bg text-text-muted border-border",
@@ -17,7 +26,9 @@ const COR: Record<StatusProduto, string> = {
 /** Selo de status, para as listas. */
 export function SeloStatus({ status }: { status: StatusProduto }) {
   return (
-    <span className={`rounded border px-1.5 py-0.5 text-[9.5px] font-semibold ${COR[status]}`}>
+    <span
+      className={`rounded border px-1.5 py-0.5 text-[9.5px] font-semibold ${COR[status]}`}
+    >
       {LABEL_STATUS[status].toUpperCase()}
     </span>
   );
@@ -40,12 +51,13 @@ export function StatusProdutoControle({
   const [erro, setErro] = useState<string | null>(null);
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-5">
-      <h2 className="mb-1 flex items-center font-heading text-[13px] font-semibold">
-        Status de {nome}
-        <InfoTooltip texto="Onde o produto está na decisão de negócio. Vale para o produto inteiro, não para um cenário: o Base (plano da empresa) absorve automaticamente tudo que estiver aprovado ou iniciado, e os demais cenários escolhem quais produtos simular." />
-      </h2>
-      <p className="mb-4 text-[11px] text-text-muted">{AJUDA_STATUS[status]}</p>
+    <div className="p-5">
+      <p className="mb-3 text-[11px] text-text-muted">
+        {AJUDA_STATUS[status]}
+        <InfoTooltip
+          texto={`Status de ${nome}: onde o produto está na decisão de negócio. Vale para o produto inteiro, não para um cenário: o Base (plano da empresa) absorve automaticamente tudo que estiver aprovado ou iniciado, e os demais cenários escolhem quais produtos simular.`}
+        />
+      </p>
 
       <div className="flex flex-wrap gap-2">
         {ORDEM.map((s) => {
@@ -63,7 +75,9 @@ export function StatusProdutoControle({
               }
               title={AJUDA_STATUS[s]}
               className={`rounded-lg border px-3 py-2 text-[12px] font-medium transition-colors disabled:opacity-100 ${
-                atual ? COR[s] + " font-semibold" : "border-border text-text-muted hover:border-primary-fill"
+                atual
+                  ? COR[s] + " font-semibold"
+                  : "border-border text-text-muted hover:border-primary-fill"
               }`}
             >
               {LABEL_STATUS[s]}
@@ -76,7 +90,8 @@ export function StatusProdutoControle({
 
       {status === "iniciado" && (
         <p className="mt-3 rounded-lg border border-[#e6d3d9] bg-wine-soft px-3 py-2 text-[11px] text-wine">
-          Produto iniciado: as datas das fases estão congeladas. Para ajustá-las, volte o status para aprovado.
+          Produto iniciado: as datas das fases estão congeladas. Para
+          ajustá-las, volte o status para aprovado.
         </p>
       )}
     </div>

@@ -1,7 +1,13 @@
 "use client";
 
 import { useActionState, useRef, useState, useTransition } from "react";
-import { criarModulo, excluirModulo, criarBetaModulo, excluirBetaModulo, type ActionState } from "../actions";
+import {
+  criarModulo,
+  excluirModulo,
+  criarBetaModulo,
+  excluirBetaModulo,
+  type ActionState,
+} from "../actions";
 import { FASES } from "@/lib/fases";
 import { InfoTooltip } from "@/components/info-tooltip";
 
@@ -37,7 +43,9 @@ function formatDataCurta(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
 }
 
-const FASE_LABEL: Record<string, string> = Object.fromEntries(FASES.map((f) => [f.value, f.label]));
+const FASE_LABEL: Record<string, string> = Object.fromEntries(
+  FASES.map((f) => [f.value, f.label]),
+);
 
 function descreverGatilho(m: Modulo): string {
   if (m.data_disponibilidade != null) {
@@ -45,59 +53,85 @@ function descreverGatilho(m: Modulo): string {
   }
   if (m.meses_apos_lancamento != null) {
     const anos = m.meses_apos_lancamento / 12;
-    const texto = Number.isInteger(anos) ? `${anos} ano${anos !== 1 ? "s" : ""}` : `${m.meses_apos_lancamento} meses`;
+    const texto = Number.isInteger(anos)
+      ? `${anos} ano${anos !== 1 ? "s" : ""}`
+      : `${m.meses_apos_lancamento} meses`;
     return `${texto} após o lançamento`;
   }
   return `na fase ${FASE_LABEL[m.fase_lancamento ?? ""] ?? m.fase_lancamento}`;
 }
 
-export function ModulosProduto({ produtoId, cenarioId, modulos }: { produtoId: string; cenarioId: string; modulos: Modulo[] }) {
-  const [state, formAction, pending] = useActionState(criarModulo, initialState);
+export function ModulosProduto({
+  produtoId,
+  cenarioId,
+  modulos,
+}: {
+  produtoId: string;
+  cenarioId: string;
+  modulos: Modulo[];
+}) {
+  const [state, formAction, pending] = useActionState(
+    criarModulo,
+    initialState,
+  );
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
   const [gatilho, setGatilho] = useState<"fase" | "tempo" | "data">("data");
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-5">
-      <h2 className="mb-1 flex items-center font-heading text-[13px] font-semibold">
-        Módulos add-on
-        <InfoTooltip texto="Para produtos com combo de módulos (ex: Fashion Mind): cada módulo tem preço próprio e aumenta o valor pago pelo cliente a partir do momento em que entra. Pode ser lançado numa fase específica do ciclo de vida, ou N meses após o lançamento comercial do produto (ex: melhorias programadas para 1 e 2 anos depois do MVP). A adesão começa num % inicial da base de clientes e cresce todo mês até saturar em 100% — para um módulo que já entra valendo para todos, use 100% de adesão inicial e 0% de crescimento." />
-      </h2>
+    <div className="p-5">
       <p className="mb-4 text-[11px] text-text-muted">
-        Receita adicional além do plano — ex: melhorias do MVP, integração com apps, acompanhamento de plano, campanhas, fluxo de pagamentos
+        Receita adicional além do plano — ex: melhorias do MVP, integração com
+        apps, acompanhamento de plano, campanhas, fluxo de pagamentos
       </p>
 
       <div className="mb-4 flex flex-col gap-2">
         {modulos.length === 0 && (
-          <p className="text-[12px] text-text-faint">Nenhum módulo cadastrado ainda.</p>
+          <p className="text-[12px] text-text-faint">
+            Nenhum módulo cadastrado ainda.
+          </p>
         )}
         {modulos.map((m) => (
-          <div key={m.id} className="rounded-lg border border-border-soft px-3 py-2.5">
+          <div
+            key={m.id}
+            className="rounded-lg border border-border-soft px-3 py-2.5"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[12.5px] font-semibold">{m.nome}</div>
                 <div className="text-[10.5px] text-text-faint">
-                  entra {descreverGatilho(m)} · adesão inicial {(m.adesao_inicial_pct * 100).toFixed(1)}% · +
+                  entra {descreverGatilho(m)} · adesão inicial{" "}
+                  {(m.adesao_inicial_pct * 100).toFixed(1)}% · +
                   {(m.crescimento_adesao_mensal_pct * 100).toFixed(1)}%/mês
                   {m.desconto_cliente_existente_pct != null &&
                     ` · cliente já existente: ${(m.desconto_cliente_existente_pct * 100).toFixed(1)}% off${
-                      m.desconto_cliente_existente_meses != null ? ` por ${m.desconto_cliente_existente_meses}m` : " (permanente)"
+                      m.desconto_cliente_existente_meses != null
+                        ? ` por ${m.desconto_cliente_existente_meses}m`
+                        : " (permanente)"
                     }`}
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <span className="font-mono text-[13px] font-semibold">+{formatBRL(Number(m.preco))}</span>
+                <span className="font-mono text-[13px] font-semibold">
+                  +{formatBRL(Number(m.preco))}
+                </span>
                 <button
                   type="button"
                   disabled={isPending}
-                  onClick={() => startTransition(() => excluirModulo(m.id, produtoId))}
+                  onClick={() =>
+                    startTransition(() => excluirModulo(m.id, produtoId))
+                  }
                   className="text-[11px] text-danger"
                 >
                   Remover
                 </button>
               </div>
             </div>
-            <BetaModuloSection produtoId={produtoId} moduloId={m.id} itens={m.betaTesters} />
+            <BetaModuloSection
+              produtoId={produtoId}
+              moduloId={m.id}
+              itens={m.betaTesters}
+            />
           </div>
         ))}
       </div>
@@ -112,13 +146,25 @@ export function ModulosProduto({ produtoId, cenarioId, modulos }: { produtoId: s
       >
         <input type="hidden" name="produto_id" value={produtoId} />
         <input type="hidden" name="cenario_id" value={cenarioId} />
-        <input name="nome" placeholder="Nome do módulo (ex: Melhoria 1 — planejamento de campanhas)" className="input" required />
+        <input
+          name="nome"
+          placeholder="Nome do módulo (ex: Melhoria 1 — planejamento de campanhas)"
+          className="input"
+          required
+        />
         <div>
           <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
             Acréscimo no preço (R$/mês)
             <InfoTooltip texto="Digite só o QUANTO A MAIS o módulo cobra — não o preço total do produto com o módulo. Ex: se o plano base custa R$489 e com o módulo passa a custar R$550, digite 61 aqui. O sistema soma esse valor ao preço do plano automaticamente para quem aderir." />
           </label>
-          <input name="preco" type="number" step="0.01" placeholder="Ex: 61 (não o preço total com o módulo)" className="input" required />
+          <input
+            name="preco"
+            type="number"
+            step="0.01"
+            placeholder="Ex: 61 (não o preço total com o módulo)"
+            className="input"
+            required
+          />
         </div>
 
         <div className="flex gap-2 rounded-lg bg-bg p-1">
@@ -194,14 +240,28 @@ export function ModulosProduto({ produtoId, cenarioId, modulos }: { produtoId: s
               Adesão inicial (%)
               <InfoTooltip texto="No mês em que o módulo entra, qual % da base de clientes já paga por ele. Use 100% para uma melhoria que passa a valer para todo mundo (aumento de preço direto)." />
             </label>
-            <input name="adesao_inicial_pct" type="number" step="0.01" placeholder="Ex: 100" defaultValue={100} className="input" />
+            <input
+              name="adesao_inicial_pct"
+              type="number"
+              step="0.01"
+              placeholder="Ex: 100"
+              defaultValue={100}
+              className="input"
+            />
           </div>
           <div>
             <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
               Crescimento mensal da adesão (%)
               <InfoTooltip texto="A cada mês seguinte, quanto a adesão cresce sobre o percentual atual. Deixe 0% se o módulo já nasce valendo para toda a base (caso comum das melhorias de plano único)." />
             </label>
-            <input name="crescimento_adesao_mensal_pct" type="number" step="0.01" placeholder="Ex: 0" defaultValue={0} className="input" />
+            <input
+              name="crescimento_adesao_mensal_pct"
+              type="number"
+              step="0.01"
+              placeholder="Ex: 0"
+              defaultValue={0}
+              className="input"
+            />
           </div>
         </div>
 
@@ -211,19 +271,32 @@ export function ModulosProduto({ produtoId, cenarioId, modulos }: { produtoId: s
               Desconto pra cliente já existente (%)
               <InfoTooltip texto="Opcional. Quando esse módulo lança, quem já era cliente do produto (mas não era beta tester dele) paga com esse desconto sobre o preço cheio — diferente do desconto de beta, que é outro grupo. Deixe em branco pra cobrar preço cheio de todo mundo que não foi beta." />
             </label>
-            <input name="desconto_cliente_existente_pct" type="number" step="0.01" placeholder="Ex: 12,92" className="input" />
+            <input
+              name="desconto_cliente_existente_pct"
+              type="number"
+              step="0.01"
+              placeholder="Ex: 12,92"
+              className="input"
+            />
           </div>
           <div>
             <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
               Duração (meses)
               <InfoTooltip texto="Por quantos meses esse desconto vale. Deixe em branco pra ser permanente (sem prazo pra voltar ao preço cheio)." />
             </label>
-            <input name="desconto_cliente_existente_meses" type="number" placeholder="Em branco = permanente" className="input" />
+            <input
+              name="desconto_cliente_existente_meses"
+              type="number"
+              placeholder="Em branco = permanente"
+              className="input"
+            />
           </div>
         </div>
 
         {state.error && (
-          <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{state.error}</p>
+          <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+            {state.error}
+          </p>
         )}
 
         <button
@@ -242,9 +315,20 @@ function formatDate(iso: string | null) {
   return iso ? new Date(iso + "T00:00:00").toLocaleDateString("pt-BR") : "—";
 }
 
-export function BetaModuloSection({ produtoId, moduloId, itens }: { produtoId: string; moduloId: string; itens: BetaModulo[] }) {
+export function BetaModuloSection({
+  produtoId,
+  moduloId,
+  itens,
+}: {
+  produtoId: string;
+  moduloId: string;
+  itens: BetaModulo[];
+}) {
   const [open, setOpen] = useState(false);
-  const [state, formAction, pending] = useActionState(criarBetaModulo, initialState);
+  const [state, formAction, pending] = useActionState(
+    criarBetaModulo,
+    initialState,
+  );
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -255,22 +339,35 @@ export function BetaModuloSection({ produtoId, moduloId, itens }: { produtoId: s
         onClick={() => setOpen((v) => !v)}
         className="flex items-center text-[10.5px] font-medium text-primary-deep"
       >
-        Beta testers do módulo {itens.length > 0 ? `(${itens.length})` : ""} {open ? "▲" : "▼"}
+        Beta testers do módulo {itens.length > 0 ? `(${itens.length})` : ""}{" "}
+        {open ? "▲" : "▼"}
         <InfoTooltip texto="Beta do módulo sempre acontece ANTES do lançamento oficial — serve pra validar o módulo com clientes que já pagam o plano base, sem cobrar nada deles durante o teste. Quando o módulo é lançado oficialmente, esse grupo passa a contar como cliente do módulo (com desconto, se configurado, ou preço cheio)." />
       </button>
       {open && (
         <div className="mt-2 flex flex-col gap-1.5">
-          {itens.length === 0 && <p className="text-[10.5px] text-text-faint">Nenhum beta cadastrado pra esse módulo.</p>}
+          {itens.length === 0 && (
+            <p className="text-[10.5px] text-text-faint">
+              Nenhum beta cadastrado pra esse módulo.
+            </p>
+          )}
           {itens.map((b) => (
-            <div key={b.id} className="flex items-center justify-between rounded-md bg-bg px-2.5 py-1.5">
+            <div
+              key={b.id}
+              className="flex items-center justify-between rounded-md bg-bg px-2.5 py-1.5"
+            >
               <span className="text-[11px]">
-                {b.quantidade} pessoa(s) · {formatDate(b.data_inicio)} → {formatDate(b.data_fim)}
-                {b.condicao_especial_pct ? ` · ${(b.condicao_especial_pct * 100).toFixed(0)}% off por ${b.condicao_especial_meses}m no lançamento` : ""}
+                {b.quantidade} pessoa(s) · {formatDate(b.data_inicio)} →{" "}
+                {formatDate(b.data_fim)}
+                {b.condicao_especial_pct
+                  ? ` · ${(b.condicao_especial_pct * 100).toFixed(0)}% off por ${b.condicao_especial_meses}m no lançamento`
+                  : ""}
               </span>
               <button
                 type="button"
                 disabled={isPending}
-                onClick={() => startTransition(() => excluirBetaModulo(b.id, produtoId))}
+                onClick={() =>
+                  startTransition(() => excluirBetaModulo(b.id, produtoId))
+                }
                 className="text-[10.5px] text-danger"
               >
                 ×
@@ -288,14 +385,33 @@ export function BetaModuloSection({ produtoId, moduloId, itens }: { produtoId: s
             <input type="hidden" name="produto_id" value={produtoId} />
             <input type="hidden" name="modulo_id" value={moduloId} />
             <div className="flex flex-wrap items-end gap-1.5">
-              <input name="quantidade" type="number" min="1" placeholder="Qtd." className="input w-[70px]" required />
+              <input
+                name="quantidade"
+                type="number"
+                min="1"
+                placeholder="Qtd."
+                className="input w-[70px]"
+                required
+              />
               <div>
-                <label className="mb-0.5 block text-[9.5px] text-text-faint">Início do teste</label>
-                <input name="data_inicio" type="date" className="input w-[130px]" />
+                <label className="mb-0.5 block text-[9.5px] text-text-faint">
+                  Início do teste
+                </label>
+                <input
+                  name="data_inicio"
+                  type="date"
+                  className="input w-[130px]"
+                />
               </div>
               <div>
-                <label className="mb-0.5 block text-[9.5px] text-text-faint">Fim do teste</label>
-                <input name="data_fim" type="date" className="input w-[130px]" />
+                <label className="mb-0.5 block text-[9.5px] text-text-faint">
+                  Fim do teste
+                </label>
+                <input
+                  name="data_fim"
+                  type="date"
+                  className="input w-[130px]"
+                />
               </div>
             </div>
             <div className="flex flex-wrap items-end gap-1.5">
@@ -304,11 +420,24 @@ export function BetaModuloSection({ produtoId, moduloId, itens }: { produtoId: s
                   Desconto no lançamento (%)
                   <InfoTooltip texto="Opcional. Quando o módulo é lançado oficialmente, esses beta testers pagam com esse desconto por um tempo — depois voltam ao preço cheio do módulo. Deixe em branco pra cobrar preço cheio assim que o módulo lançar." />
                 </label>
-                <input name="condicao_especial_pct" type="number" step="0.01" placeholder="Ex: 30" className="input w-[110px]" />
+                <input
+                  name="condicao_especial_pct"
+                  type="number"
+                  step="0.01"
+                  placeholder="Ex: 30"
+                  className="input w-[110px]"
+                />
               </div>
               <div>
-                <label className="mb-0.5 block text-[9.5px] text-text-faint">Duração (meses)</label>
-                <input name="condicao_especial_meses" type="number" placeholder="Ex: 6" className="input w-[90px]" />
+                <label className="mb-0.5 block text-[9.5px] text-text-faint">
+                  Duração (meses)
+                </label>
+                <input
+                  name="condicao_especial_meses"
+                  type="number"
+                  placeholder="Ex: 6"
+                  className="input w-[90px]"
+                />
               </div>
               <button
                 type="submit"
@@ -319,7 +448,9 @@ export function BetaModuloSection({ produtoId, moduloId, itens }: { produtoId: s
               </button>
             </div>
           </form>
-          {state.error && <p className="text-[10.5px] text-danger">{state.error}</p>}
+          {state.error && (
+            <p className="text-[10.5px] text-danger">{state.error}</p>
+          )}
         </div>
       )}
     </div>

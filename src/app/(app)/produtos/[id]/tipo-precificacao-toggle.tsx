@@ -3,7 +3,13 @@
 import { useTransition } from "react";
 import { atualizarTipoPrecificacao } from "../actions";
 
-export function TipoPrecificacaoToggle({ produtoId, tipoAtual }: { produtoId: string; tipoAtual: string }) {
+export function TipoPrecificacaoToggle({
+  produtoId,
+  tipoAtual,
+}: {
+  produtoId: string;
+  tipoAtual: string;
+}) {
   const [isPending, startTransition] = useTransition();
 
   function trocar(tipo: "tempo" | "modulos") {
@@ -19,7 +25,9 @@ export function TipoPrecificacaoToggle({ produtoId, tipoAtual }: { produtoId: st
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[11px] font-medium text-text-muted">Precificação:</span>
+      <span className="text-[11px] font-medium text-text-muted">
+        Precificação:
+      </span>
       <div className="flex gap-1 rounded-lg bg-bg p-1">
         <button
           type="button"

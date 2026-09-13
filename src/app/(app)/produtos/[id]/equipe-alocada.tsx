@@ -1,7 +1,11 @@
 "use client";
 
 import { useActionState, useRef, useTransition } from "react";
-import { criarAlocacao, excluirAlocacao, type ActionState } from "./alocacao-actions";
+import {
+  criarAlocacao,
+  excluirAlocacao,
+  type ActionState,
+} from "./alocacao-actions";
 
 type Alocacao = {
   id: string;
@@ -13,7 +17,11 @@ type Alocacao = {
 };
 
 const initialState: ActionState = { error: null };
-const CATEGORIA_LABEL: Record<string, string> = { pd: "P&D", sm: "S&M", ga: "G&A" };
+const CATEGORIA_LABEL: Record<string, string> = {
+  pd: "P&D",
+  sm: "S&M",
+  ga: "G&A",
+};
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -30,7 +38,10 @@ export function EquipeAlocada({
   fase: string;
   alocacoes: Alocacao[];
 }) {
-  const [state, formAction, pending] = useActionState(criarAlocacao, initialState);
+  const [state, formAction, pending] = useActionState(
+    criarAlocacao,
+    initialState,
+  );
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -65,17 +76,22 @@ export function EquipeAlocada({
                   {CATEGORIA_LABEL[a.categoria] ?? a.categoria}
                 </span>
                 <span className="ml-2 text-text-faint">
-                  {a.quantidade_funcionarios} pessoa(s) × {a.horas_mes}h/mês × {formatBRL(a.custo_hora)}/h
+                  {a.quantidade_funcionarios} pessoa(s) × {a.horas_mes}h/mês ×{" "}
+                  {formatBRL(a.custo_hora)}/h
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[12px] font-semibold">
-                  {formatBRL(a.quantidade_funcionarios * a.horas_mes * a.custo_hora)}
+                  {formatBRL(
+                    a.quantidade_funcionarios * a.horas_mes * a.custo_hora,
+                  )}
                 </span>
                 <button
                   type="button"
                   disabled={isPending}
-                  onClick={() => startTransition(() => excluirAlocacao(a.id, produtoId))}
+                  onClick={() =>
+                    startTransition(() => excluirAlocacao(a.id, produtoId))
+                  }
                   className="text-[11px] text-danger"
                 >
                   ×
@@ -98,7 +114,13 @@ export function EquipeAlocada({
         <input type="hidden" name="cenario_id" value={cenarioId} />
         <input type="hidden" name="fase" value={fase} />
 
-        <input name="cargo" type="text" placeholder="Cargo (ex: Dev Backend)" className="input min-w-[130px] flex-1" required />
+        <input
+          name="cargo"
+          type="text"
+          placeholder="Cargo (ex: Dev Backend)"
+          className="input min-w-[130px] flex-1"
+          required
+        />
         <select
           name="categoria"
           defaultValue="pd"
@@ -109,9 +131,33 @@ export function EquipeAlocada({
           <option value="sm">S&amp;M</option>
           <option value="ga">G&amp;A</option>
         </select>
-        <input name="quantidade_funcionarios" type="number" step="0.5" min="0" placeholder="Pessoas" className="input w-[85px]" required />
-        <input name="horas_mes" type="number" step="1" min="0" placeholder="Horas/mês" className="input w-[95px]" required />
-        <input name="custo_hora" type="number" step="0.01" min="0" placeholder="R$/hora" className="input w-[95px]" required />
+        <input
+          name="quantidade_funcionarios"
+          type="number"
+          step="0.5"
+          min="0"
+          placeholder="Pessoas"
+          className="input w-[85px]"
+          required
+        />
+        <input
+          name="horas_mes"
+          type="number"
+          step="1"
+          min="0"
+          placeholder="Horas/mês"
+          className="input w-[95px]"
+          required
+        />
+        <input
+          name="custo_hora"
+          type="number"
+          step="0.01"
+          min="0"
+          placeholder="R$/hora"
+          className="input w-[95px]"
+          required
+        />
         <button
           type="submit"
           disabled={pending}
@@ -120,7 +166,9 @@ export function EquipeAlocada({
           {pending ? "…" : "+ Adicionar"}
         </button>
       </form>
-      {state.error && <p className="mt-2 text-[11px] text-danger">{state.error}</p>}
+      {state.error && (
+        <p className="mt-2 text-[11px] text-danger">{state.error}</p>
+      )}
     </div>
   );
 }
