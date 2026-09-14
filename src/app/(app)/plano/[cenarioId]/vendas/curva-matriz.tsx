@@ -84,12 +84,11 @@ function rotuloTrimestre(d: FaseDados, ti: number): string {
   const ate = new Date(de.getFullYear(), de.getMonth() + 2, 1);
   const fim = d.data_fim ? new Date(d.data_fim + "T00:00:00") : null;
   const fimMes = fim ? new Date(fim.getFullYear(), fim.getMonth(), 1) : null;
-  if (!fimMes && ti === quantidadeTrimestres(d) - 1) return `${mesAno(de)} →`;
+  if (!fimMes && ti === quantidadeTrimestres(d) - 1)
+    return `${mesAno(de)} em diante`;
   const ultimo = fimMes && fimMes < ate ? fimMes : ate;
   if (ultimo <= de) return mesAno(de);
-  return de.getFullYear() === ultimo.getFullYear()
-    ? `${MES_CURTO[de.getMonth()]}–${mesAno(ultimo)}`
-    : `${mesAno(de)}–${mesAno(ultimo)}`;
+  return `${mesAno(de)} – ${mesAno(ultimo)}`;
 }
 
 function pctStr(v: number | null | undefined) {
@@ -199,7 +198,9 @@ export function CurvaMatriz({
               <th
                 className="sticky left-[150px] z-[1] bg-surface px-2 py-1.5 text-left"
                 rowSpan={2}
-              ></th>
+              >
+                Período
+              </th>
               {fasesRef.map((f) => (
                 <th
                   key={f.fase}
@@ -217,21 +218,9 @@ export function CurvaMatriz({
             </tr>
           </thead>
           <tbody>
-            {produtos.map((p) => {
-              const maxT = Math.max(
-                0,
-                ...p.fases.map((f) => quantidadeTrimestres(f.dados)),
-              );
-              const linhas = 1 + maxT;
-              return (
-                <LinhasProduto
-                  key={p.id}
-                  produto={p}
-                  maxT={maxT}
-                  linhas={linhas}
-                />
-              );
-            })}
+            {produtos.map((p) => (
+              <LinhasProduto key={p.id} produto={p} />
+            ))}
           </tbody>
         </table>
       </div>
@@ -250,15 +239,17 @@ function FaseSub() {
   );
 }
 
-function LinhasProduto({
-  produto: p,
-  maxT,
-  linhas,
-}: {
-  produto: ProdutoCurva;
-  maxT: number;
-  linhas: number;
-}) {
+function LinhasProduto({ produto: p }: { produto: ProdutoCurva }) {
+  // Uma linha por bloco de 3 meses, em ordem de calendário (as fases já vêm em ordem): o rótulo é
+  // o intervalo real do bloco e só a coluna da fase dele tem campos — as outras ficam vazias.
+  const blocos = p.fases.flatMap((f, fi) =>
+    Array.from({ length: quantidadeTrimestres(f.dados) }, (_, ti) => ({
+      fi,
+      ti,
+      rotulo: rotuloTrimestre(f.dados, ti),
+    })),
+  );
+  const linhas = 1 + blocos.length;
   const celula = (fi: number, campo: "cresc" | "churn", ti: number | null) => {
     const f = p.fases[fi];
     const d = f?.dados ?? null;
@@ -293,7 +284,7 @@ function LinhasProduto({
       ? "Sem início/fim desta fase em Produtos"
       : ti === null
         ? `${faseTxt} · padrão da fase · ${periodoFase}`
-        : `${faseTxt} · T${ti + 1}: ${rotuloTrimestre(d, ti)} · ${periodoFase}`;
+        : `${faseTxt} · ${rotuloTrimestre(d, ti)} (bloco ${ti + 1}) · ${periodoFase}`;
     return (
       <td
         key={`${fi}-${campo}`}
@@ -332,22 +323,37 @@ function LinhasProduto({
           </Fragment>
         ))}
       </tr>
-      {Array.from({ length: maxT }, (_, ti) => (
-        <tr key={ti} className="align-middle">
-          <td
-            className="sticky left-[150px] z-[1] bg-surface px-2 py-0.5 text-[10.5px] text-text-faint"
-            title={`meses ${ti * 3 + 1}–${ti * 3 + 3} da fase`}
+      {blocos.map((b, i) => {
+        const primeiroDaFase = i === 0 || blocos[i - 1].fi !== b.fi;
+        return (
+          <tr
+            key={`${b.fi}-${b.ti}`}
+            className={`align-middle ${primeiroDaFase ? "border-t border-border-soft" : ""}`}
           >
-            T{ti + 1}
-          </td>
-          {p.fases.map((_, fi) => (
-            <Fragment key={fi}>
-              {celula(fi, "cresc", ti)}
-              {celula(fi, "churn", ti)}
-            </Fragment>
-          ))}
-        </tr>
-      ))}
+            <td
+              className="sticky left-[150px] z-[1] whitespace-nowrap bg-surface px-2 py-0.5 font-mono text-[10.5px] text-text-muted"
+              title={`${LABEL_CURTO[p.fases[b.fi].fase] ?? p.fases[b.fi].label} · T${b.ti + 1}`}
+            >
+              {b.rotulo}
+            </td>
+            {p.fases.map((_, fi) => (
+              <Fragment key={fi}>
+                {fi === b.fi ? (
+                  <>
+                    {celula(fi, "cresc", b.ti)}
+                    {celula(fi, "churn", b.ti)}
+                  </>
+                ) : (
+                  <>
+                    <td className="border-l border-border-soft px-1 py-0.5" />
+                    <td className="px-1 py-0.5" />
+                  </>
+                )}
+              </Fragment>
+            ))}
+          </tr>
+        );
+      })}
     </>
   );
 }
