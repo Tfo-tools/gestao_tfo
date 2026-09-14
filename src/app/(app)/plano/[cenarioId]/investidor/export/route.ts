@@ -205,7 +205,9 @@ export async function GET(
     const [{ data: progs }, { data: reav }] = await Promise.all([
       supabase
         .from("programas_investimento")
-        .select("id, valor_total, valor_proposto, valuation_post_money, data_aporte")
+        .select(
+          "id, valor_total, valor_proposto, valuation_post_money, data_aporte",
+        )
         .in("id", idsNaoFomento),
       supabase
         .from("reavaliacoes_valuation")
@@ -322,6 +324,233 @@ export async function GET(
           .in("id", idsRodada)
       : { data: [] };
 
+  // Colunas da aba "Mês a mês", definidas antes da montagem: a aba Indicadores aponta fórmulas de
+  // conferência pra elas. Variáveis saem SEMPRE abertas (marketing, vendas, operação) — é o que
+  // permite conferir CAC e margem bruta; o foco só destaca a coluna.
+  const focosVariaveisMM = FOCOS_INVESTIMENTO.filter(
+    (f) => f.secao === "variavel",
+  ).map((f) => f.key);
+  const CATEGORIAS_FIXAS_MM = FOCOS_INVESTIMENTO.filter(
+    (f) => f.secao === "fixo",
+  ).map((f) => f.key);
+  const outrosVariaveisMM = (m: LinhaMensalInvestidor) => {
+    const v =
+      m.variaveis -
+      m.impostos -
+      focosVariaveisMM.reduce((acc, k) => acc + m[k], 0);
+    return Math.abs(v) < 0.005 ? 0 : v;
+  };
+  // Capital novo por mês na regra do fluxo da TIR (o que entrou antes do período conta no 1º mês).
+  const capitalNovoNoMes = new Map<string, number>();
+  {
+    const primeiro = mensal[0]?.mes ?? "";
+    for (const [mes, v] of resumo.aportes.capitalNovoPorMes) {
+      if (v <= 0) continue;
+      const alvo = mesesDoPeriodo.has(mes)
+        ? mes
+        : mes < primeiro
+          ? primeiro
+          : null;
+      if (alvo)
+        capitalNovoNoMes.set(alvo, (capitalNovoNoMes.get(alvo) ?? 0) + v);
+    }
+  }
+  // Linhas da aba "Mês a mês" (2 de cabeçalho; cada ano fecha com uma linha de total).
+  const linhaDoMes = new Map<string, number>();
+  {
+    let n = 2;
+    let anoAtual = "";
+    for (const m of mensal) {
+      if (anoAtual && m.mes.slice(0, 4) !== anoAtual) n++;
+      anoAtual = m.mes.slice(0, 4);
+      n++;
+      linhaDoMes.set(m.mes, n);
+    }
+  }
+  const ultimaLinhaMM =
+    mensal.length > 0
+      ? (linhaDoMes.get(mensal[mensal.length - 1].mes) ?? 2) + 1
+      : 2;
+  type ColMes = {
+    titulo: string;
+    grupo: string;
+    largura: number;
+    fmt: string;
+    foco?: boolean;
+    valor?: (m: LinhaMensalInvestidor) => number;
+    tipo:
+      | "valor"
+      | "fluxo_tir"
+      | "total_fixos"
+      | "total_variaveis"
+      | "custos"
+      | "ebitda"
+      | "margem"
+      | "acum_ebitda"
+      | "acum_caixa"
+      | "mes";
+  };
+  const colunasMM: ColMes[] = [
+    { titulo: "Mês", grupo: "", largura: 12, fmt: "mmm/yyyy", tipo: "mes" },
+    {
+      titulo: "Clientes ativos",
+      grupo: "CLIENTES E RECEITA",
+      largura: 13,
+      fmt: "#,##0",
+      valor: (m) => m.clientes,
+      tipo: "valor",
+    },
+    {
+      titulo: "Novos clientes",
+      grupo: "CLIENTES E RECEITA",
+      largura: 12,
+      fmt: "#,##0",
+      valor: (m) => m.novos,
+      tipo: "valor",
+    },
+    {
+      titulo: "Clientes perdidos",
+      grupo: "CLIENTES E RECEITA",
+      largura: 13,
+      fmt: "#,##0",
+      valor: (m) => m.perdidos,
+      tipo: "valor",
+    },
+    {
+      titulo: "MRR",
+      grupo: "CLIENTES E RECEITA",
+      largura: 14,
+      fmt: BRL,
+      valor: (m) => m.mrr,
+      tipo: "valor",
+    },
+    {
+      titulo: "Receita total",
+      grupo: "CLIENTES E RECEITA",
+      largura: 15,
+      fmt: BRL,
+      valor: (m) => m.receita,
+      tipo: "valor",
+    },
+    // Fixos são só duas categorias: saem sempre abertas (destacadas quando forem o foco).
+    ...CATEGORIAS_FIXAS_MM.map((k) => ({
+      titulo: LABEL_FOCO[k],
+      grupo: "CUSTOS FIXOS",
+      largura: 18,
+      fmt: BRL,
+      foco: focos.has(k),
+      valor: (m: LinhaMensalInvestidor) => m[k],
+      tipo: "valor" as const,
+    })),
+    {
+      titulo: "Total fixos",
+      grupo: "CUSTOS FIXOS",
+      largura: 14,
+      fmt: BRL,
+      tipo: "total_fixos",
+    },
+    ...focosVariaveisMM.map((k) => ({
+      titulo: LABEL_FOCO[k],
+      grupo: "CUSTOS VARIÁVEIS",
+      largura: 18,
+      fmt: BRL,
+      foco: focos.has(k),
+      valor: (m: LinhaMensalInvestidor) => m[k],
+      tipo: "valor" as const,
+    })),
+    {
+      titulo: "Impostos s/ receita",
+      grupo: "CUSTOS VARIÁVEIS",
+      largura: 14,
+      fmt: BRL,
+      valor: (m) => m.impostos,
+      tipo: "valor",
+    },
+    {
+      titulo: "Outros S&M (ferramentas)",
+      grupo: "CUSTOS VARIÁVEIS",
+      largura: 15,
+      fmt: BRL,
+      valor: (m) => outrosVariaveisMM(m),
+      tipo: "valor",
+    },
+    {
+      titulo: "Total variáveis",
+      grupo: "CUSTOS VARIÁVEIS",
+      largura: 15,
+      fmt: BRL,
+      tipo: "total_variaveis",
+    },
+    {
+      titulo: "Custos totais",
+      grupo: "RESULTADO",
+      largura: 15,
+      fmt: BRL,
+      tipo: "custos",
+    },
+    {
+      titulo: "EBITDA",
+      grupo: "RESULTADO",
+      largura: 15,
+      fmt: BRL,
+      tipo: "ebitda",
+    },
+    {
+      titulo: "Margem EBITDA",
+      grupo: "RESULTADO",
+      largura: 12,
+      fmt: PCT,
+      tipo: "margem",
+    },
+    {
+      titulo: "EBITDA acumulado",
+      grupo: "RESULTADO",
+      largura: 16,
+      fmt: BRL,
+      tipo: "acum_ebitda",
+    },
+    {
+      titulo: "Aportes",
+      grupo: "CAIXA",
+      largura: 14,
+      fmt: BRL,
+      valor: (m) => m.aportes,
+      tipo: "valor",
+    },
+    {
+      titulo: "Caixa acumulado (aportes + EBITDA)",
+      grupo: "CAIXA",
+      largura: 20,
+      fmt: BRL,
+      tipo: "acum_caixa",
+    },
+    // Base da TIR e do capital coberto: IRPJ/CSLL sai abaixo do EBITDA; capital novo é só o
+    // investimento ainda não aplicado (fomento fica fora), no mês do aporte.
+    {
+      titulo: "IRPJ/CSLL (fora do Simples)",
+      grupo: "RETORNO",
+      largura: 14,
+      fmt: BRL,
+      valor: (m) => m.irpjCsll,
+      tipo: "valor",
+    },
+    {
+      titulo: "Capital novo (base do retorno)",
+      grupo: "RETORNO",
+      largura: 16,
+      fmt: BRL,
+      valor: (m) => capitalNovoNoMes.get(m.mes) ?? 0,
+      tipo: "valor",
+    },
+    {
+      titulo: "Fluxo p/ TIR (EBITDA − IRPJ − capital)",
+      grupo: "RETORNO",
+      largura: 18,
+      fmt: BRL,
+      tipo: "fluxo_tir",
+    },
+  ];
+
   const montar = (workbook: PlanilhaAlvo) => {
     workbook.creator = "TFO-Gestão";
     workbook.created = new Date();
@@ -412,12 +641,60 @@ export async function GET(
     titulo("Resumo — métricas da tela Indicadores");
     cabecalho([
       "Indicador",
-      "Valor",
-      "",
+      "Valor (app)",
+      "Conferência (fórmula)",
       "Como é calculado (igual à tela do app)",
       "Onde conferir",
       "",
     ]);
+    // Fórmulas de conferência apontam pra aba "Mês a mês": SUMPRODUCT com ISNUMBER na coluna Mês
+    // soma só as linhas de mês (as de total do ano têm texto na coluna A).
+    const MM = "'Mês a mês'";
+    const colMM = (titulo: string) => {
+      const i = colunasMM.findIndex(
+        (c) => c.titulo === titulo || c.titulo.startsWith(titulo),
+      );
+      return i >= 0 ? letra(i + 1) : null;
+    };
+    const somaMM = (titulo: string) => {
+      const c = colMM(titulo);
+      return c
+        ? `SUMPRODUCT(--ISNUMBER(${MM}!$A$3:$A$${ultimaLinhaMM}),${MM}!$${c}$3:$${c}$${ultimaLinhaMM})`
+        : null;
+    };
+    const ultimaMes =
+      mensal.length > 0
+        ? (linhaDoMes.get(mensal[mensal.length - 1].mes) ?? null)
+        : null;
+    const sR = somaMM("Receita total");
+    const sE = somaMM("EBITDA");
+    const sC = somaMM(LABEL_FOCO.operacao);
+    const sI = somaMM("Impostos s/ receita");
+    const sM = somaMM(LABEL_FOCO.marketing);
+    const sV = somaMM(LABEL_FOCO.vendas);
+    const sO = somaMM("Outros S&M");
+    const sN = somaMM("Novos clientes");
+    const sP = somaMM("Clientes perdidos");
+    const sCli = somaMM("Clientes ativos");
+    const sIr = somaMM("IRPJ");
+    const cFluxo = colMM("Fluxo p/ TIR");
+    const cCli = colMM("Clientes ativos");
+    const conferencia: Record<string, string | null> = {
+      "Meta do período": cCli && ultimaMes ? `${MM}!${cCli}${ultimaMes}` : null,
+      "Margem operacional": sE && sR ? `${sE}/${sR}` : null,
+      "Margem bruta":
+        sR && sC && sI ? `(${sR}-${sC}-${sI})/(${sR}-${sI})` : null,
+      "CAC (all-in)": sM && sV && sO && sN ? `(${sM}+${sV}+${sO})/${sN}` : null,
+      "Churn médio": sP && sCli ? `${sP}/${sCli}` : null,
+      "Capital coberto por caixa próprio":
+        sE && sIr && resumo.totalInvestido > 0
+          ? `(${sE}-${sIr})/${resumo.totalInvestido}`
+          : null,
+      "TIR do projeto (empresa)":
+        cFluxo && mensal.length > 0
+          ? `(1+IRR(${MM}!${cFluxo}3:${cFluxo}${ultimaLinhaMM}))^12-1`
+          : null,
+    };
     const fmtMes = (m: string | null) => (m ? formatarMesAno(m) : "—");
     const brlTxt = (v: number) => `R$ ${Math.round(v).toLocaleString("pt-BR")}`;
     const resumoTela: [string, number | string, string, string, string][] = [
@@ -517,13 +794,33 @@ export async function GET(
       ],
     ];
     for (const [nome, valor, fmt, formula, onde] of resumoTela) {
-      const r = ind.addRow([nome, valor, "", formula, onde]);
+      const f = conferencia[nome] ?? null;
+      const r = ind.addRow([
+        nome,
+        valor,
+        f
+          ? { formula: f, result: typeof valor === "number" ? valor : "" }
+          : "—",
+        formula,
+        onde,
+      ]);
       r.getCell(1).font = { bold: true };
       r.getCell(2).numFmt = fmt;
       r.getCell(2).alignment = { horizontal: "right" };
+      r.getCell(3).numFmt = fmt === "@" ? "@" : fmt;
+      r.getCell(3).alignment = { horizontal: "right" };
+      if (!f) r.getCell(3).font = { color: { argb: "FF9AA0A8" } };
       for (const c of [4, 5])
         r.getCell(c).alignment = { wrapText: true, vertical: "top" };
     }
+    const rNotaConf = ind.addRow([
+      "",
+      "",
+      "",
+      "Conferência = fórmula sobre a aba Mês a mês (só linhas de mês). Break-even, LTV, preço médio, ticket de entrada e receita por cobrança são calculados por produto/plano no app, sem coluna equivalente aqui. Churn: a conferência é o efetivo (perdidos ÷ clientes); o app mostra o planejado por fase.",
+    ]);
+    rNotaConf.getCell(4).alignment = { wrapText: true, vertical: "top" };
+    rNotaConf.getCell(4).font = { color: { argb: "FF6B7079" }, size: 9 };
     ind.addRow([]);
 
     titulo("Captação vinculada ao cenário");
@@ -935,159 +1232,7 @@ export async function GET(
 
     // ─── Aba 3: Mês a mês ──────────────────────────────────────────────────────────────────────
     const mm = workbook.addWorksheet("Mês a mês");
-    type ColMes = {
-      titulo: string;
-      grupo: string;
-      largura: number;
-      fmt: string;
-      foco?: boolean;
-      valor?: (m: LinhaMensalInvestidor) => number;
-      tipo:
-        | "valor"
-        | "total_fixos"
-        | "total_variaveis"
-        | "custos"
-        | "ebitda"
-        | "margem"
-        | "acum_ebitda"
-        | "acum_caixa"
-        | "mes";
-    };
-    const colunas: ColMes[] = [
-      { titulo: "Mês", grupo: "", largura: 12, fmt: "mmm/yyyy", tipo: "mes" },
-      {
-        titulo: "Clientes ativos",
-        grupo: "CLIENTES E RECEITA",
-        largura: 13,
-        fmt: "#,##0",
-        valor: (m) => m.clientes,
-        tipo: "valor",
-      },
-      {
-        titulo: "Novos clientes",
-        grupo: "CLIENTES E RECEITA",
-        largura: 12,
-        fmt: "#,##0",
-        valor: (m) => m.novos,
-        tipo: "valor",
-      },
-      {
-        titulo: "Clientes perdidos",
-        grupo: "CLIENTES E RECEITA",
-        largura: 13,
-        fmt: "#,##0",
-        valor: (m) => m.perdidos,
-        tipo: "valor",
-      },
-      {
-        titulo: "MRR",
-        grupo: "CLIENTES E RECEITA",
-        largura: 14,
-        fmt: BRL,
-        valor: (m) => m.mrr,
-        tipo: "valor",
-      },
-      {
-        titulo: "Receita total",
-        grupo: "CLIENTES E RECEITA",
-        largura: 15,
-        fmt: BRL,
-        valor: (m) => m.receita,
-        tipo: "valor",
-      },
-      // Fixos são só duas categorias: saem sempre abertas (destacadas quando forem o foco).
-      ...CATEGORIAS_FIXAS.map((k) => ({
-        titulo: LABEL_FOCO[k],
-        grupo: "CUSTOS FIXOS",
-        largura: 18,
-        fmt: BRL,
-        foco: focos.has(k),
-        valor: (m: LinhaMensalInvestidor) => m[k],
-        tipo: "valor" as const,
-      })),
-      {
-        titulo: "Total fixos",
-        grupo: "CUSTOS FIXOS",
-        largura: 14,
-        fmt: BRL,
-        tipo: "total_fixos",
-      },
-      ...focosVariaveis.map((k) => ({
-        titulo: LABEL_FOCO[k],
-        grupo: "CUSTOS VARIÁVEIS",
-        largura: 18,
-        fmt: BRL,
-        foco: true,
-        valor: (m: LinhaMensalInvestidor) => m[k],
-        tipo: "valor" as const,
-      })),
-      {
-        titulo: "Impostos s/ receita",
-        grupo: "CUSTOS VARIÁVEIS",
-        largura: 14,
-        fmt: BRL,
-        valor: (m) => m.impostos,
-        tipo: "valor",
-      },
-      {
-        titulo: "Outros variáveis",
-        grupo: "CUSTOS VARIÁVEIS",
-        largura: 15,
-        fmt: BRL,
-        valor: (m) => outrosVariaveis(m),
-        tipo: "valor",
-      },
-      {
-        titulo: "Total variáveis",
-        grupo: "CUSTOS VARIÁVEIS",
-        largura: 15,
-        fmt: BRL,
-        tipo: "total_variaveis",
-      },
-      {
-        titulo: "Custos totais",
-        grupo: "RESULTADO",
-        largura: 15,
-        fmt: BRL,
-        tipo: "custos",
-      },
-      {
-        titulo: "EBITDA",
-        grupo: "RESULTADO",
-        largura: 15,
-        fmt: BRL,
-        tipo: "ebitda",
-      },
-      {
-        titulo: "Margem EBITDA",
-        grupo: "RESULTADO",
-        largura: 12,
-        fmt: PCT,
-        tipo: "margem",
-      },
-      {
-        titulo: "EBITDA acumulado",
-        grupo: "RESULTADO",
-        largura: 16,
-        fmt: BRL,
-        tipo: "acum_ebitda",
-      },
-      {
-        titulo: "Aportes",
-        grupo: "CAIXA",
-        largura: 14,
-        fmt: BRL,
-        valor: (m) => m.aportes,
-        tipo: "valor",
-      },
-      {
-        titulo: "Caixa acumulado (aportes + EBITDA)",
-        grupo: "CAIXA",
-        largura: 20,
-        fmt: BRL,
-        tipo: "acum_caixa",
-      },
-    ];
+    const colunas = colunasMM;
     mm.columns = colunas.map((c) => ({ width: c.largura }));
     const idx = (pred: (c: ColMes) => boolean) => colunas.findIndex(pred) + 1;
     const L = {
@@ -1099,6 +1244,8 @@ export async function GET(
       acumEbitda: letra(idx((c) => c.tipo === "acum_ebitda")),
       aportes: letra(idx((c) => c.titulo === "Aportes")),
       acumCaixa: letra(idx((c) => c.tipo === "acum_caixa")),
+      irpj: letra(idx((c) => c.titulo.startsWith("IRPJ"))),
+      capital: letra(idx((c) => c.titulo.startsWith("Capital novo"))),
     };
     const faixaCols = (grupo: string, excetoTipo: ColMes["tipo"]) => {
       const cols = colunas
@@ -1181,6 +1328,11 @@ export async function GET(
             formula: `IF(${L.receita}${n}=0,"",${L.ebitda}${n}/${L.receita}${n})`,
             result: m.receita > 0 ? m.ebitda / m.receita : "",
           };
+        else if (c.tipo === "fluxo_tir")
+          cell.value = {
+            formula: `${L.ebitda}${n}-${L.irpj}${n}-${L.capital}${n}`,
+            result: m.ebitda - m.irpjCsll - (capitalNovoNoMes.get(m.mes) ?? 0),
+          };
         else if (c.tipo === "acum_ebitda")
           cell.value = {
             formula: ultimaLinhaMes
@@ -1257,6 +1409,11 @@ export async function GET(
             formula: `IF(${L.receita}${n}=0,"",${L.ebitda}${n}/${L.receita}${n})`,
             result: receitaAno > 0 ? soma("ebitda") / receitaAno : "",
           };
+        } else if (c.tipo === "fluxo_tir") {
+          // Fica em branco na linha de total: a TIR (IRR) na aba Indicadores varre a coluna inteira e
+          // uma soma anual aqui entraria no fluxo como se fosse um mês a mais.
+          cell.value = "";
+          cell.numFmt = "@";
         } else if (c.tipo === "acum_ebitda")
           cell.value = {
             formula: `${col}${ultimaN}`,
