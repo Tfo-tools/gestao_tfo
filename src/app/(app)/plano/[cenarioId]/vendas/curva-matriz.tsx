@@ -56,6 +56,16 @@ export type ProdutoCurva = {
 
 const initialState: CurvaActionState = { error: null };
 
+/** Cor de fundo bem leve por fase — pra situar a coluna sem pesar a grade. */
+const COR_FASE: Record<string, string> = {
+  ideacao: "bg-[rgba(120,120,120,0.05)]",
+  validacao: "bg-[rgba(214,133,0,0.06)]",
+  pmf: "bg-[rgba(0,122,180,0.06)]",
+  tracao: "bg-[rgba(0,150,90,0.06)]",
+  escala: "bg-[rgba(110,60,200,0.06)]",
+  maturidade: "bg-[rgba(190,40,90,0.05)]",
+};
+
 const LABEL_CURTO: Record<string, string> = {
   ideacao: "Ideação",
   validacao: "Validação",
@@ -134,6 +144,16 @@ export function CurvaMatriz({
     initialState,
   );
   const [sujo, setSujo] = useState(false);
+  // Produtos recolhidos: só a linha do nome fica visível. As linhas continuam no DOM (hidden), então
+  // o Salvar continua gravando os três produtos mesmo com dois recolhidos.
+  const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set());
+  const alternar = (id: string) =>
+    setRecolhidos((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(id)) novo.delete(id);
+      else novo.add(id);
+      return novo;
+    });
 
   if (produtos.length === 0) {
     return (
@@ -224,7 +244,7 @@ export function CurvaMatriz({
                 <th
                   key={f.fase}
                   colSpan={2}
-                  className="border-l border-border-soft px-2 py-1.5 text-center"
+                  className={`border-l border-border-soft px-2 py-1.5 text-center ${COR_FASE[f.fase] ?? ""}`}
                 >
                   {LABEL_CURTO[f.fase] ?? f.label}
                 </th>
@@ -232,13 +252,19 @@ export function CurvaMatriz({
             </tr>
             <tr className="text-[9.5px] font-medium text-text-faint">
               {fasesRef.map((f) => (
-                <FaseSub key={f.fase} />
+                <FaseSub key={f.fase} cor={COR_FASE[f.fase] ?? ""} />
               ))}
             </tr>
           </thead>
           <tbody>
             {produtos.map((p) => (
-              <LinhasProduto key={p.id} produto={p} fimCenario={fimCenario} />
+              <LinhasProduto
+                key={p.id}
+                produto={p}
+                fimCenario={fimCenario}
+                recolhido={recolhidos.has(p.id)}
+                onAlternar={() => alternar(p.id)}
+              />
             ))}
           </tbody>
         </table>
@@ -247,13 +273,15 @@ export function CurvaMatriz({
   );
 }
 
-function FaseSub() {
+function FaseSub({ cor }: { cor: string }) {
   return (
     <>
-      <th className="border-l border-border-soft px-1 pb-1 text-right font-normal">
+      <th
+        className={`border-l border-border-soft px-1 pb-1 text-right font-normal ${cor}`}
+      >
         cresc.
       </th>
-      <th className="px-1 pb-1 text-right font-normal">churn</th>
+      <th className={`px-1 pb-1 text-right font-normal ${cor}`}>churn</th>
     </>
   );
 }
@@ -261,9 +289,13 @@ function FaseSub() {
 function LinhasProduto({
   produto: p,
   fimCenario,
+  recolhido,
+  onAlternar,
 }: {
   produto: ProdutoCurva;
   fimCenario: string | null;
+  recolhido: boolean;
+  onAlternar: () => void;
 }) {
   // Uma linha por bloco de 3 meses, em ordem de calendário (as fases já vêm em ordem): o rótulo é
   // o intervalo real do bloco e só a coluna da fase dele tem campos — as outras ficam vazias.
@@ -287,7 +319,7 @@ function LinhasProduto({
       return (
         <td
           key={`${fi}-${campo}`}
-          className={`px-1 py-0.5 text-center text-[10px] text-text-faint ${campo === "cresc" ? "border-l border-border-soft" : ""}`}
+          className={`px-1 py-0.5 text-center text-[10px] text-text-faint ${campo === "cresc" ? "border-l border-border-soft" : ""} ${COR_FASE[f.fase] ?? ""} ${recolhido && ti === null ? "hidden" : ""}`}
         >
           {campo === "cresc" ? "—" : ""}
         </td>
@@ -316,7 +348,7 @@ function LinhasProduto({
     return (
       <td
         key={`${fi}-${campo}`}
-        className={`px-1 py-0.5 ${campo === "cresc" ? "border-l border-border-soft" : ""}`}
+        className={`px-1 py-0.5 ${campo === "cresc" ? "border-l border-border-soft" : ""} ${COR_FASE[f.fase] ?? ""} ${recolhido && ti === null ? "hidden" : ""}`}
       >
         <input
           name={name}
@@ -336,12 +368,26 @@ function LinhasProduto({
     <>
       <tr className="border-t border-border align-middle">
         <td
-          rowSpan={linhas}
-          className="sticky left-0 z-[1] w-[150px] bg-surface px-4 py-1.5 align-top text-[12.5px] font-semibold shadow-[1px_0_0_var(--color-border-soft)]"
+          rowSpan={recolhido ? 1 : linhas}
+          className="sticky left-0 z-[1] w-[150px] bg-surface px-3 py-1.5 align-top text-[11.5px] font-semibold shadow-[1px_0_0_var(--color-border-soft)]"
         >
+          <button
+            type="button"
+            onClick={onAlternar}
+            className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded border border-border text-[11px] font-normal leading-none text-text-muted"
+            title={
+              recolhido
+                ? "Mostrar as taxas deste produto"
+                : "Ocultar as taxas deste produto (os valores continuam salvos)"
+            }
+          >
+            {recolhido ? "+" : "−"}
+          </button>
           {p.nome}
         </td>
-        <td className="sticky left-[150px] z-[1] bg-surface px-2 py-0.5 text-[10.5px] font-medium text-text-muted">
+        <td
+          className={`sticky left-[150px] z-[1] bg-surface px-2 py-0.5 text-[9.5px] font-medium text-text-muted ${recolhido ? "hidden" : ""}`}
+        >
           Padrão
         </td>
         {p.fases.map((_, fi) => (
@@ -350,16 +396,24 @@ function LinhasProduto({
             {celula(fi, "churn", null)}
           </Fragment>
         ))}
+        {recolhido && (
+          <td
+            colSpan={p.fases.length * 2 + 1}
+            className="px-2 py-1 text-[9.5px] text-text-faint"
+          >
+            taxas ocultas — clique em + pra editar
+          </td>
+        )}
       </tr>
       {blocos.map((b, i) => {
         const primeiroDaFase = i === 0 || blocos[i - 1].fi !== b.fi;
         return (
           <tr
             key={`${b.fi}-${b.ti}`}
-            className={`align-middle ${primeiroDaFase ? "border-t border-border-soft" : ""}`}
+            className={`align-middle ${primeiroDaFase ? "border-t border-border-soft" : ""} ${recolhido ? "hidden" : ""}`}
           >
             <td
-              className="sticky left-[150px] z-[1] whitespace-nowrap bg-surface px-2 py-0.5 font-mono text-[10.5px] text-text-muted"
+              className="sticky left-[150px] z-[1] whitespace-nowrap bg-surface px-2 py-0.5 font-mono text-[9.5px] text-text-muted"
               title={`${LABEL_CURTO[p.fases[b.fi].fase] ?? p.fases[b.fi].label} · T${b.ti + 1}`}
             >
               {b.rotulo}
@@ -373,8 +427,12 @@ function LinhasProduto({
                   </>
                 ) : (
                   <>
-                    <td className="border-l border-border-soft px-1 py-0.5" />
-                    <td className="px-1 py-0.5" />
+                    <td
+                      className={`border-l border-border-soft px-1 py-0.5 ${COR_FASE[p.fases[fi].fase] ?? ""}`}
+                    />
+                    <td
+                      className={`px-1 py-0.5 ${COR_FASE[p.fases[fi].fase] ?? ""}`}
+                    />
                   </>
                 )}
               </Fragment>
