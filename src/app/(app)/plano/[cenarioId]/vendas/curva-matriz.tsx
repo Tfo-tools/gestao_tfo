@@ -58,6 +58,40 @@ function fmtData(iso: string) {
   return `${d}/${m}/${a.slice(2)}`;
 }
 
+const MES_CURTO = [
+  "jan",
+  "fev",
+  "mar",
+  "abr",
+  "mai",
+  "jun",
+  "jul",
+  "ago",
+  "set",
+  "out",
+  "nov",
+  "dez",
+];
+function mesAno(d: Date) {
+  return `${MES_CURTO[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
+}
+/** Meses que o bloco de 3 meses cobre dentro da fase: "mar–mai/27", "nov/27–jan/28" ou "mar/28 →"
+ *  quando a fase está aberta e o bloco é o último (vale dali em diante). */
+function rotuloTrimestre(d: FaseDados, ti: number): string {
+  if (!d?.data_inicio) return "";
+  const inicio = new Date(d.data_inicio + "T00:00:00");
+  const de = new Date(inicio.getFullYear(), inicio.getMonth() + ti * 3, 1);
+  const ate = new Date(de.getFullYear(), de.getMonth() + 2, 1);
+  const fim = d.data_fim ? new Date(d.data_fim + "T00:00:00") : null;
+  const fimMes = fim ? new Date(fim.getFullYear(), fim.getMonth(), 1) : null;
+  if (!fimMes && ti === quantidadeTrimestres(d) - 1) return `${mesAno(de)} →`;
+  const ultimo = fimMes && fimMes < ate ? fimMes : ate;
+  if (ultimo <= de) return mesAno(de);
+  return de.getFullYear() === ultimo.getFullYear()
+    ? `${MES_CURTO[de.getMonth()]}–${mesAno(ultimo)}`
+    : `${mesAno(de)}–${mesAno(ultimo)}`;
+}
+
 function pctStr(v: number | null | undefined) {
   return v != null ? (v * 100).toFixed(2) : "";
 }
@@ -255,11 +289,25 @@ function LinhasProduto({
     const titulo = semFase
       ? "Sem início/fim desta fase em Produtos"
       : `${LABEL_CURTO[f.fase] ?? f.label}: ${d?.data_inicio ? fmtData(d.data_inicio) : "—"} → ${d?.data_fim ? fmtData(d.data_fim) : "aberta"} · ${n} tri`;
+    // Nos blocos de 3 meses, o intervalo real (vindo das datas da fase em Produtos) fica em cima
+    // do par de campos — só leitura, pra situar "T2" no calendário sem abrir a tela de fases.
+    const rotulo =
+      ti !== null && campo === "cresc" && !semFase
+        ? rotuloTrimestre(d, ti)
+        : null;
     return (
       <td
         key={`${fi}-${campo}`}
-        className={`px-1 py-0.5 ${campo === "cresc" ? "border-l border-border-soft" : ""}`}
+        className={`px-1 py-0.5 align-bottom ${campo === "cresc" ? "border-l border-border-soft" : ""}`}
       >
+        {rotulo && (
+          <div
+            className="whitespace-nowrap pl-0.5 text-[9px] leading-none text-text-faint"
+            title={titulo}
+          >
+            {rotulo}
+          </div>
+        )}
         <input
           name={name}
           type="number"
