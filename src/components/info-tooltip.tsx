@@ -16,7 +16,7 @@ export function InfoTooltip({ texto }: { texto: string }) {
           e.preventDefault();
           setAberto((v) => !v);
         }}
-        className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-text-faint text-[9px] font-semibold text-text-faint hover:border-primary-deep hover:text-primary-deep"
+        className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-primary-fill text-[9px] font-semibold text-primary-deep hover:bg-primary-soft"
       >
         ?
       </button>

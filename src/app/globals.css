@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --color-bg: #f6f5f2;
+  --color-bg: #f3f4f6;
   --color-surface: #ffffff;
   --color-text: #1d1d1b;
-  --color-text-muted: #726e69;
-  --color-text-faint: #a39e97;
-  --color-border: #e6e2dc;
-  --color-border-soft: #efece6;
+  --color-text-muted: #6b7079;
+  --color-text-faint: #9aa0a8;
+  --color-border: #e2e4e8;
+  --color-border-soft: #eceef1;
 
   --color-primary: #5f7cb8;
   --color-primary-fill: #809cd1;
@@ -20,6 +20,9 @@
 
   --color-cream: #f9f3ae;
   --color-cream-deep: #8a7a1a;
+  /* Destaque em amarelo da marca (alertas suaves, selos) */
+  --color-warning: #8a7a1a;
+  --color-warning-soft: #fbf7cf;
 
   --color-success: #3f7d5e;
   --color-success-soft: #e8f2ec;
@@ -44,6 +47,8 @@
   --color-wine-soft: var(--color-wine-soft);
   --color-cream: var(--color-cream);
   --color-cream-deep: var(--color-cream-deep);
+  --color-warning: var(--color-warning);
+  --color-warning-soft: var(--color-warning-soft);
   --color-success: var(--color-success);
   --color-success-soft: var(--color-success-soft);
   --color-danger: var(--color-danger);

@@ -609,7 +609,7 @@ function MatrizProdutos({
                         <button
                           type="button"
                           onClick={() => setEtapasAbertas(aberto ? null : p.id)}
-                          className={`inline-flex items-center gap-1 ${ajustado ? "text-primary-deep" : "text-text-muted"}`}
+                          className="inline-flex items-center gap-1 text-primary-deep"
                           title="Ajustar horas por etapa pra este canal"
                         >
                           {formatBRL(custoCanal)}

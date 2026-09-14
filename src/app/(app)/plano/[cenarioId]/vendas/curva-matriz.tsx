@@ -374,7 +374,7 @@ function LinhasProduto({
           <button
             type="button"
             onClick={onAlternar}
-            className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded border border-border text-[11px] font-normal leading-none text-text-muted"
+            className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded border border-primary-fill text-[11px] font-normal leading-none text-primary-deep"
             title={
               recolhido
                 ? "Mostrar as taxas deste produto"
