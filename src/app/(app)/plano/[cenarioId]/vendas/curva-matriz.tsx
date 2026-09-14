@@ -286,28 +286,19 @@ function LinhasProduto({
     const padrao =
       campo === "cresc" ? d?.taxa_crescimento_mensal : d?.taxa_churn_mensal;
     const name = `${p.id}__${f.fase}__${ti === null ? campo : `t${ti}_${campo}`}`;
+    // Tooltip situa o bloco no calendário: "PMF · T2: jun–ago/27 · fase 12/03/27 → 01/12/27".
+    const faseTxt = `${LABEL_CURTO[f.fase] ?? f.label}`;
+    const periodoFase = `fase ${d?.data_inicio ? fmtData(d.data_inicio) : "—"} → ${d?.data_fim ? fmtData(d.data_fim) : "aberta"} · ${n} tri`;
     const titulo = semFase
       ? "Sem início/fim desta fase em Produtos"
-      : `${LABEL_CURTO[f.fase] ?? f.label}: ${d?.data_inicio ? fmtData(d.data_inicio) : "—"} → ${d?.data_fim ? fmtData(d.data_fim) : "aberta"} · ${n} tri`;
-    // Nos blocos de 3 meses, o intervalo real (vindo das datas da fase em Produtos) fica em cima
-    // do par de campos — só leitura, pra situar "T2" no calendário sem abrir a tela de fases.
-    const rotulo =
-      ti !== null && campo === "cresc" && !semFase
-        ? rotuloTrimestre(d, ti)
-        : null;
+      : ti === null
+        ? `${faseTxt} · padrão da fase · ${periodoFase}`
+        : `${faseTxt} · T${ti + 1}: ${rotuloTrimestre(d, ti)} · ${periodoFase}`;
     return (
       <td
         key={`${fi}-${campo}`}
-        className={`px-1 py-0.5 align-bottom ${campo === "cresc" ? "border-l border-border-soft" : ""}`}
+        className={`px-1 py-0.5 ${campo === "cresc" ? "border-l border-border-soft" : ""}`}
       >
-        {rotulo && (
-          <div
-            className="whitespace-nowrap pl-0.5 text-[9px] leading-none text-text-faint"
-            title={titulo}
-          >
-            {rotulo}
-          </div>
-        )}
         <input
           name={name}
           type="number"
