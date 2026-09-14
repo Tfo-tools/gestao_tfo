@@ -22,17 +22,29 @@ type FaseDados = {
   trimestres: TrimestreDados[];
 } | null;
 
-/** Quantos blocos de 3 meses a fase tem. Fase aberta (sem fim) mostra 4 — o último bloco
- *  cadastrado vale dali em diante, então não precisa de mais. */
-function quantidadeTrimestres(d: FaseDados): number {
+/** Fim efetivo da fase pra grade: o fim cadastrado, limitado ao fim do cenário. Fase aberta
+ *  (sem fim) termina no fim do cenário — não faz sentido pedir taxa pra depois do plano. */
+function fimEfetivo(d: FaseDados, fimCenario: string | null): Date | null {
+  const fim = d?.data_fim ? new Date(d.data_fim + "T00:00:00") : null;
+  const cen = fimCenario
+    ? new Date(fimCenario.slice(0, 7) + "-01T00:00:00")
+    : null;
+  if (fim && cen) return fim < cen ? fim : cen;
+  return fim ?? cen;
+}
+
+/** Quantos blocos de 3 meses a fase tem, até o fim do cenário. Sem nenhum fim conhecido, 4 —
+ *  o último bloco cadastrado vale dali em diante. */
+function quantidadeTrimestres(d: FaseDados, fimCenario: string | null): number {
   if (!d?.data_inicio) return 0;
-  if (!d.data_fim) return 4;
+  const f = fimEfetivo(d, fimCenario);
+  if (!f) return 4;
   const i = new Date(d.data_inicio + "T00:00:00");
-  const f = new Date(d.data_fim + "T00:00:00");
   const meses =
     (f.getFullYear() - i.getFullYear()) * 12 +
     (f.getMonth() - i.getMonth()) +
     1;
+  if (meses <= 0) return 0;
   return Math.max(1, Math.ceil(meses / 3));
 }
 
@@ -75,16 +87,20 @@ const MES_CURTO = [
 function mesAno(d: Date) {
   return `${MES_CURTO[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
 }
-/** Meses que o bloco de 3 meses cobre dentro da fase: "mar–mai/27", "nov/27–jan/28" ou "mar/28 →"
- *  quando a fase está aberta e o bloco é o último (vale dali em diante). */
-function rotuloTrimestre(d: FaseDados, ti: number): string {
+/** Meses que o bloco de 3 meses cobre: "mar/27 – mai/27", "dez/28" ou "mar/28 em diante"
+ *  quando não há fim conhecido e o bloco é o último. */
+function rotuloTrimestre(
+  d: FaseDados,
+  ti: number,
+  fimCenario: string | null,
+): string {
   if (!d?.data_inicio) return "";
   const inicio = new Date(d.data_inicio + "T00:00:00");
   const de = new Date(inicio.getFullYear(), inicio.getMonth() + ti * 3, 1);
   const ate = new Date(de.getFullYear(), de.getMonth() + 2, 1);
-  const fim = d.data_fim ? new Date(d.data_fim + "T00:00:00") : null;
+  const fim = fimEfetivo(d, fimCenario);
   const fimMes = fim ? new Date(fim.getFullYear(), fim.getMonth(), 1) : null;
-  if (!fimMes && ti === quantidadeTrimestres(d) - 1)
+  if (!fimMes && ti === quantidadeTrimestres(d, fimCenario) - 1)
     return `${mesAno(de)} em diante`;
   const ultimo = fimMes && fimMes < ate ? fimMes : ate;
   if (ultimo <= de) return mesAno(de);
@@ -106,9 +122,12 @@ const CAMPO =
 export function CurvaMatriz({
   cenarioId,
   produtos,
+  fimCenario = null,
 }: {
   cenarioId: string;
   produtos: ProdutoCurva[];
+  /** Fim do período do cenário (AAAA-MM-01): a grade não pede taxa pra depois dele. */
+  fimCenario?: string | null;
 }) {
   const [state, formAction, pending] = useActionState(
     salvarPlanejamentoGrade,
@@ -144,7 +163,7 @@ export function CurvaMatriz({
               taxa_churn_mensal: pct(k("churn")),
               capacidade_vendedor_mes: null,
               trimestres: Array.from(
-                { length: quantidadeTrimestres(d) },
+                { length: quantidadeTrimestres(d, fimCenario) },
                 (_, i) => ({
                   indice: i,
                   taxa_crescimento_mensal: pct(k(`t${i}_cresc`)),
@@ -219,7 +238,7 @@ export function CurvaMatriz({
           </thead>
           <tbody>
             {produtos.map((p) => (
-              <LinhasProduto key={p.id} produto={p} />
+              <LinhasProduto key={p.id} produto={p} fimCenario={fimCenario} />
             ))}
           </tbody>
         </table>
@@ -239,22 +258,31 @@ function FaseSub() {
   );
 }
 
-function LinhasProduto({ produto: p }: { produto: ProdutoCurva }) {
+function LinhasProduto({
+  produto: p,
+  fimCenario,
+}: {
+  produto: ProdutoCurva;
+  fimCenario: string | null;
+}) {
   // Uma linha por bloco de 3 meses, em ordem de calendário (as fases já vêm em ordem): o rótulo é
   // o intervalo real do bloco e só a coluna da fase dele tem campos — as outras ficam vazias.
   const blocos = p.fases.flatMap((f, fi) =>
-    Array.from({ length: quantidadeTrimestres(f.dados) }, (_, ti) => ({
-      fi,
-      ti,
-      rotulo: rotuloTrimestre(f.dados, ti),
-    })),
+    Array.from(
+      { length: quantidadeTrimestres(f.dados, fimCenario) },
+      (_, ti) => ({
+        fi,
+        ti,
+        rotulo: rotuloTrimestre(f.dados, ti, fimCenario),
+      }),
+    ),
   );
   const linhas = 1 + blocos.length;
   const celula = (fi: number, campo: "cresc" | "churn", ti: number | null) => {
     const f = p.fases[fi];
     const d = f?.dados ?? null;
     const semFase = !d?.data_inicio;
-    const n = quantidadeTrimestres(d);
+    const n = quantidadeTrimestres(d, fimCenario);
     if (ti !== null && ti >= n) {
       return (
         <td
@@ -284,7 +312,7 @@ function LinhasProduto({ produto: p }: { produto: ProdutoCurva }) {
       ? "Sem início/fim desta fase em Produtos"
       : ti === null
         ? `${faseTxt} · padrão da fase · ${periodoFase}`
-        : `${faseTxt} · ${rotuloTrimestre(d, ti)} (bloco ${ti + 1}) · ${periodoFase}`;
+        : `${faseTxt} · ${rotuloTrimestre(d, ti, fimCenario)} (bloco ${ti + 1}) · ${periodoFase}`;
     return (
       <td
         key={`${fi}-${campo}`}

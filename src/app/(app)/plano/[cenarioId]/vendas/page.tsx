@@ -326,7 +326,11 @@ export default async function PlanoVendasPage({
             </span>
           </summary>
           <div className="border-t border-border-soft">
-            <CurvaMatriz cenarioId={cenarioId} produtos={produtosData} />
+            <CurvaMatriz
+              cenarioId={cenarioId}
+              produtos={produtosData}
+              fimCenario={cenario.data_fim ?? null}
+            />
           </div>
         </details>
 
