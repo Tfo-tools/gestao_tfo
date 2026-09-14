@@ -537,7 +537,7 @@ export async function RelatorioPlanos({
     programaIds.length > 0
       ? await supabase
           .from("programas_investimento")
-          .select("id, tipo, valor_total, valuation_post_money, data_aporte")
+          .select("id, tipo, valor_total, valor_proposto, valuation_post_money, data_aporte")
           .in("id", programaIds)
           .neq("tipo", "fomento")
       : { data: [] };
@@ -575,14 +575,16 @@ export async function RelatorioPlanos({
     (
       (programasComValuation ?? []) as {
         id: string;
-        valor_total: number;
+        valor_total: number | null;
+        valor_proposto: number | null;
         valuation_post_money: number | null;
         data_aporte: string | null;
       }[]
     ).map((p) => ({
-      valorInvestido: Number(p.valor_total),
+      // Rodada em negociação: vale o valor proposto até a aprovação.
+      valorInvestido: Number(p.valor_total ?? p.valor_proposto ?? 0),
       retorno: calcularRetornoPrograma({
-        valor_investido: Number(p.valor_total),
+        valor_investido: Number(p.valor_total ?? p.valor_proposto ?? 0),
         valuation_post_money:
           p.valuation_post_money != null
             ? Number(p.valuation_post_money)

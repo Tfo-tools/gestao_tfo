@@ -205,7 +205,7 @@ export async function GET(
     const [{ data: progs }, { data: reav }] = await Promise.all([
       supabase
         .from("programas_investimento")
-        .select("id, valor_total, valuation_post_money, data_aporte")
+        .select("id, valor_total, valor_proposto, valuation_post_money, data_aporte")
         .in("id", idsNaoFomento),
       supabase
         .from("reavaliacoes_valuation")
@@ -214,9 +214,9 @@ export async function GET(
     ]);
     const agregado = agregarRetornoProgramas(
       (progs ?? []).map((p) => ({
-        valorInvestido: Number(p.valor_total ?? 0),
+        valorInvestido: Number(p.valor_total ?? p.valor_proposto ?? 0),
         retorno: calcularRetornoPrograma({
-          valor_investido: Number(p.valor_total ?? 0),
+          valor_investido: Number(p.valor_total ?? p.valor_proposto ?? 0),
           valuation_post_money:
             p.valuation_post_money != null
               ? Number(p.valuation_post_money)
@@ -229,7 +229,7 @@ export async function GET(
     if (agregado.temValuation)
       retornoEquity = { moic: agregado.moic, tirPct: agregado.tirPct };
     programasRodada = (progs ?? []).map((p) => ({
-      valor_total: Number(p.valor_total ?? 0),
+      valor_total: Number(p.valor_total ?? p.valor_proposto ?? 0),
       valuation_post_money:
         p.valuation_post_money != null ? Number(p.valuation_post_money) : null,
       data_aporte: p.data_aporte,
