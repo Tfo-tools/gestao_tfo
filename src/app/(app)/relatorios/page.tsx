@@ -494,7 +494,7 @@ export async function RelatorioPlanos({
     ? await supabase
         .from("receitas_historicas")
         .select(
-          "id, descricao, valor_mensal, data_inicio, data_fim, mostrar, observacoes",
+          "id, descricao, valor_mensal, data_inicio, data_fim, mostrar, entra_na_dre, observacoes",
         )
         .eq("cenario_id", cenarioId)
         .order("data_inicio")

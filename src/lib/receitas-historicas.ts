@@ -18,11 +18,17 @@ export type ReceitaHistorica = {
   data_inicio: string;
   data_fim: string | null;
   mostrar: boolean;
+  /** Ligado: entra na receita consolidada (e nos impostos) nos meses dentro do horizonte do cenário —
+   *  caso da consultoria que continua até fev/2027. Não mexe em MRR/ARR/CAC/LTV. */
+  entra_na_dre?: boolean;
   observacoes: string | null;
 };
 
 /** Quantos meses o registro cobre (limites inclusivos). Sem data fim, vai até `fimPadrao`. */
-export function mesesDaReceita(r: Pick<ReceitaHistorica, "data_inicio" | "data_fim">, fimPadrao: string | null): number {
+export function mesesDaReceita(
+  r: Pick<ReceitaHistorica, "data_inicio" | "data_fim">,
+  fimPadrao: string | null,
+): number {
   const inicio = r.data_inicio.slice(0, 7);
   const fim = (r.data_fim ?? fimPadrao ?? r.data_inicio).slice(0, 7);
   if (fim < inicio) return 0;
@@ -68,12 +74,21 @@ export function resumirReceitasHistoricas(
     if (ultimoMes == null || fim > ultimoMes) ultimoMes = fim;
 
     // Interseção com o período do cenário, mês a mês.
-    const de = periodo.inicio ? (inicio > periodo.inicio.slice(0, 7) ? inicio : periodo.inicio.slice(0, 7)) : inicio;
-    const ate = periodo.fim ? (fim < periodo.fim.slice(0, 7) ? fim : periodo.fim.slice(0, 7)) : fim;
+    const de = periodo.inicio
+      ? inicio > periodo.inicio.slice(0, 7)
+        ? inicio
+        : periodo.inicio.slice(0, 7)
+      : inicio;
+    const ate = periodo.fim
+      ? fim < periodo.fim.slice(0, 7)
+        ? fim
+        : periodo.fim.slice(0, 7)
+      : fim;
     if (de <= ate) {
       const [ai, mi] = de.split("-").map(Number);
       const [af, mf] = ate.split("-").map(Number);
-      totalNoPeriodo += Number(r.valor_mensal) * ((af - ai) * 12 + (mf - mi) + 1);
+      totalNoPeriodo +=
+        Number(r.valor_mensal) * ((af - ai) * 12 + (mf - mi) + 1);
     }
   }
 
@@ -84,7 +99,12 @@ export function resumirReceitasHistoricas(
 export function frasePreProduto(resumo: ResumoReceitaHistorica): string | null {
   if (resumo.ativos.length === 0 || resumo.total <= 0) return null;
   const mes = (iso: string | null) =>
-    iso ? new Date(iso + "-01T00:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" }) : "";
+    iso
+      ? new Date(iso + "-01T00:00:00").toLocaleDateString("pt-BR", {
+          month: "short",
+          year: "numeric",
+        })
+      : "";
   return `${resumo.ativos.map((r) => r.descricao).join(", ")}: R$ ${Math.round(resumo.total).toLocaleString("pt-BR")} entre ${mes(
     resumo.primeiroMes,
   )} e ${mes(resumo.ultimoMes)} — receita realizada antes do produto, fora da projeção.`;

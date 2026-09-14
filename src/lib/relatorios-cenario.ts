@@ -67,6 +67,9 @@ export type Agregado = {
   irpjCsll: number;
   /** Compras de fornecedor que geram crédito de CBS/IBS: nuvem, LLM, software, gateway, marketing. */
   custosCreditaveis: number;
+  /** Receita de serviço lançada em Tração antes do produto com "entra na DRE" ligado (consultoria):
+   *  soma na receita e paga imposto, sem COGS; não mexe em MRR/ARR/CAC/LTV. */
+  receitaServicos: number;
   /** Receita e custo de implementação — separados pra margem bruta só de assinatura. */
   receitaImplementacao: number;
   cogsImplementacao: number;
@@ -167,6 +170,7 @@ export function agregadoVazio(mes: string): Agregado {
     creditoTributos: 0,
     irpjCsll: 0,
     custosCreditaveis: 0,
+    receitaServicos: 0,
     receitaImplementacao: 0,
     cogsImplementacao: 0,
     smMarketing: 0,
@@ -309,7 +313,7 @@ export function linhasDoProduto(
   });
 }
 
-export type GrupoDre = "cogs" | "sm" | "pd" | "ga";
+export type GrupoDre = "cogs" | "sm" | "pd" | "ga" | "receita";
 
 function compor(
   atual: Agregado,
@@ -853,6 +857,7 @@ export async function agregarPorCenario(
     { data: simRows },
     { data: cenarioRow },
     { data: custosEmpresaRaw },
+    { data: receitasServicoRaw },
     { data: alocacoesRaw },
     { data: modelosRaw },
     { data: fasesRaw },
@@ -873,6 +878,12 @@ export async function agregarPorCenario(
       .from("custos_empresa")
       .select("*, plano_contas:plano_contas_id(codigo, tipo)")
       .eq("cenario_id", cenarioId),
+    supabase
+      .from("receitas_historicas")
+      .select("descricao, valor_mensal, data_inicio, data_fim")
+      .eq("cenario_id", cenarioId)
+      .eq("mostrar", true)
+      .eq("entra_na_dre", true),
     supabase
       .from("alocacao_modelo_contratacao")
       .select("*")
@@ -1707,6 +1718,24 @@ export async function agregarPorCenario(
     }
 
     atual.custosEmpresa = custosEmpresa;
+
+    // Receita de serviço que atravessa o plano (consultoria até fev/2027): entra na receita do mês
+    // e paga imposto como qualquer receita. Fica DEPOIS dos custos variáveis por receita de
+    // propósito — marketing e P&D em % da receita são do SaaS, não da consultoria.
+    const mesIso = atual.mes_referencia.slice(0, 7);
+    for (const r of (receitasServicoRaw ?? []) as {
+      descricao: string;
+      valor_mensal: number;
+      data_inicio: string;
+      data_fim: string | null;
+    }[]) {
+      if (mesIso < r.data_inicio.slice(0, 7)) continue;
+      if (r.data_fim && mesIso > r.data_fim.slice(0, 7)) continue;
+      const valor = Number(r.valor_mensal);
+      atual.receita += valor;
+      atual.receitaServicos += valor;
+      compor(atual, "receita", "servicos", r.descricao, valor);
+    }
   }
 
   // O desconto de combo NÃO é aplicado aqui: ele é lançado dentro da simulação de cada produto

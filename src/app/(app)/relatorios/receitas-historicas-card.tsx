@@ -3,18 +3,26 @@
 import { useActionState, useRef, useState, useTransition } from "react";
 import {
   alternarReceitaHistorica,
+  alternarReceitaNaDre,
   excluirReceitaHistorica,
   salvarReceitaHistorica,
   type ActionState,
 } from "./receitas-historicas-actions";
-import { mesesDaReceita, resumirReceitasHistoricas, type ReceitaHistorica } from "@/lib/receitas-historicas";
+import {
+  mesesDaReceita,
+  resumirReceitasHistoricas,
+  type ReceitaHistorica,
+} from "@/lib/receitas-historicas";
 import { InfoTooltip } from "@/components/info-tooltip";
 
 const initialState: ActionState = { error: null };
 
 const brl = (v: number) => `R$ ${Math.round(v).toLocaleString("pt-BR")}`;
 const mesLabel = (iso: string) =>
-  new Date(`${iso.slice(0, 7)}-01T00:00:00`).toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+  new Date(`${iso.slice(0, 7)}-01T00:00:00`).toLocaleDateString("pt-BR", {
+    month: "short",
+    year: "numeric",
+  });
 
 export function ReceitasHistoricas({
   cenarioId,
@@ -25,7 +33,10 @@ export function ReceitasHistoricas({
   itens: ReceitaHistorica[];
   periodo: { inicio: string | null; fim: string | null };
 }) {
-  const [state, formAction, pending] = useActionState(salvarReceitaHistorica, initialState);
+  const [state, formAction, pending] = useActionState(
+    salvarReceitaHistorica,
+    initialState,
+  );
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
   const [editando, setEditando] = useState<ReceitaHistorica | null>(null);
@@ -36,16 +47,18 @@ export function ReceitasHistoricas({
     <div className="rounded-xl border border-border bg-surface p-5">
       <h2 className="mb-1 flex items-center font-heading text-[13px] font-semibold">
         Tração antes do produto
-        <InfoTooltip texto="Receita já realizada antes de existir software — a consultoria, por exemplo. Fica FORA da simulação de propósito: não entra em MRR, ARR, preço médio, CAC, churn nem no EBITDA projetado. Serve como prova de que a metodologia já era vendida e paga. O interruptor liga e desliga a exibição na tela e na planilha do investidor, sem apagar o registro." />
+        <InfoTooltip texto="Receita de serviço já realizada antes de existir software — a consultoria, por exemplo. Por padrão fica FORA da simulação: não entra em MRR, ARR, preço médio, CAC, churn nem no EBITDA projetado — é prova de que a metodologia já era vendida. Se o contrato continua dentro do período do plano, ligue 'Na DRE': os meses dentro do horizonte entram na receita consolidada e pagam imposto, sem COGS, e continuam fora de MRR/ARR/CAC/LTV. 'Mostrando' controla só a exibição na tela e na planilha." />
       </h2>
       <p className="mb-4 text-[11px] text-text-muted">
-        Receita realizada fora da projeção — nenhum indicador do plano é afetado
+        Receita de serviço — contexto por padrão; com &quot;Na DRE&quot; ligado,
+        entra na receita e no EBITDA do plano (sem mexer em MRR/ARR/CAC/LTV)
       </p>
 
       <div className="mb-3 flex flex-col gap-1.5">
         {itens.length === 0 && (
           <p className="text-[12px] text-text-faint">
-            Nada registrado ainda. Ex.: consultoria, R$ 4.500/mês, da abertura da empresa até fevereiro.
+            Nada registrado ainda. Ex.: consultoria, R$ 4.500/mês, da abertura
+            da empresa até fevereiro.
           </p>
         )}
         {itens.map((i) => {
@@ -59,15 +72,42 @@ export function ReceitasHistoricas({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[12px] font-medium">{i.descricao}</span>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[12px] font-semibold text-primary-deep">{brl(total)}</span>
+                  <span className="font-mono text-[12px] font-semibold text-primary-deep">
+                    {brl(total)}
+                  </span>
                   <button
                     type="button"
                     disabled={isPending}
-                    onClick={() => startTransition(() => alternarReceitaHistorica(i.id, !i.mostrar))}
+                    onClick={() =>
+                      startTransition(() =>
+                        alternarReceitaHistorica(i.id, !i.mostrar),
+                      )
+                    }
                     className="rounded border border-border px-1.5 py-0.5 text-[10.5px] text-text-muted"
-                    title={i.mostrar ? "Desligar: sai da tela e da planilha, sem apagar" : "Ligar: volta a aparecer"}
+                    title={
+                      i.mostrar
+                        ? "Desligar: sai da tela e da planilha, sem apagar"
+                        : "Ligar: volta a aparecer"
+                    }
                   >
                     {i.mostrar ? "Mostrando" : "Oculto"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isPending}
+                    onClick={() =>
+                      startTransition(() =>
+                        alternarReceitaNaDre(i.id, !i.entra_na_dre),
+                      )
+                    }
+                    className={`rounded border px-1.5 py-0.5 text-[10.5px] ${i.entra_na_dre ? "border-primary-fill bg-primary-soft/40 text-primary-deep" : "border-border text-text-muted"}`}
+                    title={
+                      i.entra_na_dre
+                        ? "Ligado: entra na receita e no EBITDA do plano nos meses dentro do horizonte. Clique pra deixar só como contexto."
+                        : "Desligado: só contexto. Clique pra entrar na DRE projetada (receita + imposto, sem COGS)."
+                    }
+                  >
+                    {i.entra_na_dre ? "Na DRE" : "Só contexto"}
                   </button>
                   <button
                     type="button"
@@ -81,7 +121,11 @@ export function ReceitasHistoricas({
                     type="button"
                     disabled={isPending}
                     onClick={() => {
-                      if (confirm(`Excluir "${i.descricao}" de vez? Para só tirar da apresentação, use o interruptor.`)) {
+                      if (
+                        confirm(
+                          `Excluir "${i.descricao}" de vez? Para só tirar da apresentação, use o interruptor.`,
+                        )
+                      ) {
                         startTransition(() => excluirReceitaHistorica(i.id));
                       }
                     }}
@@ -93,18 +137,30 @@ export function ReceitasHistoricas({
               </div>
               <p className="mt-0.5 text-[10.5px] text-text-faint">
                 {brl(Number(i.valor_mensal))}/mês · {mesLabel(i.data_inicio)} a{" "}
-                {i.data_fim ? mesLabel(i.data_fim) : "em aberto"} · {meses} {meses === 1 ? "mês" : "meses"}
+                {i.data_fim ? mesLabel(i.data_fim) : "em aberto"} · {meses}{" "}
+                {meses === 1 ? "mês" : "meses"}
               </p>
-              {i.observacoes && <p className="mt-1 text-[10.5px] text-text-faint">{i.observacoes}</p>}
+              {i.observacoes && (
+                <p className="mt-1 text-[10.5px] text-text-faint">
+                  {i.observacoes}
+                </p>
+              )}
             </div>
           );
         })}
         {resumo.ativos.length > 0 && (
           <div className="border-t border-border-soft pt-2 text-right text-[11px]">
-            <span className="font-medium text-text-muted">Total realizado antes do produto: </span>
-            <span className="font-mono font-semibold text-primary-deep">{brl(resumo.total)}</span>
+            <span className="font-medium text-text-muted">
+              Total realizado antes do produto:{" "}
+            </span>
+            <span className="font-mono font-semibold text-primary-deep">
+              {brl(resumo.total)}
+            </span>
             {resumo.totalNoPeriodo > 0 && (
-              <span className="text-text-faint"> · {brl(resumo.totalNoPeriodo)} caem dentro do período do plano</span>
+              <span className="text-text-faint">
+                {" "}
+                · {brl(resumo.totalNoPeriodo)} caem dentro do período do plano
+              </span>
             )}
           </div>
         )}
@@ -153,8 +209,15 @@ export function ReceitasHistoricas({
           />
         </label>
         <label className="flex flex-col gap-0.5">
-          <span className="text-[10px] text-text-faint">Fim (pode mudar depois)</span>
-          <input name="data_fim" type="month" defaultValue={editando?.data_fim?.slice(0, 7) ?? ""} className="input w-[130px]" />
+          <span className="text-[10px] text-text-faint">
+            Fim (pode mudar depois)
+          </span>
+          <input
+            name="data_fim"
+            type="month"
+            defaultValue={editando?.data_fim?.slice(0, 7) ?? ""}
+            className="input w-[130px]"
+          />
         </label>
         <input
           name="observacoes"
@@ -170,12 +233,18 @@ export function ReceitasHistoricas({
           {pending ? "…" : editando ? "Salvar" : "+ Adicionar"}
         </button>
         {editando && (
-          <button type="button" onClick={() => setEditando(null)} className="px-1 text-[11px] text-text-muted">
+          <button
+            type="button"
+            onClick={() => setEditando(null)}
+            className="px-1 text-[11px] text-text-muted"
+          >
             cancelar
           </button>
         )}
       </form>
-      {state.error && <p className="mt-1 text-[11px] text-danger">{state.error}</p>}
+      {state.error && (
+        <p className="mt-1 text-[11px] text-danger">{state.error}</p>
+      )}
     </div>
   );
 }
