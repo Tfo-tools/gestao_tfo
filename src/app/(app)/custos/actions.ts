@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { cicloValido, datasDasParcelas } from "@/lib/fatura-cartao";
+import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 
 const FORMAS_CARTAO = new Set(["cartao_credito_socias", "cartao_corporativo"]);
 
@@ -31,12 +32,13 @@ async function anexarArquivo(
   tipo: TipoAnexo,
 ) {
   if (!file || file.size === 0) return;
-  const path = `${despesaId}/${Date.now()}-${file.name}`;
+  const nome = nomeArquivoSeguro(file.name);
+  const path = `${despesaId}/${Date.now()}-${nome}`;
   const { error: uploadError } = await supabase.storage.from("comprovantes").upload(path, file, { contentType: file.type });
   if (uploadError) return;
   await supabase.from("anexos_despesa").insert({
     despesa_id: despesaId,
-    nome_arquivo: file.name,
+    nome_arquivo: nome,
     caminho_arquivo: path,
     tipo_mime: file.type,
     tamanho_bytes: file.size,

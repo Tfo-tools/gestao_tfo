@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 
 export type DocumentoFormState = { error: string | null; success?: boolean };
 
@@ -20,7 +21,11 @@ export async function adicionarDocumento(_prevState: DocumentoFormState, formDat
 
   const arquivo = formData.get("arquivo") as File | null;
   if (arquivo && arquivo.size > 0) {
-    await subirArquivo(supabase, doc.id, arquivo, user?.id ?? null);
+    const r = await subirArquivo(supabase, doc.id, arquivo, user?.id ?? null);
+    if (r.error) {
+      revalidatePath("/documentos");
+      return { error: `Documento criado, mas o arquivo não subiu: ${r.error}` };
+    }
   }
 
   revalidatePath("/documentos");
@@ -33,15 +38,16 @@ async function subirArquivo(
   id: string,
   arquivo: File,
   userId: string | null,
-) {
-  const path = `empresa/${id}/${Date.now()}-${arquivo.name}`;
+): Promise<{ error: string | null }> {
+  const nome = nomeArquivoSeguro(arquivo.name);
+  const path = `empresa/${id}/${Date.now()}-${nome}`;
   const { error: uploadError } = await supabase.storage.from("comprovantes").upload(path, arquivo, { contentType: arquivo.type });
   if (uploadError) return { error: "Não foi possível subir o arquivo." };
   await supabase
     .from("documentos_empresa")
     .update({
       caminho_arquivo: path,
-      nome_arquivo: arquivo.name,
+      nome_arquivo: nome,
       tipo_mime: arquivo.type,
       tamanho_bytes: arquivo.size,
       atualizado_por: userId,
