@@ -148,6 +148,11 @@ export async function cancelarEventoReuniao(googleEventId: string): Promise<void
 
 export type EventoGoogle = {
   id: string;
+  /** Estável entre a cópia do organizador e a cópia de cada convidado do MESMO evento — ao
+   * contrário de `id`, que é só único dentro de um calendário. Usado pra reconhecer que um
+   * compromisso da agenda compartilhada e um da agenda pessoal são, na real, o mesmo evento (a
+   * pessoa foi convidada, o Google espelha na agenda dela) — sem isso a tela mostra os dois. */
+  iCalUID: string;
   titulo: string;
   descricao: string | null;
   local: string | null;
@@ -159,6 +164,7 @@ export type EventoGoogle = {
 
 type EventoGoogleBruto = {
   id: string;
+  iCalUID?: string;
   summary?: string;
   description?: string;
   location?: string;
@@ -206,6 +212,7 @@ export async function listarProximosEventos(diasAFrente: number, maxResults = 20
   const brutos = await listarEventosBrutos(profileId, agora.toISOString(), ate.toISOString(), maxResults);
   return brutos.map((ev) => ({
     id: ev.id,
+    iCalUID: ev.iCalUID ?? ev.id,
     titulo: ev.summary ?? "(sem título)",
     descricao: ev.description ?? null,
     local: ev.location ?? null,

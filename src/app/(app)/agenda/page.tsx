@@ -70,6 +70,13 @@ export default async function AgendaPage() {
   const reunioesAgendadas = (reunioes ?? []) as unknown as ReuniaoAgendada[];
   const reunioesParaCalendario = (reunioesCalendario ?? []) as unknown as ReuniaoAgendada[];
 
+  // Toda reunião marcada convida as duas sócias, e o Google espelha automaticamente na agenda
+  // pessoal de quem foi convidada — é o MESMO compromisso, não dois. `iCalUID` é estável entre a
+  // cópia do organizador (contato@) e a cópia da convidada, ao contrário de `id` (só único dentro
+  // de um calendário), então dá pra reconhecer e não listar de novo na agenda pessoal.
+  const idsNaAgendaCompartilhada = new Set(eventosGoogle.map((e) => e.iCalUID));
+  const eventosPessoaisSemDuplicata = eventosPessoais.filter((e) => !idsNaAgendaCompartilhada.has(e.iCalUID));
+
   return (
     <div>
       <div className="mb-6">
@@ -90,7 +97,7 @@ export default async function AgendaPage() {
         contaConectada={contaConectada}
         eventosGoogle={eventosGoogle}
         contaPessoalConectada={contaPessoalConectada}
-        eventosPessoais={eventosPessoais}
+        eventosPessoais={eventosPessoaisSemDuplicata}
         atas={(atas ?? []) as Ata[]}
         pessoas={pessoas ?? []}
         iaConfigurada={anthropicConfigurado()}
