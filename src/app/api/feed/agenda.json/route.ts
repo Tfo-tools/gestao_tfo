@@ -74,5 +74,50 @@ export async function GET(request: NextRequest) {
   }
   eventos.sort((a, b) => a.inicioIso.localeCompare(b.inicioIso));
 
+  // ?formato=texto devolve a mensagem já pronta — pro Atalho do iPhone ser só "buscar → enviar",
+  // sem repetição, formatação de data nem filtro do lado de lá.
+  //   &dia=hoje        → resumo dos compromissos de hoje
+  //   &proximos=15     → só o que começa nos próximos N minutos (vazio se não houver nada)
+  const formato = request.nextUrl.searchParams.get("formato");
+  if (formato === "texto") {
+    const proximos = Number(request.nextUrl.searchParams.get("proximos"));
+    const texto = proximos > 0 ? textoProximos(eventos, proximos) : textoResumoHoje(eventos);
+    return new NextResponse(texto, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+  }
+
   return NextResponse.json({ eventos }, { headers: { "Cache-Control": "no-store" } });
+}
+
+const FUSO = "America/Sao_Paulo";
+
+function dataLocal(iso: string) {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: FUSO });
+}
+
+function horaLocal(iso: string) {
+  return new Date(iso).toLocaleTimeString("pt-BR", { timeZone: FUSO, hour: "2-digit", minute: "2-digit" });
+}
+
+function textoResumoHoje(eventos: EventoAgenda[]) {
+  const hoje = dataLocal(new Date().toISOString());
+  const deHoje = eventos.filter((e) => dataLocal(e.inicioIso) === hoje);
+  if (deHoje.length === 0) return "☀️ Bom dia! Nenhum compromisso na agenda hoje.";
+  const linhas = deHoje.map((e) => `${e.diaTodo ? "Dia todo" : horaLocal(e.inicioIso)} — ${e.titulo} (${e.origem})`);
+  return `☀️ Bom dia! Compromissos de hoje:\n${linhas.join("\n")}`;
+}
+
+function textoProximos(eventos: EventoAgenda[], minutos: number) {
+  const agora = Date.now();
+  const emBreve = eventos.filter((e) => {
+    if (e.diaTodo) return false;
+    const faltam = (new Date(e.inicioIso).getTime() - agora) / 60000;
+    return faltam >= 0 && faltam <= minutos;
+  });
+  if (emBreve.length === 0) return "";
+  return emBreve
+    .map((e) => {
+      const faltam = Math.max(0, Math.round((new Date(e.inicioIso).getTime() - agora) / 60000));
+      return `⏰ Em ${faltam} min: ${e.titulo}${e.local ? " — " + e.local : ""} (${e.origem})`;
+    })
+    .join("\n");
 }
