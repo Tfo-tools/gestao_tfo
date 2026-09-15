@@ -3,8 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { SeletorMeioPagamento } from "./seletor-meio-pagamento";
 import type { MeioPagamento } from "./meios-pagamento-actions";
+import { cicloValido, datasDasParcelas } from "@/lib/fatura-cartao";
 
-type Pessoa = { id: string; nome: string };
+type Pessoa = {
+  id: string;
+  nome: string;
+  /** Ciclo do cartão pessoal desta sócia — sem precisar cadastrar banco (ver `nomesSocias`). */
+  cartao_dia_vencimento?: number | null;
+  cartao_dias_fechamento_antes?: number | null;
+};
 
 function IconCartao(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -28,6 +35,10 @@ export type ItemPagamento = {
   num_parcelas?: number;
   codigo?: string; // boleto ou pix
   meio_pagamento_id?: string;
+  /** Ciclo da fatura (cartão): dia de vencimento e quantos dias antes ela fecha. Com os dois, o
+   *  servidor calcula em qual(is) fatura(s) a compra cai — ver src/lib/fatura-cartao.ts. */
+  dia_vencimento?: number | null;
+  dias_fechamento_antes?: number | null;
 };
 
 export const LABEL_FORMA: Record<FormaPagamentoTipo, string> = {
@@ -39,6 +50,7 @@ export const LABEL_FORMA: Record<FormaPagamentoTipo, string> = {
 };
 
 const FORMAS: FormaPagamentoTipo[] = ["cartao_credito_socias", "cartao_corporativo", "debito_conta", "boleto", "pix"];
+const FORMAS_CARTAO_SET = new Set<FormaPagamentoTipo>(["cartao_credito_socias", "cartao_corporativo"]);
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -46,6 +58,21 @@ function formatBRL(v: number) {
 
 function itemVazio(forma: FormaPagamentoTipo, valor: number): ItemPagamento {
   return { forma, valor, parcelado: false };
+}
+
+function formatDataCurta(iso: string) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
+}
+
+/** Texto da prévia: em qual fatura a compra cai (ou o cronograma das parcelas). Cálculo real —
+ * o servidor usa a mesma fórmula (src/lib/fatura-cartao.ts) ao salvar. */
+function previaFatura(dataReferencia: string, item: ItemPagamento): string {
+  if (!cicloValido(item.dia_vencimento, item.dias_fechamento_antes)) return "";
+  const n = item.parcelado ? Math.max(2, Number(item.num_parcelas) || 2) : 1;
+  const datas = datasDasParcelas(dataReferencia, item.dia_vencimento!, item.dias_fechamento_antes!, n);
+  if (datas.length === 1) return `Cai na fatura que vence em ${formatDataCurta(datas[0])}.`;
+  const valorParcela = item.valor / n;
+  return `${n}x de ${formatBRL(valorParcela)} — 1ª fatura em ${formatDataCurta(datas[0])}, última em ${formatDataCurta(datas[datas.length - 1])}.`;
 }
 
 /** Botão que abre um modal pra detalhar a forma de pagamento — substitui o antigo select simples.
@@ -58,6 +85,9 @@ export function DetalhePagamento({
   onChange,
   meios,
   pessoas,
+  pagador,
+  nomesSocias,
+  dataReferencia,
 }: {
   name: string;
   valorTotal: number;
@@ -65,6 +95,13 @@ export function DetalhePagamento({
   onChange?: (itens: ItemPagamento[]) => void;
   meios: MeioPagamento[];
   pessoas: Pessoa[];
+  /** Quem pagou (mesmo valor do select "Pagador" do formulário) — decide se pede pra detalhar
+   *  banco/cartão (só quando NÃO é uma das sócias) e de onde vem o ciclo padrão da fatura. */
+  pagador?: string;
+  /** Nomes que contam como "cartão pessoal, sem detalhar banco" — normalmente as sócias. */
+  nomesSocias?: string[];
+  /** Data do gasto (AAAA-MM-DD) — usada só pra mostrar a prévia de em qual fatura a compra cai. */
+  dataReferencia?: string | null;
 }) {
   const [itens, setItens] = useState<ItemPagamento[]>(defaultValue && defaultValue.length > 0 ? defaultValue : [itemVazio("pix", valorTotal)]);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -105,10 +142,18 @@ export function DetalhePagamento({
     setRascunho((atual) => atual.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   }
 
+  const socia = pessoas.find((p) => p.nome === pagador);
+  const ehPagadorSocia = !!pagador && !!nomesSocias?.includes(pagador);
+
   function adicionarForma() {
     const usadas = new Set(rascunho.map((i) => i.forma));
     const proxima = FORMAS.find((f) => !usadas.has(f)) ?? FORMAS[0];
-    setRascunho((atual) => [...atual, itemVazio(proxima, Math.max(diferenca, 0))]);
+    const novo = itemVazio(proxima, Math.max(diferenca, 0));
+    if (FORMAS_CARTAO_SET.has(proxima) && ehPagadorSocia && socia) {
+      novo.dia_vencimento = socia.cartao_dia_vencimento ?? null;
+      novo.dias_fechamento_antes = socia.cartao_dias_fechamento_antes ?? null;
+    }
+    setRascunho((atual) => [...atual, novo]);
   }
 
   function removerForma(idx: number) {
@@ -179,23 +224,71 @@ export function DetalhePagamento({
 
                   {(item.forma === "cartao_credito_socias" || item.forma === "cartao_corporativo") && (
                     <div className="grid grid-cols-2 gap-2.5">
-                      <div className="col-span-2">
-                        <SeletorMeioPagamento
-                          tipo="cartao"
-                          meiosIniciais={meios}
-                          pessoas={pessoas}
-                          bancoAtual={item.banco}
-                          onSelecionar={(d) =>
-                            atualizarItem(idx, { banco: d.banco, bandeira: d.bandeira, titular: d.titular, meio_pagamento_id: d.meio_pagamento_id })
-                          }
-                        />
-                      </div>
-                      {item.titular && (
+                      {!ehPagadorSocia && (
+                        <>
+                          <div className="col-span-2">
+                            <SeletorMeioPagamento
+                              tipo="cartao"
+                              meiosIniciais={meios}
+                              pessoas={pessoas}
+                              bancoAtual={item.banco}
+                              onSelecionar={(d) =>
+                                atualizarItem(idx, {
+                                  banco: d.banco,
+                                  bandeira: d.bandeira,
+                                  titular: d.titular,
+                                  meio_pagamento_id: d.meio_pagamento_id,
+                                  ...(d.dia_vencimento != null || d.dias_fechamento_antes != null
+                                    ? { dia_vencimento: d.dia_vencimento, dias_fechamento_antes: d.dias_fechamento_antes }
+                                    : {}),
+                                })
+                              }
+                            />
+                          </div>
+                          {item.titular && (
+                            <p className="col-span-2 -mt-1 text-[11px] text-text-faint">
+                              Titular: {item.titular}
+                              {item.bandeira ? ` · ${item.bandeira}` : ""}
+                            </p>
+                          )}
+                        </>
+                      )}
+                      {ehPagadorSocia && (
                         <p className="col-span-2 -mt-1 text-[11px] text-text-faint">
-                          Titular: {item.titular}
-                          {item.bandeira ? ` · ${item.bandeira}` : ""}
+                          Cartão pessoal de {pagador} — sem precisar detalhar banco. Só o ciclo da fatura abaixo.
                         </p>
                       )}
+
+                      <div>
+                        <label className="mb-1 block text-[10.5px] text-text-faint">Vencimento (dia do mês)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={item.dia_vencimento ?? ""}
+                          onChange={(e) => atualizarItem(idx, { dia_vencimento: e.target.value ? Number(e.target.value) : null })}
+                          placeholder="Ex: 10"
+                          className="input w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10.5px] text-text-faint">Fecha quantos dias antes</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="28"
+                          value={item.dias_fechamento_antes ?? ""}
+                          onChange={(e) => atualizarItem(idx, { dias_fechamento_antes: e.target.value ? Number(e.target.value) : null })}
+                          placeholder="Ex: 7"
+                          className="input w-full"
+                        />
+                      </div>
+                      {cicloValido(item.dia_vencimento, item.dias_fechamento_antes) && dataReferencia && (
+                        <p className="col-span-2 -mt-1 text-[11px] text-primary-deep">
+                          {previaFatura(dataReferencia, item)}
+                        </p>
+                      )}
+
                       <label className="col-span-2 flex items-center gap-2 text-[12px]">
                         <input
                           type="checkbox"

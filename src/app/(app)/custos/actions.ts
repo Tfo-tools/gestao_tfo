@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { cicloValido, datasDasParcelas } from "@/lib/fatura-cartao";
+
+const FORMAS_CARTAO = new Set(["cartao_credito_socias", "cartao_corporativo"]);
 
 export type DespesaFormState = { error: string | null; success?: boolean };
 
@@ -49,6 +52,23 @@ const LABEL_FORMA: Record<string, string> = {
   pix: "Pix",
 };
 
+/** Resumo curto da forma de pagamento a partir do JSON do modal — usado pra despesas avulsas
+ * (junto com despesa_pagamentos) e também pra recorrentes, que não têm join table própria. */
+function resumoFormaPagamento(formData: FormData): { resumo: string | null; detalheJson: string | null } {
+  const itensRaw = String(formData.get("pagamento_detalhe") || "");
+  if (!itensRaw) return { resumo: null, detalheJson: null };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let itens: any[] = [];
+  try {
+    itens = JSON.parse(itensRaw);
+  } catch {
+    return { resumo: null, detalheJson: null };
+  }
+  if (!Array.isArray(itens) || itens.length === 0) return { resumo: null, detalheJson: null };
+  const resumo = itens.length === 1 ? (LABEL_FORMA[itens[0].forma] ?? itens[0].forma) : `Combinada (${itens.length} formas)`;
+  return { resumo, detalheJson: itensRaw };
+}
+
 /** Lê o JSON do modal de forma de pagamento (itens) e, se a despesa foi marcada comprovada, o de
  * efetivação (onde cada item não-cartão efetivamente saiu) — substitui as linhas antigas de
  * despesa_pagamentos pelas novas e devolve um resumo curto pra salvar em despesas.forma_pagamento
@@ -82,6 +102,9 @@ async function salvarPagamentoDetalhe(
     }
   }
 
+  const dataGasto = String(formData.get("data_gasto") || formData.get("data_inicio") || "");
+  const pagador = String(formData.get("pagador") || "").trim();
+
   await supabase.from("despesa_pagamentos").delete().eq("despesa_id", despesaId);
 
   const linhas = itens.map((item, idx) => {
@@ -97,6 +120,9 @@ async function salvarPagamentoDetalhe(
       num_parcelas: item.parcelado ? Number(item.num_parcelas) || null : null,
       codigo: item.codigo || null,
       meio_pagamento_id: item.meio_pagamento_id || null,
+      dia_vencimento: FORMAS_CARTAO.has(item.forma) && item.dia_vencimento ? Number(item.dia_vencimento) : null,
+      dias_fechamento_antes:
+        FORMAS_CARTAO.has(item.forma) && item.dias_fechamento_antes != null ? Number(item.dias_fechamento_antes) : null,
       efetivado_banco: efet?.banco || null,
       efetivado_conta: efet?.conta || null,
       efetivado_data: efet?.data || null,
@@ -105,6 +131,45 @@ async function salvarPagamentoDetalhe(
   });
 
   await supabase.from("despesa_pagamentos").insert(linhas);
+
+  // Fatura do cartão: com o ciclo (vencimento + dias antes do fechamento) e a data do gasto, dá
+  // pra calcular em qual(is) fatura(s) a compra cai — vira o cronograma em despesa_parcelas, que é
+  // o que alimenta o lembrete de pagamento (diferente da data do gasto, que pode ser retroativa).
+  await supabase.from("despesa_parcelas").delete().eq("despesa_id", despesaId).eq("origem", "fatura_cartao");
+  if (dataGasto) {
+    for (const item of itens) {
+      if (!FORMAS_CARTAO.has(item.forma) || !cicloValido(item.dia_vencimento, item.dias_fechamento_antes)) continue;
+      const numParcelas = item.parcelado ? Math.max(2, Number(item.num_parcelas) || 2) : 1;
+      const datas = datasDasParcelas(dataGasto, Number(item.dia_vencimento), Number(item.dias_fechamento_antes), numParcelas);
+      const valorParcela = Math.round((Number(item.valor) / numParcelas) * 100) / 100;
+      await supabase.from("despesa_parcelas").insert(
+        datas.map((data_prevista, i) => ({
+          despesa_id: despesaId,
+          numero_parcela: i + 1,
+          valor: i === datas.length - 1 ? Math.round((Number(item.valor) - valorParcela * (datas.length - 1)) * 100) / 100 : valorParcela,
+          data_prevista,
+          pagador: item.titular || pagador || null,
+          origem: "fatura_cartao",
+        })),
+      );
+
+      // O ciclo digitado vira o padrão da próxima vez — no cartão específico (empresa) ou no
+      // cartão pessoal da sócia que pagou (sem precisar detalhar banco).
+      if (item.meio_pagamento_id) {
+        await supabase
+          .from("meios_pagamento")
+          .update({ dia_vencimento: Number(item.dia_vencimento), dias_fechamento_antes: Number(item.dias_fechamento_antes) })
+          .eq("id", item.meio_pagamento_id);
+      } else if (pagador) {
+        const { data: perfil } = await supabase.from("profiles").select("id").eq("nome", pagador).maybeSingle();
+        if (perfil)
+          await supabase
+            .from("profiles")
+            .update({ cartao_dia_vencimento: Number(item.dia_vencimento), cartao_dias_fechamento_antes: Number(item.dias_fechamento_antes) })
+            .eq("id", perfil.id);
+      }
+    }
+  }
 
   if (itens.length === 1) return LABEL_FORMA[itens[0].forma] ?? itens[0].forma;
   return `Combinada (${itens.length} formas)`;
@@ -198,6 +263,7 @@ async function criarRecorrente(formData: FormData): Promise<DespesaFormState> {
   const dia_do_mes = Number(formData.get("dia_do_mes") || 5);
   const data_inicio = String(formData.get("data_inicio") || "") || new Date().toISOString().slice(0, 10);
   const data_fim = String(formData.get("data_fim") || "") || null;
+  const { resumo: resumoPagamentoRec, detalheJson: pagamento_detalhe } = resumoFormaPagamento(formData);
 
   if (!plano_contas_id || !descricao || !valor) {
     return { error: "Preencha categoria, descrição e valor." };
@@ -215,7 +281,8 @@ async function criarRecorrente(formData: FormData): Promise<DespesaFormState> {
       descricao,
       valor,
       pagador,
-      forma_pagamento,
+      forma_pagamento: resumoPagamentoRec ?? forma_pagamento,
+      pagamento_detalhe: pagamento_detalhe ? JSON.parse(pagamento_detalhe) : null,
       dia_do_mes,
       data_inicio,
       data_fim,
@@ -253,6 +320,7 @@ export async function atualizarRecorrente(
   const dia_do_mes = Number(formData.get("dia_do_mes") || 5);
   const data_inicio = String(formData.get("data_inicio") || "");
   const data_fim = String(formData.get("data_fim") || "") || null;
+  const { resumo: resumoPagamentoRec2, detalheJson: pagamento_detalhe2 } = resumoFormaPagamento(formData);
 
   if (!id || !plano_contas_id || !descricao || !valor || !data_inicio) {
     return { error: "Preencha categoria, descrição, valor e data de início." };
@@ -266,7 +334,8 @@ export async function atualizarRecorrente(
       descricao,
       valor,
       pagador,
-      forma_pagamento,
+      forma_pagamento: resumoPagamentoRec2 ?? forma_pagamento,
+      pagamento_detalhe: pagamento_detalhe2 ? JSON.parse(pagamento_detalhe2) : null,
       dia_do_mes,
       data_inicio,
       data_fim,

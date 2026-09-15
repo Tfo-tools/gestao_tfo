@@ -1,16 +1,39 @@
 "use client";
 
-import { useActionState, useRef } from "react";
+import { useActionState, useRef, useState } from "react";
 import { criarAtivo, type AtivoFormState } from "./actions";
+import { DetalhePagamento } from "../custos/detalhe-pagamento";
+import type { MeioPagamento } from "../custos/meios-pagamento-actions";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
 type Produto = { id: string; nome: string };
+type Pessoa = { id: string; nome: string; cartao_dia_vencimento?: number | null; cartao_dias_fechamento_antes?: number | null };
 
 const initialState: AtivoFormState = { error: null };
 
-export function AtivoForm({ planoContas, produtos }: { planoContas: PlanoContas[]; produtos: Produto[] }) {
+export function AtivoForm({
+  planoContas,
+  produtos,
+  pagadores,
+  pessoas,
+  meiosPagamento,
+  usuarioAtual,
+}: {
+  planoContas: PlanoContas[];
+  produtos: Produto[];
+  pagadores: string[];
+  pessoas: Pessoa[];
+  meiosPagamento: MeioPagamento[];
+  usuarioAtual?: string | null;
+}) {
   const [state, formAction, pending] = useActionState(criarAtivo, initialState);
   const formRef = useRef<HTMLFormElement>(null);
+  const pagadorPadrao = usuarioAtual && pagadores.includes(usuarioAtual) ? usuarioAtual : "";
+  const [pagador, setPagador] = useState(pagadorPadrao);
+  const [dataAquisicao, setDataAquisicao] = useState(() => new Date().toISOString().slice(0, 10));
+  const [valor, setValor] = useState("");
+  const [pagamentoKey, setPagamentoKey] = useState(0);
+  const nomesSocias = pessoas.map((p) => p.nome);
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
@@ -20,6 +43,10 @@ export function AtivoForm({ planoContas, produtos }: { planoContas: PlanoContas[
         action={async (formData) => {
           await formAction(formData);
           formRef.current?.reset();
+          setPagador(pagadorPadrao);
+          setDataAquisicao(new Date().toISOString().slice(0, 10));
+          setValor("");
+          setPagamentoKey((k) => k + 1);
         }}
         className="flex flex-col gap-3.5"
       >
@@ -51,10 +78,53 @@ export function AtivoForm({ planoContas, produtos }: { planoContas: PlanoContas[
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Valor">
-            <input name="valor" type="number" step="0.01" min="0" required className="input" placeholder="0,00" />
+            <input
+              name="valor"
+              type="number"
+              step="0.01"
+              min="0"
+              required
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+              className="input"
+              placeholder="0,00"
+            />
           </Field>
           <Field label="Data de aquisição">
-            <input name="data_aquisicao" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} className="input" />
+            <input
+              name="data_aquisicao"
+              type="date"
+              required
+              value={dataAquisicao}
+              onChange={(e) => setDataAquisicao(e.target.value)}
+              className="input"
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Pagador">
+            <select name="pagador" value={pagador} onChange={(e) => setPagador(e.target.value)} className="input">
+              <option value="">Quem pagou?</option>
+              {pagadores.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+              <option value="Empresa">Empresa (conta/cartão PJ)</option>
+            </select>
+          </Field>
+          <Field label="Forma de pagamento">
+            <DetalhePagamento
+              key={pagamentoKey}
+              name="pagamento_detalhe"
+              valorTotal={Number(valor) || 0}
+              meios={meiosPagamento}
+              pessoas={pessoas}
+              pagador={pagador}
+              nomesSocias={nomesSocias}
+              dataReferencia={dataAquisicao}
+            />
           </Field>
         </div>
 

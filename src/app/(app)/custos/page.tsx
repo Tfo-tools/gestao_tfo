@@ -34,14 +34,23 @@ export default async function LancamentosPage() {
         .eq("comprovado", false)
         .order("data_gasto", { ascending: false })
         .limit(50),
-      supabase.from("profiles").select("id, nome").order("nome"),
+      supabase.from("profiles").select("id, nome, cartao_dia_vencimento, cartao_dias_fechamento_antes").order("nome"),
       supabase.from("despesas").select("plano_contas_id"),
       supabase.from("meses_fechados").select("mes"),
-      supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira").eq("ativo", true).order("banco"),
+      supabase
+        .from("meios_pagamento")
+        .select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, dia_vencimento, dias_fechamento_antes")
+        .eq("ativo", true)
+        .order("banco"),
     ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
-  const pessoas = (profiles ?? []).map((p) => ({ id: p.id, nome: p.nome }));
+  const pessoas = (profiles ?? []).map((p) => ({
+    id: p.id,
+    nome: p.nome,
+    cartao_dia_vencimento: p.cartao_dia_vencimento,
+    cartao_dias_fechamento_antes: p.cartao_dias_fechamento_antes,
+  }));
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
 
   const usoPorConta: Record<string, number> = {};

@@ -9,14 +9,35 @@ function formatBRL(v: number) {
 export default async function AtivosPage() {
   const supabase = await createClient();
 
-  const [{ data: ativos }, { data: planoContas }, { data: produtos }] = await Promise.all([
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: perfilAtual } = user ? await supabase.from("profiles").select("nome").eq("id", user.id).single() : { data: null };
+
+  const [{ data: ativos }, { data: planoContas }, { data: produtos }, { data: profiles }, { data: meiosPagamento }] = await Promise.all([
     supabase
       .from("ativos")
-      .select("id, descricao, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), produto_id, produto:produto_id(nome), valor, data_aquisicao, vida_util_meses, observacoes")
+      .select(
+        "id, descricao, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), produto_id, produto:produto_id(nome), valor, data_aquisicao, vida_util_meses, observacoes, pagador, forma_pagamento, pagamento_detalhe",
+      )
       .order("data_aquisicao", { ascending: false }),
     supabase.from("plano_contas").select("id, codigo, conta").eq("tipo", "ativo").order("codigo"),
     supabase.from("produtos").select("id, nome").order("nome"),
+    supabase.from("profiles").select("id, nome, cartao_dia_vencimento, cartao_dias_fechamento_antes").order("nome"),
+    supabase
+      .from("meios_pagamento")
+      .select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, dia_vencimento, dias_fechamento_antes")
+      .eq("ativo", true)
+      .order("banco"),
   ]);
+
+  const pagadores = (profiles ?? []).map((p) => p.nome);
+  const pessoas = (profiles ?? []).map((p) => ({
+    id: p.id,
+    nome: p.nome,
+    cartao_dia_vencimento: p.cartao_dia_vencimento,
+    cartao_dias_fechamento_antes: p.cartao_dias_fechamento_antes,
+  }));
 
   const ativosTyped = (ativos ?? []) as unknown as AtivoRowData[];
   const total = ativosTyped.reduce((s, a) => s + Number(a.valor), 0);
@@ -32,7 +53,14 @@ export default async function AtivosPage() {
       </div>
 
       <div className="grid grid-cols-[420px_1fr] items-start gap-5">
-        <AtivoForm planoContas={planoContas ?? []} produtos={produtos ?? []} />
+        <AtivoForm
+          planoContas={planoContas ?? []}
+          produtos={produtos ?? []}
+          pagadores={pagadores}
+          pessoas={pessoas}
+          meiosPagamento={meiosPagamento ?? []}
+          usuarioAtual={perfilAtual?.nome ?? null}
+        />
 
         <div className="rounded-xl border border-border bg-surface p-6">
           <div className="mb-4 flex items-center justify-between">
@@ -53,13 +81,22 @@ export default async function AtivosPage() {
                   <th className="px-2 py-1.5 font-medium">Conta</th>
                   <th className="px-2 py-1.5 font-medium">Produto</th>
                   <th className="px-2 py-1.5 font-medium">Aquisição</th>
+                  <th className="px-2 py-1.5 font-medium">Pagamento</th>
                   <th className="px-2 py-1.5 text-right font-medium">Valor</th>
                   <th className="px-2 py-1.5" />
                 </tr>
               </thead>
               <tbody>
                 {ativosTyped.map((a) => (
-                  <AtivoRow key={a.id} ativo={a} planoContas={planoContas ?? []} produtos={produtos ?? []} />
+                  <AtivoRow
+                    key={a.id}
+                    ativo={a}
+                    planoContas={planoContas ?? []}
+                    produtos={produtos ?? []}
+                    pagadores={pagadores}
+                    pessoas={pessoas}
+                    meiosPagamento={meiosPagamento ?? []}
+                  />
                 ))}
               </tbody>
             </table>

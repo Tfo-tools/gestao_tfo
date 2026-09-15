@@ -79,6 +79,9 @@ export function DespesaRow({
   const [rateando, startRateio] = useTransition();
   const [erroRateio, setErroRateio] = useState<string | null>(null);
   const [comprovado, setComprovado] = useState(despesa.comprovado);
+  const [dataGasto, setDataGasto] = useState(despesa.data_gasto);
+  const [pagadorEditado, setPagadorEditado] = useState(despesa.pagador ?? "");
+  const nomesSocias = pessoas.map((p) => p.nome);
   const [itensPagamento, setItensPagamento] = useState<ItemPagamento[]>(
     (despesa.despesa_pagamentos ?? []).map((p) => ({
       forma: p.forma_pagamento,
@@ -108,7 +111,14 @@ export function DespesaRow({
             <input type="hidden" name="id" value={despesa.id} />
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Data</label>
-              <input name="data_gasto" type="date" defaultValue={despesa.data_gasto} required className="input w-[135px]" />
+              <input
+                name="data_gasto"
+                type="date"
+                value={dataGasto}
+                onChange={(e) => setDataGasto(e.target.value)}
+                required
+                className="input w-[135px]"
+              />
             </div>
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Categoria</label>
@@ -142,7 +152,7 @@ export function DespesaRow({
             </div>
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Pagador</label>
-              <select name="pagador" defaultValue={despesa.pagador ?? ""} className="input w-[140px]">
+              <select name="pagador" value={pagadorEditado} onChange={(e) => setPagadorEditado(e.target.value)} className="input w-[140px]">
                 <option value="">—</option>
                 {pagadores.map((p) => (
                   <option key={p} value={p}>
@@ -161,6 +171,9 @@ export function DespesaRow({
                 onChange={setItensPagamento}
                 meios={meiosPagamento}
                 pessoas={pessoas}
+                pagador={pagadorEditado}
+                nomesSocias={nomesSocias}
+                dataReferencia={dataGasto}
               />
             </div>
             <div>

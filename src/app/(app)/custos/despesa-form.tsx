@@ -9,7 +9,7 @@ import type { MeioPagamento } from "./meios-pagamento-actions";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
 type Produto = { id: string; nome: string };
-type Pessoa = { id: string; nome: string };
+type Pessoa = { id: string; nome: string; cartao_dia_vencimento?: number | null; cartao_dias_fechamento_antes?: number | null };
 
 const initialState: DespesaFormState = { error: null };
 
@@ -40,8 +40,11 @@ export function DespesaForm({
   const [pagamentoKey, setPagamentoKey] = useState(0);
   const [itensPagamento, setItensPagamento] = useState<ItemPagamento[]>([]);
   const [comprovado, setComprovado] = useState(false);
+  const [dataGasto, setDataGasto] = useState(() => new Date().toISOString().slice(0, 10));
 
   const pagadorPadrao = usuarioAtual && pagadores.includes(usuarioAtual) ? usuarioAtual : "";
+  const [pagador, setPagador] = useState(pagadorPadrao);
+  const nomesSocias = pessoas.map((p) => p.nome);
   const juros = valorPago && valorFatura ? Number(valorPago) - Number(valorFatura) : 0;
 
   return (
@@ -58,6 +61,8 @@ export function DespesaForm({
           setValorFatura("");
           setComprovado(false);
           setItensPagamento([]);
+          setPagador(pagadorPadrao);
+          setDataGasto(new Date().toISOString().slice(0, 10));
           setBuscaKey((k) => k + 1);
           setPagamentoKey((k) => k + 1);
         }}
@@ -92,7 +97,8 @@ export function DespesaForm({
               name="data_gasto"
               type="date"
               required
-              defaultValue={new Date().toISOString().slice(0, 10)}
+              value={dataGasto}
+              onChange={(e) => setDataGasto(e.target.value)}
               className="input"
             />
           </Field>
@@ -124,7 +130,13 @@ export function DespesaForm({
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Pagador">
-            <select name="pagador" defaultValue={pagadorPadrao} required={!recorrente} className="input">
+            <select
+              name="pagador"
+              value={pagador}
+              onChange={(e) => setPagador(e.target.value)}
+              required={!recorrente}
+              className="input"
+            >
               <option value="">{recorrente ? "Quem costuma pagar? (pode mudar por mês depois)" : "Quem pagou?"}</option>
               {pagadores.map((p) => (
                 <option key={p} value={p}>
@@ -144,6 +156,9 @@ export function DespesaForm({
               onChange={setItensPagamento}
               meios={meiosPagamento}
               pessoas={pessoas}
+              pagador={pagador}
+              nomesSocias={nomesSocias}
+              dataReferencia={recorrente ? null : dataGasto}
             />
           </Field>
         </div>

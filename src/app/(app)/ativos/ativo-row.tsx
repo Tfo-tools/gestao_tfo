@@ -2,9 +2,12 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { atualizarAtivo, excluirAtivo, type AtivoFormState } from "./actions";
+import { DetalhePagamento, type ItemPagamento } from "../custos/detalhe-pagamento";
+import type { MeioPagamento } from "../custos/meios-pagamento-actions";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
 type Produto = { id: string; nome: string };
+type Pessoa = { id: string; nome: string; cartao_dia_vencimento?: number | null; cartao_dias_fechamento_antes?: number | null };
 
 export type AtivoRowData = {
   id: string;
@@ -17,6 +20,10 @@ export type AtivoRowData = {
   data_aquisicao: string;
   vida_util_meses: number | null;
   observacoes: string | null;
+  pagador: string | null;
+  forma_pagamento: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pagamento_detalhe: any;
 };
 
 function formatBRL(v: number) {
@@ -28,18 +35,36 @@ function formatDate(iso: string) {
 
 const initialState: AtivoFormState = { error: null };
 
-export function AtivoRow({ ativo, planoContas, produtos }: { ativo: AtivoRowData; planoContas: PlanoContas[]; produtos: Produto[] }) {
+export function AtivoRow({
+  ativo,
+  planoContas,
+  produtos,
+  pagadores,
+  pessoas,
+  meiosPagamento,
+}: {
+  ativo: AtivoRowData;
+  planoContas: PlanoContas[];
+  produtos: Produto[];
+  pagadores: string[];
+  pessoas: Pessoa[];
+  meiosPagamento: MeioPagamento[];
+}) {
   const [editando, setEditando] = useState(false);
   const [state, formAction, pending] = useActionState(atualizarAtivo, initialState);
   const [excluindo, startExcluir] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
+  const [pagador, setPagador] = useState(ativo.pagador ?? "");
+  const [dataAquisicao, setDataAquisicao] = useState(ativo.data_aquisicao);
+  const nomesSocias = pessoas.map((p) => p.nome);
+  const itensIniciais: ItemPagamento[] = Array.isArray(ativo.pagamento_detalhe) ? ativo.pagamento_detalhe : [];
 
   if (state.success && editando) setEditando(false);
 
   if (editando) {
     return (
       <tr className="border-t border-border-soft bg-primary-soft/20">
-        <td colSpan={6} className="px-2 py-3">
+        <td colSpan={7} className="px-2 py-3">
           <form action={formAction} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="id" value={ativo.id} />
             <div className="min-w-[160px] flex-1">
@@ -73,7 +98,39 @@ export function AtivoRow({ ativo, planoContas, produtos }: { ativo: AtivoRowData
             </div>
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Data</label>
-              <input name="data_aquisicao" type="date" defaultValue={ativo.data_aquisicao} required className="input w-[135px]" />
+              <input
+                name="data_aquisicao"
+                type="date"
+                value={dataAquisicao}
+                onChange={(e) => setDataAquisicao(e.target.value)}
+                required
+                className="input w-[135px]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10.5px] text-text-faint">Pagador</label>
+              <select name="pagador" value={pagador} onChange={(e) => setPagador(e.target.value)} className="input w-[140px]">
+                <option value="">—</option>
+                {pagadores.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+                <option value="Empresa">Empresa</option>
+              </select>
+            </div>
+            <div className="w-[220px]">
+              <label className="mb-1 block text-[10.5px] text-text-faint">Forma de pagamento</label>
+              <DetalhePagamento
+                name="pagamento_detalhe"
+                valorTotal={Number(ativo.valor)}
+                defaultValue={itensIniciais}
+                meios={meiosPagamento}
+                pessoas={pessoas}
+                pagador={pagador}
+                nomesSocias={nomesSocias}
+                dataReferencia={dataAquisicao}
+              />
             </div>
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Vida útil (meses, opcional)</label>
@@ -105,6 +162,10 @@ export function AtivoRow({ ativo, planoContas, produtos }: { ativo: AtivoRowData
       <td className="px-2 py-2.5 text-text-muted">{ativo.plano_contas ? `${ativo.plano_contas.codigo} — ${ativo.plano_contas.conta}` : "—"}</td>
       <td className="px-2 py-2.5 text-text-muted">{ativo.produto?.nome ?? "Geral"}</td>
       <td className="px-2 py-2.5 font-mono">{formatDate(ativo.data_aquisicao)}</td>
+      <td className="px-2 py-2.5 text-text-muted">
+        {ativo.pagador ?? "—"}
+        {ativo.forma_pagamento && <div className="text-[10.5px] text-text-faint">{ativo.forma_pagamento}</div>}
+      </td>
       <td className="px-2 py-2.5 text-right font-mono">{formatBRL(Number(ativo.valor))}</td>
       <td className="px-2 py-2.5 text-right">
         <div className="flex items-center justify-end gap-2.5">

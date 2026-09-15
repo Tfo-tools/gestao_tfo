@@ -23,7 +23,14 @@ export function SeletorMeioPagamento({
   meiosIniciais: MeioPagamento[];
   pessoas: Pessoa[];
   bancoAtual?: string;
-  onSelecionar: (dados: { banco: string; bandeira?: string; titular: string; meio_pagamento_id: string }) => void;
+  onSelecionar: (dados: {
+    banco: string;
+    bandeira?: string;
+    titular: string;
+    meio_pagamento_id: string;
+    dia_vencimento?: number | null;
+    dias_fechamento_antes?: number | null;
+  }) => void;
 }) {
   const [meios, setMeios] = useState(meiosIniciais.filter((m) => m.tipo === tipo));
   const [busca, setBusca] = useState(bancoAtual ?? "");
@@ -56,7 +63,14 @@ export function SeletorMeioPagamento({
     const titular = m.titular_tipo === "empresa" ? "Empresa" : (pessoas.find((p) => p.id === m.titular_pessoa_id)?.nome ?? "—");
     setBusca(m.banco);
     setAberto(false);
-    onSelecionar({ banco: m.banco, bandeira: m.bandeira ?? undefined, titular, meio_pagamento_id: m.id });
+    onSelecionar({
+      banco: m.banco,
+      bandeira: m.bandeira ?? undefined,
+      titular,
+      meio_pagamento_id: m.id,
+      dia_vencimento: m.dia_vencimento ?? null,
+      dias_fechamento_antes: m.dias_fechamento_antes ?? null,
+    });
   }
 
   async function salvarNovo() {

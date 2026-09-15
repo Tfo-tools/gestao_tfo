@@ -51,6 +51,62 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // Fatura do cartão: o vencimento real (calculado pelo ciclo do cartão) pode cair bem depois da
+  // data do gasto — é esse vencimento que precisa lembrar, não a data da compra. Cobre também
+  // ativos comprados parcelados no cartão.
+  const { data: perfis } = await supabase.from("profiles").select("id, nome");
+  const idPorNome = new Map((perfis ?? []).map((p) => [p.nome, p.id]));
+
+  const { data: parcelas } = await supabase
+    .from("despesa_parcelas")
+    .select("id, valor, data_prevista, pagador, despesa_id, despesas(descricao, criado_por)")
+    .eq("status", "prevista")
+    .in("data_prevista", [hoje, amanha]);
+
+  for (const p of (parcelas ?? []) as {
+    id: string;
+    valor: number;
+    data_prevista: string;
+    pagador: string | null;
+    despesas: { descricao: string | null; criado_por: string | null } | { descricao: string | null; criado_por: string | null }[] | null;
+  }[]) {
+    const despesaLigada = Array.isArray(p.despesas) ? p.despesas[0] : p.despesas;
+    const usuarioId = (p.pagador ? idPorNome.get(p.pagador) : null) ?? despesaLigada?.criado_por ?? null;
+    if (!usuarioId) continue;
+    const venceHoje = p.data_prevista === hoje;
+    lembretes.push({
+      usuarioId,
+      title: venceHoje ? "Fatura vence hoje" : "Fatura vence amanhã",
+      body: `${despesaLigada?.descricao ?? "Compra no cartão"} — ${formatBRL(Number(p.valor))}`,
+      url: "/custos/extrato",
+    });
+  }
+
+  const { data: parcelasAtivo } = await supabase
+    .from("ativo_parcelas")
+    .select("id, valor, data_prevista, pagador, ativo_id, ativos(descricao, criado_por)")
+    .eq("status", "prevista")
+    .in("data_prevista", [hoje, amanha]);
+
+  for (const p of (parcelasAtivo ?? []) as {
+    id: string;
+    valor: number;
+    data_prevista: string;
+    pagador: string | null;
+    ativos: { descricao: string | null; criado_por: string | null } | { descricao: string | null; criado_por: string | null }[] | null;
+  }[]) {
+    const ativoLigado = Array.isArray(p.ativos) ? p.ativos[0] : p.ativos;
+    const usuarioId = (p.pagador ? idPorNome.get(p.pagador) : null) ?? ativoLigado?.criado_por ?? null;
+    if (!usuarioId) continue;
+    const venceHoje = p.data_prevista === hoje;
+    lembretes.push({
+      usuarioId,
+      title: venceHoje ? "Fatura vence hoje" : "Fatura vence amanhã",
+      body: `${ativoLigado?.descricao ?? "Ativo no cartão"} — ${formatBRL(Number(p.valor))}`,
+      url: "/ativos",
+    });
+  }
+
   const { data: tarefas } = await supabase
     .from("tarefas")
     .select("id, titulo, prazo, responsavel_id")
