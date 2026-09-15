@@ -10,9 +10,10 @@ const LABEL_TIPO: Record<string, string> = {
 };
 
 /**
- * Botão do arquivo anexado (abre pra ver) + duas ações rápidas de correção, quando `editavel`:
- * "⇄" troca fatura ↔ comprovante (acontece de subir a NF no campo errado) e "×" exclui, sem
- * precisar reabrir o formulário inteiro.
+ * Botão do arquivo anexado (abre pra ver) + duas ações rápidas de correção, quando `editavel`: um
+ * seletor pra reclassificar o tipo (cobre trocar Fatura ↔ Comprovante e também corrigir um
+ * "Documento" genérico — uploads antigos da extinta tela de pendentes de Recorrentes não
+ * diferenciavam) e "×" pra excluir, sem precisar reabrir o formulário inteiro.
  */
 export function AnexoButton({
   path,
@@ -32,6 +33,7 @@ export function AnexoButton({
   const [erro, setErro] = useState<string | null>(null);
 
   const podeCorrigir = editavel && !!id;
+  const tipoConhecido = tipo === "fatura" || tipo === "comprovante_pagamento" ? tipo : "";
 
   return (
     <span className="inline-flex items-center gap-1">
@@ -48,22 +50,27 @@ export function AnexoButton({
       >
         {loading ? "…" : `📄 ${LABEL_TIPO[tipo ?? "documento"] ?? "Documento"}`}
       </button>
-      {podeCorrigir && (tipo === "fatura" || tipo === "comprovante_pagamento") && (
-        <button
-          type="button"
+      {podeCorrigir && (
+        <select
           disabled={pending}
-          title={`Trocar pra ${tipo === "fatura" ? "Comprovante" : "Fatura"} — corrige quando o arquivo foi anexado no campo errado`}
-          onClick={() =>
+          value={tipoConhecido}
+          title="Corrigir o tipo desse arquivo — acontece de subir no campo errado, ou de vir de um upload antigo sem diferenciar"
+          onChange={(e) => {
+            const novoTipo = e.target.value;
             startTransition(async () => {
               setErro(null);
-              const r = await trocarTipoAnexo(id!, tipo!);
+              const r = await trocarTipoAnexo(id!, novoTipo);
               if (r.error) setErro(r.error);
-            })
-          }
-          className="text-[11px] text-text-faint hover:text-primary-deep disabled:opacity-50"
+            });
+          }}
+          className="rounded border-none bg-transparent text-[11px] text-text-faint hover:text-primary-deep disabled:opacity-50"
         >
-          ⇄
-        </button>
+          <option value="" disabled>
+            ⇄ corrigir
+          </option>
+          <option value="fatura">Fatura</option>
+          <option value="comprovante_pagamento">Comprovante</option>
+        </select>
       )}
       {podeCorrigir && (
         <button

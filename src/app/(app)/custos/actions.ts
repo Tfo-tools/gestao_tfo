@@ -553,13 +553,13 @@ export async function desfazerRateio(despesaId: string): Promise<{ error: string
   return { error: null };
 }
 
-/** Troca fatura ↔ comprovante de pagamento — pra corrigir quando o arquivo foi anexado no campo
- * errado (acontece: sobe a NF no lugar do comprovante ou vice-versa). Não mexe em "documento". */
-export async function trocarTipoAnexo(id: string, tipoAtual: string): Promise<{ error: string | null }> {
-  if (tipoAtual !== "fatura" && tipoAtual !== "comprovante_pagamento") {
-    return { error: "Esse tipo de arquivo não troca." };
+/** Reclassifica um anexo pra Fatura ou Comprovante — corrige tanto quando o arquivo foi anexado no
+ * campo errado (sobe a NF no lugar do comprovante ou vice-versa) quanto o "documento" genérico de
+ * uploads antigos (a extinta tela de pendentes de Recorrentes salvava assim, sem diferenciar). */
+export async function trocarTipoAnexo(id: string, novoTipo: string): Promise<{ error: string | null }> {
+  if (novoTipo !== "fatura" && novoTipo !== "comprovante_pagamento") {
+    return { error: "Tipo inválido." };
   }
-  const novoTipo = tipoAtual === "fatura" ? "comprovante_pagamento" : "fatura";
   const supabase = await createClient();
   const { error } = await supabase.from("anexos_despesa").update({ tipo: novoTipo }).eq("id", id);
   if (error) return { error: "Não foi possível trocar." };
