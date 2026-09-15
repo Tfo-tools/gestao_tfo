@@ -3,6 +3,7 @@ import webpush from "web-push";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   carregarAgendaCombinada,
+  carregarPendencias,
   dataLocal,
   eventosEmBreve,
   minutoLocalAgora,
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
   const candidatos: Aviso[] = [];
 
   if (minutoLocalAgora() >= HORA_RESUMO) {
-    candidatos.push({ chave: `resumo:${hoje}`, title: "Agenda de hoje — TFO-Gestão", body: textoResumoHoje(eventos) });
+    candidatos.push({ chave: `resumo:${hoje}`, title: "Agenda de hoje — TFO-Gestão", body: textoResumoHoje(eventos, await carregarPendencias()) });
   }
   for (const ev of eventosEmBreve(eventos, MINUTOS_ANTES)) {
     candidatos.push({ chave: `evento:${ev.id}:${dataLocal(ev.inicioIso)}`, title: "Compromisso chegando — TFO-Gestão", body: textoEvento(ev) });

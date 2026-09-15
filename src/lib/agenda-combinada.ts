@@ -82,11 +82,76 @@ export function eventosDeHoje(eventos: EventoAgenda[]) {
   return eventos.filter((e) => dataLocal(e.inicioIso) === hoje);
 }
 
-export function textoResumoHoje(eventos: EventoAgenda[]) {
+function formatBRL(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+export type Pendencia = { texto: string; venceHoje: boolean };
+
+/** Contas, faturas de cartão e tarefas que vencem hoje ou amanhã — mesmo recorte do cron diário de
+ * lembretes, pra entrar no resumo da manhã junto com a agenda em vez de chegar em avisos soltos. */
+export async function carregarPendencias(): Promise<Pendencia[]> {
+  const supabase = createAdminClient();
+  const hoje = dataLocal(new Date().toISOString());
+  const amanha = dataLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  const dias = [hoje, amanha];
+
+  const [{ data: despesas }, { data: parcelas }, { data: parcelasAtivo }, { data: tarefas }] = await Promise.all([
+    supabase.from("despesas").select("descricao, valor_total, data_gasto").eq("comprovado", false).in("data_gasto", dias),
+    supabase.from("despesa_parcelas").select("valor, data_prevista, despesas(descricao)").eq("status", "prevista").in("data_prevista", dias),
+    supabase.from("ativo_parcelas").select("valor, data_prevista, ativos(descricao)").eq("status", "prevista").in("data_prevista", dias),
+    supabase.from("tarefas").select("titulo, prazo").neq("status", "feito").in("prazo", dias),
+  ]);
+
+  const nome = (rel: unknown): string | null => {
+    const r = Array.isArray(rel) ? rel[0] : rel;
+    return (r as { descricao?: string | null } | null)?.descricao ?? null;
+  };
+
+  const itens: Pendencia[] = [];
+  for (const d of despesas ?? []) {
+    itens.push({ texto: `💰 ${d.descricao ?? "Conta"} — ${formatBRL(Number(d.valor_total))}`, venceHoje: d.data_gasto === hoje });
+  }
+  for (const p of parcelas ?? []) {
+    itens.push({ texto: `💳 ${nome(p.despesas) ?? "Compra no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje });
+  }
+  for (const p of parcelasAtivo ?? []) {
+    itens.push({ texto: `💳 ${nome(p.ativos) ?? "Ativo no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje });
+  }
+  for (const t of tarefas ?? []) {
+    itens.push({ texto: `✅ ${t.titulo}`, venceHoje: t.prazo === hoje });
+  }
+  return itens;
+}
+
+export function textoResumoHoje(eventos: EventoAgenda[], pendencias: Pendencia[] = []) {
   const deHoje = eventosDeHoje(eventos);
-  if (deHoje.length === 0) return "☀️ Bom dia! Nenhum compromisso na agenda hoje.";
-  const linhas = deHoje.map((e) => `${e.diaTodo ? "Dia todo" : horaLocal(e.inicioIso)} — ${e.titulo} (${e.origem})`);
-  return `☀️ Bom dia! Compromissos de hoje:\n${linhas.join("\n")}`;
+  const blocos: string[] = [];
+
+  if (deHoje.length === 0) {
+    blocos.push("☀️ Bom dia! Nenhum compromisso na agenda hoje.");
+  } else {
+    const linhas = deHoje.map((e) => `${e.diaTodo ? "Dia todo" : horaLocal(e.inicioIso)} — ${e.titulo} (${e.origem})`);
+    blocos.push(`☀️ Bom dia! Compromissos de hoje:\n${linhas.join("\n")}`);
+  }
+
+  const vencemHoje = pendencias.filter((p) => p.venceHoje);
+  const vencemAmanha = pendencias.filter((p) => !p.venceHoje);
+  if (vencemHoje.length > 0) blocos.push(`Vence hoje:\n${vencemHoje.map((p) => p.texto).join("\n")}`);
+  if (vencemAmanha.length > 0) blocos.push(`Vence amanhã:\n${vencemAmanha.map((p) => p.texto).join("\n")}`);
+
+  return blocos.join("\n\n");
+}
+
+/** Um lembrete por compromisso de hoje, com o alerta já calculado (início − N min) — pro Atalho
+ * do iPhone só percorrer a lista e chamar "Adicionar Novo Lembrete", sem fazer conta de data. */
+export function lembretesDeHoje(eventos: EventoAgenda[], minutosAntes: number) {
+  return eventosDeHoje(eventos)
+    .filter((e) => !e.diaTodo)
+    .map((e) => ({
+      titulo: `⏰ ${horaLocal(e.inicioIso)} ${e.titulo} (${e.origem})`,
+      alerta: new Date(new Date(e.inicioIso).getTime() - minutosAntes * 60000).toISOString(),
+    }));
 }
 
 export function minutosPara(ev: EventoAgenda) {
