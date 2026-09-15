@@ -206,6 +206,30 @@ async function RelatorioReal() {
             </span>
           )}
         </div>
+
+        <form
+          action="/custos/extrato/export/comprovantes"
+          method="get"
+          className="mb-4 mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-border bg-bg px-3.5 py-3"
+        >
+          <span className="mr-1 text-[11.5px] text-text-muted">Comprovantes e notas pra prestar contas:</span>
+          <div>
+            <label className="mb-1 block text-[10.5px] font-medium text-text-muted">De</label>
+            <input type="month" name="desde" className="input py-1 text-[11.5px]" />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10.5px] font-medium text-text-muted">Até</label>
+            <input type="month" name="ate" className="input py-1 text-[11.5px]" />
+          </div>
+          <button
+            type="submit"
+            className="rounded-lg border border-primary-fill bg-primary-soft px-3.5 py-1.5 text-[11.5px] font-medium text-primary-deep hover:bg-primary-soft/70"
+          >
+            ⬇ Baixar .zip
+          </button>
+          <span className="text-[10.5px] text-text-muted">Em branco baixa tudo.</span>
+        </form>
+
         <table className="mt-4 w-full border-collapse text-[12.5px]">
           <thead>
             <tr className="text-left text-text-muted">
