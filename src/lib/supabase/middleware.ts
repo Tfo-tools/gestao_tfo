@@ -24,6 +24,16 @@ function rotaLiberadaParaContabilidade(pathname: string, searchParams: URLSearch
   return ROTAS_CONTABILIDADE.some((prefixo) => pathname === prefixo || pathname.startsWith(`${prefixo}/`));
 }
 
+/** Investidor de fomento ou de equity: só a Prestação de Contas, nada mais — nem a Visão Geral
+ * (que mostra gasto acumulado da empresa inteira, não só o do programa/rodada dele). É a conta
+ * mais restrita do app: terceiro externo, sem relação de trabalho com a empresa. O investidor de
+ * equity também pode baixar a planilha do MESMO cenário que é o escopo dele (nunca de outro). */
+function rotaLiberadaParaInvestidor(pathname: string, escopoId: string | null): boolean {
+  if (pathname === "/prestacao-de-contas" || pathname.startsWith("/prestacao-de-contas/")) return true;
+  if (escopoId && pathname === `/plano/${escopoId}/investidor/export`) return true;
+  return false;
+}
+
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -64,13 +74,25 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Acesso da contabilidade externa: só o realizado. Fica no proxy (roda em toda rota, inclusive
-  // chamada direta de API) — não é só esconder no menu, é o servidor recusando a página.
+  // Acesso por papel: contabilidade externa vê só o realizado; investidor (fomento ou equity) vê
+  // só a Prestação de Contas. Fica no proxy (roda em toda rota, inclusive chamada direta de API)
+  // — não é só esconder no menu, é o servidor recusando a página.
   if (user && !isPublicPath) {
-    const { data: perfil } = await supabase.from("profiles").select("papel").eq("id", user.id).maybeSingle();
-    if (perfil?.papel === "contabilidade" && !rotaLiberadaParaContabilidade(request.nextUrl.pathname, request.nextUrl.searchParams)) {
+    const { data: perfil } = await supabase
+      .from("profiles")
+      .select("papel, escopo_investidor_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    const papel = perfil?.papel;
+    const liberado =
+      papel === "contabilidade"
+        ? rotaLiberadaParaContabilidade(request.nextUrl.pathname, request.nextUrl.searchParams)
+        : papel === "investidor_fomento" || papel === "investidor"
+          ? rotaLiberadaParaInvestidor(request.nextUrl.pathname, perfil?.escopo_investidor_id ?? null)
+          : true;
+    if (!liberado) {
       const url = request.nextUrl.clone();
-      url.pathname = "/custos";
+      url.pathname = papel === "investidor_fomento" || papel === "investidor" ? "/prestacao-de-contas" : "/custos";
       url.search = "";
       return NextResponse.redirect(url);
     }

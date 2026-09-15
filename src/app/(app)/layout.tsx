@@ -18,12 +18,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .eq("id", user.id)
     .single();
 
-  // Contabilidade externa não vê cenários (é dado estratégico/projeção) — nem busca a lista.
-  const ehContabilidade = profile?.papel === "contabilidade";
+  // Contabilidade externa e investidor (fomento ou equity) não veem cenários (dado
+  // estratégico/projeção) — nem busca a lista.
+  const semCenarios = profile?.papel === "contabilidade" || profile?.papel === "investidor_fomento" || profile?.papel === "investidor";
 
   // Os cenários descem para o menu: a Sidebar é componente de cliente e precisa deles pra oferecer
   // acesso direto a cada plano, sem passar pela tela de criação de cenários.
-  const { data: cenarios } = ehContabilidade
+  const { data: cenarios } = semCenarios
     ? { data: [] }
     : await supabase.from("cenarios").select("id, nome, is_base").order("created_at");
 

@@ -37,13 +37,32 @@ export async function convidarUsuario(
   return { error: null, success: true };
 }
 
-/** Muda o papel de uma usuária já cadastrada — Sócia (acesso completo) ou Contabilidade externa
- * (só Realizado: despesas, ativos, contratações fechadas e relatório real; sem cenário, projeção
- * nem captação — reforçado no proxy, não é só o menu). */
-export async function alterarPapelUsuario(id: string, papel: "socia" | "contabilidade"): Promise<{ error: string | null }> {
+export type PapelUsuario = "socia" | "contabilidade" | "investidor_fomento" | "investidor";
+
+/** Muda o papel de uma usuária já cadastrada. Sócia: acesso completo. Contabilidade externa: só
+ * Realizado (despesas, ativos, contratações fechadas, relatório real — sem cenário, projeção nem
+ * captação). Investidor de fomento/equity: só a Prestação de Contas, escopada a UM programa ou
+ * cenário (ver escopo_investidor_id) — reforçado no proxy, não é só o menu. Trocar PARA investidor
+ * limpa o escopo anterior; quem muda precisa escolher de novo em seguida. */
+export async function alterarPapelUsuario(id: string, papel: PapelUsuario): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase.from("profiles").update({ papel }).eq("id", id);
+  const ehInvestidor = papel === "investidor_fomento" || papel === "investidor";
+  const { error } = await supabase
+    .from("profiles")
+    .update({ papel, ...(ehInvestidor ? {} : { escopo_investidor_id: null }) })
+    .eq("id", id);
   if (error) return { error: "Não foi possível alterar o acesso." };
+  revalidatePath("/configuracoes");
+  return { error: null };
+}
+
+/** Define QUAL programa de fomento (papel investidor_fomento) ou cenário (papel investidor) essa
+ * conta enxerga — nunca os dois, nunca "todos". Sem escopo definido, a Prestação de Contas não tem
+ * o que mostrar pra essa conta. */
+export async function definirEscopoInvestidor(id: string, escopoId: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("profiles").update({ escopo_investidor_id: escopoId || null }).eq("id", id);
+  if (error) return { error: "Não foi possível definir o escopo." };
   revalidatePath("/configuracoes");
   return { error: null };
 }

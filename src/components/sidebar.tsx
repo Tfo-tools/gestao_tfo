@@ -72,6 +72,17 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
       },
     ];
   }
+  // Investidor (fomento ou equity): a conta mais restrita do app — só a Prestação de Contas, nem
+  // Visão Geral (ver rotaLiberadaParaInvestidor no proxy, que recusa qualquer outra rota mesmo por
+  // URL direta).
+  if (papel === "investidor_fomento" || papel === "investidor") {
+    return [
+      {
+        titulo: "",
+        items: [{ kind: "link", href: "/prestacao-de-contas", label: "Prestação de Contas", icon: IconFile }],
+      },
+    ];
+  }
   return [
     {
       titulo: "",
@@ -95,7 +106,7 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
           icon: IconBarChart,
           matchQuery: { key: "aba", value: "real", default: "real" },
         },
-        { kind: "em-breve", label: "Prestação de Contas", icon: IconFile },
+        { kind: "link", href: "/prestacao-de-contas", label: "Prestação de Contas", icon: IconFile },
       ],
     },
     {
@@ -140,6 +151,7 @@ export function Sidebar({
 
   const grupos = montarGrupos(cenarios, papel);
   const ehContabilidade = papel === "contabilidade";
+  const semConfiguracoes = ehContabilidade || papel === "investidor_fomento" || papel === "investidor";
 
   // No celular o drawer fecha no próprio clique do link (ver `fecharNoCelular`) — sem isso ele
   // ficaria aberto por cima da tela nova.
@@ -267,7 +279,7 @@ export function Sidebar({
       </nav>
 
       <div className="mt-auto px-3.5">
-        {!ehContabilidade && (
+        {!semConfiguracoes && (
           <Link
             href="/configuracoes"
             onClick={fecharNoCelular}

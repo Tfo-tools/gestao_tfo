@@ -17,12 +17,22 @@ export default async function ConfiguracoesPage() {
   const supabase = await createClient();
   const admin = createAdminClient();
 
-  const [{ data: profiles }, { data: usersData }, { data: planoContas }, contaConectada, { data: tributosRaw }] = await Promise.all([
-    supabase.from("profiles").select("id, nome, papel").order("nome"),
+  const [
+    { data: profiles },
+    { data: usersData },
+    { data: planoContas },
+    contaConectada,
+    { data: tributosRaw },
+    { data: programas },
+    { data: cenariosLista },
+  ] = await Promise.all([
+    supabase.from("profiles").select("id, nome, papel, escopo_investidor_id").order("nome"),
     admin.auth.admin.listUsers(),
     supabase.from("plano_contas").select("id, codigo, conta, tipo, classificacao, descricao, parent_codigo"),
     contaGoogleConectada(),
     supabase.from("parametros_tributarios").select("*").maybeSingle(),
+    supabase.from("programas_investimento").select("id, nome").order("nome"),
+    supabase.from("cenarios").select("id, nome").order("nome"),
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
@@ -82,7 +92,14 @@ export default async function ConfiguracoesPage() {
                   <td className="px-2 py-2.5 font-mono">{formatDate(u.created_at)}</td>
                   <td className="px-2 py-2.5">
                     {profile ? (
-                      <UsuarioPapelSelect id={u.id} papelAtual={profile.papel ?? "socia"} ehVoce={u.id === usuarioAtual?.id} />
+                      <UsuarioPapelSelect
+                        id={u.id}
+                        papelAtual={profile.papel ?? "socia"}
+                        escopoAtual={profile.escopo_investidor_id}
+                        ehVoce={u.id === usuarioAtual?.id}
+                        programas={programas ?? []}
+                        cenarios={cenariosLista ?? []}
+                      />
                     ) : (
                       "—"
                     )}
