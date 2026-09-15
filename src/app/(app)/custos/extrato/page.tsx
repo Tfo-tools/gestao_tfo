@@ -24,9 +24,13 @@ export default async function ExtratoPage({
     conta?: string;
     descricao?: string;
     tipo?: string;
+    ordem?: string;
   }>;
 }) {
-  const { desde, ate, produto, comprovado, pagador, conta, descricao, tipo } = await searchParams;
+  const { desde, ate, produto, comprovado, pagador, conta, descricao, tipo, ordem } = await searchParams;
+  // Padrão continua trazendo as mais recentes primeiro; "antigas" inverte pra achar o que falta
+  // regularizar sem precisar rolar até o fim da lista.
+  const ordemAscendente = ordem === "antigas";
   const supabase = await createClient();
 
   const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: parcelasPendentesRaw }, { data: meiosPagamento }] =
@@ -61,7 +65,7 @@ export default async function ExtratoPage({
         ? "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)"
         : "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
     )
-    .order("data_gasto", { ascending: false });
+    .order("data_gasto", { ascending: ordemAscendente });
 
   if (desde) query = query.gte("data_gasto", `${desde}-01`);
   if (ate) query = query.lt("data_gasto", nextMonth(ate));
@@ -303,6 +307,13 @@ export default async function ExtratoPage({
           <div>
             <label className="mb-1 block text-[11px] font-medium text-text-muted">Descrição contém</label>
             <input type="text" name="descricao" defaultValue={descricao ?? ""} placeholder="Ex: Feira SPFW" className="input w-[180px]" />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-text-muted">Ordenar por data</label>
+            <select name="ordem" defaultValue={ordem ?? "recentes"} className="input">
+              <option value="recentes">Mais recentes primeiro</option>
+              <option value="antigas">Mais antigas primeiro</option>
+            </select>
           </div>
           <button type="submit" className="rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
             Filtrar

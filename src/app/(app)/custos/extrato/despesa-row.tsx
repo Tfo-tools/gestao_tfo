@@ -200,7 +200,7 @@ export function DespesaRow({
             </label>
             {comprovado && (
               <div className="w-full">
-                <EfetivacaoPagamento name="efetivacao_detalhe" itens={itensPagamento} />
+                <EfetivacaoPagamento name="efetivacao_detalhe" itens={itensPagamento} pagador={pagadorEditado} nomesSocias={nomesSocias} />
               </div>
             )}
             <div className="w-full">

@@ -424,13 +424,20 @@ export function EfetivacaoPagamento({
   name,
   itens,
   defaultValue,
+  pagador,
+  nomesSocias,
 }: {
   name: string;
   itens: ItemPagamento[];
   defaultValue?: Record<number, Efetivacao>;
+  /** Mesmo critério do cartão: pago pela própria sócia não precisa detalhar banco/conta — é
+   *  dinheiro pessoal saindo do Pix/conta dela, não algo pra reconciliar depois. */
+  pagador?: string;
+  nomesSocias?: string[];
 }) {
   const [valores, setValores] = useState<Record<number, Efetivacao>>(defaultValue ?? {});
   const naoCartao = itens.map((item, idx) => ({ item, idx })).filter(({ item }) => !FORMAS_CARTAO.has(item.forma));
+  const ehPagadorSocia = !!pagador && !!nomesSocias?.includes(pagador);
 
   if (naoCartao.length === 0) return null;
 
@@ -448,8 +455,14 @@ export function EfetivacaoPagamento({
             <span className="col-span-2 text-[11px] font-medium text-text-faint">
               {LABEL_FORMA[item.forma]} — {formatBRL(item.valor)}
             </span>
-            <CampoTexto label="Banco de saída" value={valores[idx]?.banco} onChange={(v) => atualizar(idx, { banco: v })} />
-            <CampoTexto label="Conta (opcional)" value={valores[idx]?.conta} onChange={(v) => atualizar(idx, { conta: v })} />
+            {ehPagadorSocia ? (
+              <p className="col-span-2 -mt-1 text-[11px] text-text-faint">Pagamento pessoal de {pagador} — sem precisar detalhar banco.</p>
+            ) : (
+              <>
+                <CampoTexto label="Banco de saída" value={valores[idx]?.banco} onChange={(v) => atualizar(idx, { banco: v })} />
+                <CampoTexto label="Conta (opcional)" value={valores[idx]?.conta} onChange={(v) => atualizar(idx, { conta: v })} />
+              </>
+            )}
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Data</label>
               <input

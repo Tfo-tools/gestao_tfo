@@ -230,7 +230,9 @@ export function DespesaForm({
               Marcar como comprovado (auditado internamente)
             </label>
 
-            {comprovado && <EfetivacaoPagamento name="efetivacao_detalhe" itens={itensPagamento} />}
+            {comprovado && (
+              <EfetivacaoPagamento name="efetivacao_detalhe" itens={itensPagamento} pagador={pagador} nomesSocias={nomesSocias} />
+            )}
           </>
         )}
 
