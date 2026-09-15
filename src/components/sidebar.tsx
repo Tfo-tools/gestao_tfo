@@ -13,6 +13,7 @@ import {
   IconReceipt,
   IconBarChart,
   IconFile,
+  IconFolder,
   IconShoppingCart,
   IconArchive,
   IconCheckSquare,
@@ -127,6 +128,10 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
         },
         { kind: "link", href: "/produtos", label: "Produtos", icon: IconBox },
       ],
+    },
+    {
+      titulo: "Empresa",
+      items: [{ kind: "link", href: "/documentos", label: "Documentos", icon: IconFolder }],
     },
   ];
 }
