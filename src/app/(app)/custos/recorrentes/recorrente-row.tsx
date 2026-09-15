@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
-import { alternarRecorrente } from "./actions";
+import { useMemo, useState, useTransition } from "react";
+import { useAcaoEdicao } from "@/lib/use-acao-edicao";
+import { alternarRecorrente, excluirRecorrente } from "./actions";
 import { atualizarRecorrente, type DespesaFormState } from "../actions";
 import { categoriaDeConta, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
 
@@ -26,6 +27,9 @@ export type RecorrenteRowData = {
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+function formatDate(iso: string) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
+}
 
 const initialState: DespesaFormState = { error: null };
 
@@ -41,7 +45,9 @@ export function RecorrenteRow({
   pagadores: string[];
 }) {
   const [editando, setEditando] = useState(false);
-  const [state, formAction, pending] = useActionState(atualizarRecorrente, initialState);
+  const [state, formAction, pending] = useAcaoEdicao(atualizarRecorrente, initialState, () => setEditando(false));
+  const [excluindo, startExcluir] = useTransition();
+  const [erroExclusao, setErroExclusao] = useState<string | null>(null);
   const contaAtual = recorrente.plano_contas_id ? planoContas.find((c) => c.id === recorrente.plano_contas_id) : null;
   const [grupo, setGrupo] = useState(contaAtual ? categoriaDeConta(contaAtual) : "");
 
@@ -52,12 +58,11 @@ export function RecorrenteRow({
 
   const contasDaCategoria = useMemo(() => planoContas.filter((c) => categoriaDeConta(c) === grupo), [planoContas, grupo]);
 
-  if (state.success && editando) setEditando(false);
 
   if (editando) {
     return (
       <tr className="border-t border-border-soft bg-primary-soft/20">
-        <td colSpan={7} className="px-2 py-3">
+        <td colSpan={8} className="px-2 py-3">
           <form action={formAction} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="id" value={recorrente.id} />
             <div>
@@ -156,6 +161,7 @@ export function RecorrenteRow({
       <td className="px-2 py-2.5 text-text-muted">{recorrente.produtoNomes.length > 0 ? recorrente.produtoNomes.join(", ") : "—"}</td>
       <td className="px-2 py-2.5 text-right font-mono">{formatBRL(Number(recorrente.valor))}</td>
       <td className="px-2 py-2.5 text-center font-mono">{recorrente.dia_do_mes}</td>
+      <td className="px-2 py-2.5 font-mono text-text-muted">{formatDate(recorrente.data_inicio)}</td>
       <td className="px-2 py-2.5 text-center">
         <span
           className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${
@@ -175,7 +181,23 @@ export function RecorrenteRow({
               {recorrente.ativo ? "Pausar" : "Reativar"}
             </button>
           </form>
+          <button
+            type="button"
+            disabled={excluindo}
+            onClick={() =>
+              startExcluir(async () => {
+                if (!confirm(`Excluir a recorrência "${recorrente.descricao}"? Só funciona se ela ainda não gerou nenhum lançamento — se já gerou, use Pausar.`)) return;
+                setErroExclusao(null);
+                const r = await excluirRecorrente(recorrente.id);
+                if (r.error) setErroExclusao(r.error);
+              })
+            }
+            className="text-[11.5px] font-medium text-danger disabled:opacity-50"
+          >
+            {excluindo ? "…" : "Excluir"}
+          </button>
         </div>
+        {erroExclusao && <p className="mt-1 text-[10.5px] text-danger">{erroExclusao}</p>}
       </td>
     </tr>
   );

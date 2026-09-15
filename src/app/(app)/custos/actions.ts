@@ -553,6 +553,33 @@ export async function desfazerRateio(despesaId: string): Promise<{ error: string
   return { error: null };
 }
 
+/** Troca fatura ↔ comprovante de pagamento — pra corrigir quando o arquivo foi anexado no campo
+ * errado (acontece: sobe a NF no lugar do comprovante ou vice-versa). Não mexe em "documento". */
+export async function trocarTipoAnexo(id: string, tipoAtual: string): Promise<{ error: string | null }> {
+  if (tipoAtual !== "fatura" && tipoAtual !== "comprovante_pagamento") {
+    return { error: "Esse tipo de arquivo não troca." };
+  }
+  const novoTipo = tipoAtual === "fatura" ? "comprovante_pagamento" : "fatura";
+  const supabase = await createClient();
+  const { error } = await supabase.from("anexos_despesa").update({ tipo: novoTipo }).eq("id", id);
+  if (error) return { error: "Não foi possível trocar." };
+  revalidatePath("/custos");
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos/recorrentes");
+  return { error: null };
+}
+
+export async function excluirAnexo(id: string, path: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  await supabase.storage.from("comprovantes").remove([path]);
+  const { error } = await supabase.from("anexos_despesa").delete().eq("id", id);
+  if (error) return { error: "Não foi possível excluir o arquivo." };
+  revalidatePath("/custos");
+  revalidatePath("/custos/extrato");
+  revalidatePath("/custos/recorrentes");
+  return { error: null };
+}
+
 export async function getSignedUrl(path: string) {
   const supabase = await createClient();
   const { data, error } = await supabase.storage

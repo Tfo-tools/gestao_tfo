@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
+import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import {
   atualizarMembroEquipe,
   desligarMembroEquipe,
@@ -46,11 +47,10 @@ const initialState: EquipeFormState = { error: null };
 
 export function MembroRow({ membro, regimes, produtos }: { membro: MembroEquipeData; regimes: Regime[]; produtos: Produto[] }) {
   const [editando, setEditando] = useState(false);
-  const [state, formAction, pending] = useActionState(atualizarMembroEquipe, initialState);
+  const [state, formAction, pending] = useAcaoEdicao(atualizarMembroEquipe, initialState, () => setEditando(false));
   const [acao, startAcao] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
 
-  if (state.success && editando) setEditando(false);
 
   const regime = regimes.find((r) => r.id === membro.regime_id);
   const alocacoesEdit: AlocacaoEdit[] = membro.alocacoes.map((a) => ({

@@ -6,7 +6,7 @@ import { AnexoButton } from "../extrato/anexo-button";
 
 const initialState: AnexoFormState = { error: null };
 
-type Anexo = { caminho_arquivo: string; tipo?: string };
+type Anexo = { id?: string; caminho_arquivo: string; tipo?: string };
 
 export function AnexarForm({
   despesaId,
@@ -28,7 +28,7 @@ export function AnexarForm({
     return (
       <div className="flex items-center gap-3">
         {anexos.map((a, i) => (
-          <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} />
+          <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} id={a.id} editavel />
         ))}
       </div>
     );
@@ -40,7 +40,7 @@ export function AnexarForm({
       {anexos.length > 0 && (
         <div className="flex items-center gap-2">
           {anexos.map((a, i) => (
-            <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} />
+            <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} id={a.id} editavel />
           ))}
         </div>
       )}

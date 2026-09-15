@@ -9,6 +9,22 @@ export async function alternarRecorrente(id: string, ativo: boolean) {
   revalidatePath("/custos/recorrentes");
 }
 
+/** Só pra recorrência criada errada (cadastro duplicado, valor trocado etc). Se algum mês dela já
+ * virou despesa lançada, o banco recusa a exclusão (a recorrência é referência daquele lançamento
+ * real) — nesse caso, pausar é o caminho, não excluir. */
+export async function excluirRecorrente(id: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("despesas_recorrentes").delete().eq("id", id);
+  if (error) {
+    if (error.code === "23503") {
+      return { error: "Essa recorrência já gerou despesas lançadas — não dá pra excluir sem apagar histórico real. Pause em vez de excluir." };
+    }
+    return { error: "Não foi possível excluir." };
+  }
+  revalidatePath("/custos/recorrentes");
+  return { error: null };
+}
+
 export type AnexoFormState = { error: string | null; success?: boolean };
 
 async function anexarArquivo(
@@ -50,9 +66,15 @@ export async function anexarComprovantePendente(_prevState: AnexoFormState, form
 
   if (!enviouFatura && !enviouComprovante) return { error: "Não foi possível enviar o(s) arquivo(s)." };
 
-  const atualizacao: { comprovado: boolean; pagador?: string | null } = { comprovado: true };
+  // Só marca comprovado quando os DOIS tipos existem (o que já tinha + o que acabou de subir) —
+  // anexar só a fatura não prova o pagamento ainda, e marcar comprovado cedo demais tirava o
+  // lançamento desta lista antes da hora, parecendo que o anexo "não tinha efeito".
+  const { data: anexosAtuais } = await supabase.from("anexos_despesa").select("tipo").eq("despesa_id", despesaId);
+  const tipos = new Set((anexosAtuais ?? []).map((a: { tipo: string }) => a.tipo));
+  const atualizacao: { comprovado?: boolean; pagador?: string | null } = {};
+  if (tipos.has("fatura") && tipos.has("comprovante_pagamento")) atualizacao.comprovado = true;
   if (pagador) atualizacao.pagador = pagador;
-  await supabase.from("despesas").update(atualizacao).eq("id", despesaId);
+  if (Object.keys(atualizacao).length > 0) await supabase.from("despesas").update(atualizacao).eq("id", despesaId);
 
   revalidatePath("/custos/recorrentes");
   revalidatePath("/custos/extrato");

@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
+import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarTarefa, mudarStatusTarefa, excluirTarefa, type TarefaFormState } from "./actions";
 
 type Pessoa = { id: string; nome: string };
@@ -28,10 +29,9 @@ const initialState: TarefaFormState = { error: null };
 
 export function TarefaRow({ tarefa, pessoas, produtos }: { tarefa: TarefaRowData; pessoas: Pessoa[]; produtos: Produto[] }) {
   const [editando, setEditando] = useState(false);
-  const [state, formAction, pending] = useActionState(atualizarTarefa, initialState);
+  const [state, formAction, pending] = useAcaoEdicao(atualizarTarefa, initialState, () => setEditando(false));
   const [isPending, startTransition] = useTransition();
 
-  if (state.success && editando) setEditando(false);
 
   const responsavel = pessoas.find((p) => p.id === tarefa.responsavel_id);
   const produto = produtos.find((p) => p.id === tarefa.produto_id);

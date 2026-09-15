@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
+import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarAtivo, excluirAtivo, type AtivoFormState } from "./actions";
 import { DetalhePagamento, type ItemPagamento } from "../custos/detalhe-pagamento";
 import type { MeioPagamento } from "../custos/meios-pagamento-actions";
@@ -51,7 +52,7 @@ export function AtivoRow({
   meiosPagamento: MeioPagamento[];
 }) {
   const [editando, setEditando] = useState(false);
-  const [state, formAction, pending] = useActionState(atualizarAtivo, initialState);
+  const [state, formAction, pending] = useAcaoEdicao(atualizarAtivo, initialState, () => setEditando(false));
   const [excluindo, startExcluir] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
   const [pagador, setPagador] = useState(ativo.pagador ?? "");
@@ -59,7 +60,6 @@ export function AtivoRow({
   const nomesSocias = pessoas.map((p) => p.nome);
   const itensIniciais: ItemPagamento[] = Array.isArray(ativo.pagamento_detalhe) ? ativo.pagamento_detalhe : [];
 
-  if (state.success && editando) setEditando(false);
 
   if (editando) {
     return (

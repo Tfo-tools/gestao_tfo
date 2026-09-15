@@ -426,6 +426,8 @@ export function EfetivacaoPagamento({
   defaultValue,
   pagador,
   nomesSocias,
+  valorPago,
+  valorFatura,
 }: {
   name: string;
   itens: ItemPagamento[];
@@ -434,10 +436,15 @@ export function EfetivacaoPagamento({
    *  dinheiro pessoal saindo do Pix/conta dela, não algo pra reconciliar depois. */
   pagador?: string;
   nomesSocias?: string[];
+  /** Valor pago × valor da fatura — mostrado aqui, no momento de marcar Comprovado, pra não deixar
+   *  passar juros/multa por atraso sem reparar (é exatamente a hora de conferir). */
+  valorPago?: number;
+  valorFatura?: number | null;
 }) {
   const [valores, setValores] = useState<Record<number, Efetivacao>>(defaultValue ?? {});
   const naoCartao = itens.map((item, idx) => ({ item, idx })).filter(({ item }) => !FORMAS_CARTAO.has(item.forma));
   const ehPagadorSocia = !!pagador && !!nomesSocias?.includes(pagador);
+  const juros = valorPago != null && valorFatura ? Math.round((valorPago - valorFatura) * 100) / 100 : 0;
 
   if (naoCartao.length === 0) return null;
 
@@ -448,6 +455,23 @@ export function EfetivacaoPagamento({
   return (
     <div className="rounded-lg border border-border-soft bg-bg p-3.5">
       <input type="hidden" name={name} value={JSON.stringify(valores)} />
+      {valorPago != null && (
+        <div className="mb-3 rounded-md bg-surface px-3 py-2 text-[11.5px]">
+          <span className="text-text-muted">Confira antes de comprovar: </span>
+          <span className="font-mono font-semibold">Pago {formatBRL(valorPago)}</span>
+          {!!valorFatura && (
+            <>
+              <span className="text-text-muted"> · Fatura </span>
+              <span className="font-mono font-semibold">{formatBRL(valorFatura)}</span>
+            </>
+          )}
+          {Math.abs(juros) > 0.01 && (
+            <span className={`ml-1 font-mono font-semibold ${juros > 0 ? "text-danger" : "text-success"}`}>
+              {juros > 0 ? `· +${formatBRL(juros)} de juros/multa` : `· ${formatBRL(-juros)} a menos que a fatura`}
+            </span>
+          )}
+        </div>
+      )}
       <p className="mb-2.5 text-[11.5px] font-medium text-text-muted">Onde foi efetivado o pagamento?</p>
       <div className="flex flex-col gap-3">
         {naoCartao.map(({ item, idx }) => (

@@ -25,7 +25,7 @@ export default async function LancamentosPage() {
       supabase
         .from("despesas")
         .select(
-          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
+          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
         )
         // Só o que ainda precisa de atenção: lançamento avulso (não recorrente — essas têm sua
         // própria lista em Recorrentes) e ainda sem comprovante. Despesa já comprovada some daqui

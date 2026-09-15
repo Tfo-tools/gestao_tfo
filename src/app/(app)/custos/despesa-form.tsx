@@ -231,7 +231,14 @@ export function DespesaForm({
             </label>
 
             {comprovado && (
-              <EfetivacaoPagamento name="efetivacao_detalhe" itens={itensPagamento} pagador={pagador} nomesSocias={nomesSocias} />
+              <EfetivacaoPagamento
+                name="efetivacao_detalhe"
+                itens={itensPagamento}
+                pagador={pagador}
+                nomesSocias={nomesSocias}
+                valorPago={Number(valorPago) || 0}
+                valorFatura={valorFatura ? Number(valorFatura) : null}
+              />
             )}
           </>
         )}

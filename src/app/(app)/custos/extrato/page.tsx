@@ -62,8 +62,8 @@ export default async function ExtratoPage({
     .from("despesas")
     .select(
       produto
-        ? "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)"
-        : "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
+        ? "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)"
+        : "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
     )
     .order("data_gasto", { ascending: ordemAscendente });
 
@@ -238,6 +238,13 @@ export default async function ExtratoPage({
               className="rounded-lg border border-border px-3.5 py-2 text-[12px] text-text-muted hover:text-text"
             >
               Exportar XLSX
+            </a>
+            <a
+              href={`/custos/extrato/export/comprovantes?${exportQs.toString()}`}
+              className="rounded-lg border border-primary-fill bg-primary-soft px-3.5 py-2 text-[12px] font-medium text-primary-deep hover:bg-primary-soft/70"
+              title="Baixa um .zip com as faturas/NF e comprovantes do período filtrado, organizados por lançamento, mais uma planilha índice — pra revisar antes de mandar pro contador, ou pra ele baixar direto."
+            >
+              ⬇ Comprovantes do período (.zip)
             </a>
             <a
               href="/custos/extrato/export/plano-contas"

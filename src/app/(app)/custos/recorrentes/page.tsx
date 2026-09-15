@@ -15,9 +15,9 @@ function formatDate(iso: string) {
 export default async function RecorrentesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tipo?: string }>;
+  searchParams: Promise<{ tipo?: string; ordem?: string }>;
 }) {
-  const { tipo } = await searchParams;
+  const { tipo, ordem } = await searchParams;
   const supabase = await createClient();
 
   const [{ data: planoContas }, { data: produtos }, { data: profiles }, { data: recorrentes }, { data: pendentes }] = await Promise.all([
@@ -33,7 +33,7 @@ export default async function RecorrentesPage({
     supabase
       .from("despesas")
       .select(
-        "id, data_gasto, valor_total, descricao, pagador, comprovado, plano_contas:plano_contas_id(codigo, conta), anexos_despesa(caminho_arquivo, tipo)",
+        "id, data_gasto, valor_total, descricao, pagador, comprovado, plano_contas:plano_contas_id(codigo, conta), anexos_despesa(id, caminho_arquivo, tipo)",
       )
       .not("despesa_recorrente_id", "is", null)
       .order("data_gasto", { ascending: false })
@@ -41,9 +41,15 @@ export default async function RecorrentesPage({
   ]);
 
   const pagadores = (profiles ?? []).map((p) => p.nome);
-  // Só aparece aqui quem não tem nenhum arquivo anexado ainda (qualquer um já basta) e não foi
-  // marcada como comprovada — assim que tiver 1 anexo ou virar "comprovada", some da lista.
-  const pendentesFiltradas = (pendentes ?? []).filter((d) => !d.comprovado && ((d.anexos_despesa as unknown[]) ?? []).length === 0);
+  // Só some daqui quando os DOIS arquivos existem (fatura/NF e comprovante de pagamento) — mesma
+  // regra do formulário de anexo. Ter só um dos dois ainda deixa o lançamento pendente, senão a
+  // pessoa perde de vista o que falta assim que anexa o primeiro arquivo.
+  const pendentesFiltradas = (pendentes ?? []).filter((d) => {
+    const anexos = (d.anexos_despesa as { tipo?: string }[]) ?? [];
+    const temFatura = anexos.some((a) => a.tipo === "fatura");
+    const temComprovante = anexos.some((a) => a.tipo === "comprovante_pagamento");
+    return !d.comprovado && !(temFatura && temComprovante);
+  });
 
   const recorrentesFiltradas = tipo
     ? (recorrentes ?? []).filter((r) => {
@@ -52,6 +58,12 @@ export default async function RecorrentesPage({
         return conta ? categoriaDeConta(conta) === tipo : false;
       })
     : (recorrentes ?? []);
+  // Ranking por data de início: mais recentes primeiro por padrão, ou mais antigas primeiro pra
+  // achar rápido a recorrência mais velha (mesmo critério do Extrato).
+  const ordemAntigas = ordem === "antigas";
+  const recorrentesOrdenadas = [...recorrentesFiltradas].sort((a, b) =>
+    ordemAntigas ? a.data_inicio.localeCompare(b.data_inicio) : b.data_inicio.localeCompare(a.data_inicio),
+  );
 
   return (
     <div className="flex flex-col gap-5">
@@ -93,7 +105,7 @@ export default async function RecorrentesPage({
         </div>
       )}
 
-      <details className="rounded-xl border border-border bg-surface p-6" open={!!tipo}>
+      <details className="rounded-xl border border-border bg-surface p-6" open={!!tipo || !!ordem}>
         <summary className="cursor-pointer font-heading text-sm font-semibold">
           Todas as recorrências cadastradas ({(recorrentes ?? []).length})
         </summary>
@@ -110,10 +122,17 @@ export default async function RecorrentesPage({
                 ))}
               </select>
             </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-text-muted">Ordenar por início</label>
+              <select name="ordem" defaultValue={ordem ?? "recentes"} className="input">
+                <option value="recentes">Mais recentes primeiro</option>
+                <option value="antigas">Mais antigas primeiro</option>
+              </select>
+            </div>
             <button type="submit" className="rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white">
               Filtrar
             </button>
-            {tipo && (
+            {(tipo || ordem) && (
               <a href="/custos/recorrentes" className="text-[12px] text-text-muted underline">
                 Limpar filtro
               </a>
@@ -125,7 +144,7 @@ export default async function RecorrentesPage({
               {recorrentesFiltradas.length === 1 ? "recorrência" : "recorrências"})
             </p>
           )}
-          {recorrentesFiltradas.length === 0 ? (
+          {recorrentesOrdenadas.length === 0 ? (
             <p className="text-[13px] text-text-muted">
               {tipo ? "Nenhuma recorrência desse tipo." : "Nenhuma despesa recorrente cadastrada ainda."}
             </p>
@@ -138,12 +157,13 @@ export default async function RecorrentesPage({
                   <th className="px-2 py-1.5 font-medium">Produto</th>
                   <th className="px-2 py-1.5 text-right font-medium">Valor/mês</th>
                   <th className="px-2 py-1.5 text-center font-medium">Dia</th>
+                  <th className="px-2 py-1.5 font-medium">Início</th>
                   <th className="px-2 py-1.5 text-center font-medium">Status</th>
                   <th className="px-2 py-1.5" />
                 </tr>
               </thead>
               <tbody>
-                {recorrentesFiltradas.map((r) => {
+                {recorrentesOrdenadas.map((r) => {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   const rr = r as any;
                   const produtosLigados = (rr.despesa_recorrente_produtos ?? []).map((dp: any) => dp.produtos).filter(Boolean);

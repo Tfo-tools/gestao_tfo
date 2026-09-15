@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
+import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarDespesa, excluirDespesa, ratearIgualmente, desfazerRateio, type DespesaFormState } from "../actions";
 import { AnexoButton } from "./anexo-button";
 import { ParcelasDespesa, type Parcela } from "./parcelas-despesa";
@@ -11,7 +12,7 @@ import type { MeioPagamento } from "../meios-pagamento-actions";
 type PlanoContas = { id: string; codigo: string; conta: string };
 type Produto = { id: string; nome: string };
 type Pessoa = { id: string; nome: string };
-type Anexo = { caminho_arquivo: string; nome_arquivo: string; tipo?: string };
+type Anexo = { id?: string; caminho_arquivo: string; nome_arquivo: string; tipo?: string };
 export type PagamentoDetalheRow = {
   forma_pagamento: FormaPagamentoTipo;
   valor: number;
@@ -73,12 +74,14 @@ export function DespesaRow({
 }) {
   const [editando, setEditando] = useState(false);
   const [mostrandoParcelas, setMostrandoParcelas] = useState(false);
-  const [state, formAction, pending] = useActionState(atualizarDespesa, initialState);
+  const [state, formAction, pending] = useAcaoEdicao(atualizarDespesa, initialState, () => setEditando(false));
   const [excluindo, setExcluindo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
   const [rateando, startRateio] = useTransition();
   const [erroRateio, setErroRateio] = useState<string | null>(null);
   const [comprovado, setComprovado] = useState(despesa.comprovado);
+  const [valorPago, setValorPago] = useState(String(despesa.valor_total));
+  const [valorFatura, setValorFatura] = useState(despesa.valor_fatura != null ? String(despesa.valor_fatura) : "");
   const [dataGasto, setDataGasto] = useState(despesa.data_gasto);
   const [pagadorEditado, setPagadorEditado] = useState(despesa.pagador ?? "");
   const nomesSocias = pessoas.map((p) => p.nome);
@@ -98,7 +101,6 @@ export function DespesaRow({
 
   const jaRateado = despesa.despesa_parcelas.length > 0;
 
-  if (state.success && editando) setEditando(false);
 
   const produtosVinculados = despesa.despesa_produtos.map((dp) => dp.produtos).filter((p): p is { id: string; nome: string } => !!p);
   const produtoIdsVinculados = new Set(produtosVinculados.map((p) => p.id));
@@ -178,11 +180,28 @@ export function DespesaRow({
             </div>
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Valor pago</label>
-              <input name="valor_total" type="number" step="0.01" min="0" defaultValue={despesa.valor_total} required className="input w-[110px]" />
+              <input
+                name="valor_total"
+                type="number"
+                step="0.01"
+                min="0"
+                value={valorPago}
+                onChange={(e) => setValorPago(e.target.value)}
+                required
+                className="input w-[110px]"
+              />
             </div>
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Valor da fatura (se atrasou)</label>
-              <input name="valor_fatura" type="number" step="0.01" min="0" defaultValue={despesa.valor_fatura ?? ""} className="input w-[110px]" />
+              <input
+                name="valor_fatura"
+                type="number"
+                step="0.01"
+                min="0"
+                value={valorFatura}
+                onChange={(e) => setValorFatura(e.target.value)}
+                className="input w-[110px]"
+              />
             </div>
             <div className="min-w-[140px] flex-1">
               <label className="mb-1 block text-[10.5px] text-text-faint">Descrição</label>
@@ -200,14 +219,21 @@ export function DespesaRow({
             </label>
             {comprovado && (
               <div className="w-full">
-                <EfetivacaoPagamento name="efetivacao_detalhe" itens={itensPagamento} pagador={pagadorEditado} nomesSocias={nomesSocias} />
+                <EfetivacaoPagamento
+                  name="efetivacao_detalhe"
+                  itens={itensPagamento}
+                  pagador={pagadorEditado}
+                  nomesSocias={nomesSocias}
+                  valorPago={Number(valorPago) || 0}
+                  valorFatura={valorFatura ? Number(valorFatura) : null}
+                />
               </div>
             )}
             <div className="w-full">
               <div className="mb-1 flex flex-wrap gap-3 text-[11px] text-text-faint">
                 {despesa.anexos_despesa.map((a, i) => (
                   <span key={i}>
-                    <AnexoButton path={a.caminho_arquivo} tipo={a.tipo} />
+                    <AnexoButton path={a.caminho_arquivo} tipo={a.tipo} id={a.id} editavel={!fechado} />
                   </span>
                 ))}
               </div>
@@ -269,7 +295,7 @@ export function DespesaRow({
           {despesa.anexos_despesa.length > 0 ? (
             <div className="flex flex-col gap-0.5">
               {despesa.anexos_despesa.map((a, i) => (
-                <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} />
+                <AnexoButton key={i} path={a.caminho_arquivo} tipo={a.tipo} id={a.id} editavel={!fechado} />
               ))}
             </div>
           ) : (

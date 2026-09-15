@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useRef, useState, useTransition } from "react";
+import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { criarContaPlano, atualizarContaPlano, excluirContaPlano, type ActionState } from "./plano-contas-actions";
 
 export type ContaPlano = {
@@ -192,11 +193,10 @@ function CamposConta({ conta, opcoesPai }: { conta?: ContaPlano; opcoesPai: Cont
 
 function ContaRow({ conta, opcoesPai }: { conta: ContaPlano; opcoesPai: ContaPlano[] }) {
   const [editando, setEditando] = useState(false);
-  const [state, formAction, pending] = useActionState(atualizarContaPlano, initialState);
+  const [state, formAction, pending] = useAcaoEdicao(atualizarContaPlano, initialState, () => setEditando(false));
   const [excluindo, startExclusao] = useTransition();
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
 
-  if (state.success && editando) setEditando(false);
 
   if (editando) {
     return (
