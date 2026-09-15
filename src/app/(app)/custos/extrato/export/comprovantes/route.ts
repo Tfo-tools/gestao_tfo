@@ -11,7 +11,7 @@ export const maxDuration = 120;
 function nextMonth(mes: string) {
   const [y, m] = mes.split("-").map(Number);
   const d = new Date(y, m, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 export async function GET(request: NextRequest) {
