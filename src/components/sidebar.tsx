@@ -42,7 +42,36 @@ type NavLink = {
 type NavEmBreve = { kind: "em-breve"; label: string; icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement };
 type NavEntry = NavLink | NavEmBreve;
 
-function montarGrupos(cenarios: CenarioMenu[]): { titulo: string; items: NavEntry[] }[] {
+function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string; items: NavEntry[] }[] {
+  // Contabilidade externa: só o Realizado, sem projeção nem estratégia (ver ROTAS_CONTABILIDADE
+  // no proxy — o servidor recusa essas rotas mesmo que alguém digite a URL direto).
+  if (papel === "contabilidade") {
+    return [
+      {
+        titulo: "",
+        items: [
+          { kind: "link", href: "/", label: "Visão Geral", icon: IconHome },
+          { kind: "link", href: "/tarefas", label: "Tarefas", icon: IconCheckSquare },
+          { kind: "link", href: "/agenda", label: "Agenda", icon: IconCalendar },
+        ],
+      },
+      {
+        titulo: "Realizado",
+        items: [
+          { kind: "link", href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
+          { kind: "link", href: "/contratacoes/realizado", label: "Contratações", icon: IconUsers },
+          { kind: "link", href: "/ativos", label: "Ativos", icon: IconArchive },
+          {
+            kind: "link",
+            href: "/relatorios?aba=real",
+            label: "Relatórios",
+            icon: IconBarChart,
+            matchQuery: { key: "aba", value: "real", default: "real" },
+          },
+        ],
+      },
+    ];
+  }
   return [
     {
       titulo: "",
@@ -91,7 +120,17 @@ function montarGrupos(cenarios: CenarioMenu[]): { titulo: string; items: NavEntr
   ];
 }
 
-export function Sidebar({ nome, email, cenarios = [] }: { nome: string; email: string; cenarios?: CenarioMenu[] }) {
+export function Sidebar({
+  nome,
+  email,
+  cenarios = [],
+  papel = "socia",
+}: {
+  nome: string;
+  email: string;
+  cenarios?: CenarioMenu[];
+  papel?: string;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [aberto, setAberto] = useState(false);
@@ -99,7 +138,8 @@ export function Sidebar({ nome, email, cenarios = [] }: { nome: string; email: s
   // ficaria navegando num cenário sem ver onde está.
   const [expandido, setExpandido] = useState<Record<string, boolean>>(() => ({ "/cenarios": pathname.startsWith("/plano/") }));
 
-  const grupos = montarGrupos(cenarios);
+  const grupos = montarGrupos(cenarios, papel);
+  const ehContabilidade = papel === "contabilidade";
 
   // No celular o drawer fecha no próprio clique do link (ver `fecharNoCelular`) — sem isso ele
   // ficaria aberto por cima da tela nova.
@@ -227,14 +267,16 @@ export function Sidebar({ nome, email, cenarios = [] }: { nome: string; email: s
       </nav>
 
       <div className="mt-auto px-3.5">
-        <Link
-          href="/configuracoes"
-          onClick={fecharNoCelular}
-          className="mt-2 flex items-center gap-3 rounded-lg border-t border-white/8 px-3 pt-4 pb-2.5 text-[13.5px] text-white/55 hover:text-white/80"
-        >
-          <IconSettings width={18} height={18} />
-          Configurações
-        </Link>
+        {!ehContabilidade && (
+          <Link
+            href="/configuracoes"
+            onClick={fecharNoCelular}
+            className="mt-2 flex items-center gap-3 rounded-lg border-t border-white/8 px-3 pt-4 pb-2.5 text-[13.5px] text-white/55 hover:text-white/80"
+          >
+            <IconSettings width={18} height={18} />
+            Configurações
+          </Link>
+        )}
         <div className="mt-2 flex items-center gap-2.5 px-3 py-2">
           <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-cream font-heading text-[11px] font-bold text-wine-deep">
             {nome

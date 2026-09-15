@@ -5,6 +5,7 @@ import { ConexaoGoogleCard } from "@/components/conexao-google-card";
 import { UsuariosForm } from "./usuarios-form";
 import { NotificacoesPush } from "./notificacoes-push";
 import { PlanoContasManager } from "./plano-contas-manager";
+import { UsuarioPapelSelect } from "./usuario-papel-select";
 import { ParametrosTributariosCard } from "./parametros-tributarios";
 import { parametrosTributariosDe } from "@/lib/impostos";
 
@@ -17,7 +18,7 @@ export default async function ConfiguracoesPage() {
   const admin = createAdminClient();
 
   const [{ data: profiles }, { data: usersData }, { data: planoContas }, contaConectada, { data: tributosRaw }] = await Promise.all([
-    supabase.from("profiles").select("id, nome, papel"),
+    supabase.from("profiles").select("id, nome, papel").order("nome"),
     admin.auth.admin.listUsers(),
     supabase.from("plano_contas").select("id, codigo, conta, tipo, classificacao, descricao, parent_codigo"),
     contaGoogleConectada(),
@@ -28,6 +29,9 @@ export default async function ConfiguracoesPage() {
   const usuarios = (usersData?.users ?? []).sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   );
+  const {
+    data: { user: usuarioAtual },
+  } = await supabase.auth.getUser();
 
   return (
     <div>
@@ -63,6 +67,7 @@ export default async function ConfiguracoesPage() {
               <th className="px-2 py-1.5 font-medium">Nome</th>
               <th className="px-2 py-1.5 font-medium">E-mail</th>
               <th className="px-2 py-1.5 font-medium">Convidada em</th>
+              <th className="px-2 py-1.5 font-medium">Acesso</th>
               <th className="px-2 py-1.5 text-center font-medium">Status</th>
             </tr>
           </thead>
@@ -75,6 +80,13 @@ export default async function ConfiguracoesPage() {
                   <td className="px-2 py-2.5">{profile?.nome ?? "—"}</td>
                   <td className="px-2 py-2.5 text-text-muted">{u.email}</td>
                   <td className="px-2 py-2.5 font-mono">{formatDate(u.created_at)}</td>
+                  <td className="px-2 py-2.5">
+                    {profile ? (
+                      <UsuarioPapelSelect id={u.id} papelAtual={profile.papel ?? "socia"} ehVoce={u.id === usuarioAtual?.id} />
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-2 py-2.5 text-center">
                     <span
                       className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${

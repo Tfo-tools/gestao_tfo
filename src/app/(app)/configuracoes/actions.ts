@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
 export type ConvidarState = { error: string | null; success?: boolean };
 
@@ -11,6 +12,8 @@ export async function convidarUsuario(
 ): Promise<ConvidarState> {
   const email = String(formData.get("email") || "").trim();
   const nome = String(formData.get("nome") || "").trim();
+  const papelRaw = String(formData.get("papel") || "socia");
+  const papel = papelRaw === "contabilidade" ? "contabilidade" : "socia";
 
   if (!email) {
     return { error: "Informe o e-mail." };
@@ -20,7 +23,7 @@ export async function convidarUsuario(
   const admin = createAdminClient();
 
   const { error } = await admin.auth.admin.inviteUserByEmail(email, {
-    data: nome ? { nome } : undefined,
+    data: { ...(nome ? { nome } : {}), papel },
     redirectTo: `${siteUrl}/definir-senha`,
   });
 
@@ -32,4 +35,15 @@ export async function convidarUsuario(
 
   revalidatePath("/configuracoes");
   return { error: null, success: true };
+}
+
+/** Muda o papel de uma usuária já cadastrada — Sócia (acesso completo) ou Contabilidade externa
+ * (só Realizado: despesas, ativos, contratações fechadas e relatório real; sem cenário, projeção
+ * nem captação — reforçado no proxy, não é só o menu). */
+export async function alterarPapelUsuario(id: string, papel: "socia" | "contabilidade"): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("profiles").update({ papel }).eq("id", id);
+  if (error) return { error: "Não foi possível alterar o acesso." };
+  revalidatePath("/configuracoes");
+  return { error: null };
 }

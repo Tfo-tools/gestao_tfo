@@ -13,7 +13,9 @@ export function UsuariosForm() {
     <div className="rounded-xl border border-border bg-surface p-6">
       <h2 className="mb-1 font-heading text-sm font-semibold">Convidar usuária</h2>
       <p className="mb-4 text-[12px] text-text-muted">
-        Ela recebe um e-mail para definir a senha e acessar o painel.
+        Ela recebe um e-mail para definir a senha e acessar o painel. Sócia tem acesso completo;
+        Contabilidade externa vê só o realizado (despesas, ativos, contratações fechadas e
+        relatório real) — sem cenário, projeção nem captação.
       </p>
       <form
         ref={formRef}
@@ -32,6 +34,13 @@ export function UsuariosForm() {
             E-mail (@thefashionoffice.online)
           </label>
           <input name="email" type="email" required className="input" placeholder="rayssa@thefashionoffice.online" />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">Acesso</label>
+          <select name="papel" defaultValue="socia" className="input">
+            <option value="socia">Sócia (completo)</option>
+            <option value="contabilidade">Contabilidade externa (só realizado)</option>
+          </select>
         </div>
         <button
           type="submit"

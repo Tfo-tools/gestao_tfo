@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { InfoTooltip } from "@/components/info-tooltip";
 import type { ParametrosTributarios } from "@/lib/impostos";
 import { salvarParametrosTributarios, type ActionState } from "./tributos-actions";
@@ -39,17 +39,24 @@ function pct(v: number) {
 /** Tributação depois do Simples: quando o app troca de regime e com quais alíquotas. */
 export function ParametrosTributariosCard({ valores, observacoes }: { valores: ParametrosTributarios; observacoes: string | null }) {
   const [state, formAction, pending] = useActionState(salvarParametrosTributarios, initialState);
+  const [aberto, setAberto] = useState(false);
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-1 flex items-center font-heading text-sm font-semibold">
-        Impostos depois do Simples
-        <InfoTooltip texto="O app mantém o Simples Nacional enquanto o faturamento do ano fica abaixo de R$ 4,8 mi. Passou disso, a empresa sai em janeiro do ano seguinte (ou já no mês seguinte, se passar de R$ 5,76 mi). Daí em diante a projeção usa lucro presumido com a transição da reforma tributária. São estimativas — confirme com o contador." />
-      </h2>
-      <p className="mb-4 max-w-3xl text-[11.5px] text-text-muted">
-        Enquanto estiver no Simples, nada daqui é usado. Depois, os impostos sobre a receita saem já descontado o crédito de CBS/IBS
-        sobre compras de fornecedor, e o IRPJ/CSLL aparece abaixo do EBITDA. Alíquotas em %, valem para todos os cenários.
-      </p>
-      <form action={formAction} className="flex flex-col gap-4">
+      <button type="button" onClick={() => setAberto((v) => !v)} className="flex w-full items-center justify-between text-left">
+        <div>
+          <h2 className="flex items-center font-heading text-sm font-semibold">
+            Impostos depois do Simples
+            <InfoTooltip texto="O app mantém o Simples Nacional enquanto o faturamento do ano fica abaixo de R$ 4,8 mi. Passou disso, a empresa sai em janeiro do ano seguinte (ou já no mês seguinte, se passar de R$ 5,76 mi). Daí em diante a projeção usa lucro presumido com a transição da reforma tributária. São estimativas — confirme com o contador." />
+          </h2>
+          <p className="mt-1 max-w-3xl text-[11.5px] text-text-muted">
+            Enquanto estiver no Simples, nada daqui é usado. Depois, os impostos sobre a receita saem já descontado o crédito de
+            CBS/IBS sobre compras de fornecedor, e o IRPJ/CSLL aparece abaixo do EBITDA. Alíquotas em %, valem para todos os cenários.
+          </p>
+        </div>
+        <span className="shrink-0 text-[12px] text-primary-deep">{aberto ? "Recolher ▲" : "Gerenciar ▾"}</span>
+      </button>
+      {aberto && (
+      <form action={formAction} className="mt-5 flex flex-col gap-4">
         {GRUPOS.map((g) => (
           <div key={g.titulo}>
             <p className="mb-2 text-[11.5px] font-medium">
@@ -80,6 +87,7 @@ export function ParametrosTributariosCard({ valores, observacoes }: { valores: P
           {state.success && <span className="text-[11.5px] text-success">Salvo — as projeções já usam os novos valores.</span>}
         </div>
       </form>
+      )}
     </div>
   );
 }

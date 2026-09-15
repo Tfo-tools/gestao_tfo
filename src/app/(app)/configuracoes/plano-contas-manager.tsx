@@ -78,17 +78,25 @@ export function PlanoContasManager({ contas }: { contas: ContaPlano[] }) {
 
       {aberto && (
         <div className="mt-5 flex flex-col gap-4">
-          {!mostrandoForm ? (
-            <button
-              type="button"
-              onClick={() => setMostrandoForm(true)}
-              className="self-start rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white"
+          <div className="flex flex-wrap items-center gap-2">
+            {!mostrandoForm && (
+              <button
+                type="button"
+                onClick={() => setMostrandoForm(true)}
+                className="rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white"
+              >
+                + Nova conta
+              </button>
+            )}
+            <a
+              href="/custos/extrato/export/plano-contas"
+              className="rounded-lg border border-border px-3.5 py-2 text-[12px] font-medium text-primary-deep"
+              title="Planilha .xlsx com código, conta, tipo (DRE), classificação e descrição — pra enviar ao contador ou usar em treinamento."
             >
-              + Nova conta
-            </button>
-          ) : (
-            <NovaContaForm opcoesPai={opcoesPai} onDone={() => setMostrandoForm(false)} />
-          )}
+              ⬇ Baixar plano de contas (.xlsx)
+            </a>
+          </div>
+          {mostrandoForm && <NovaContaForm opcoesPai={opcoesPai} onDone={() => setMostrandoForm(false)} />}
 
           <div className="flex flex-col gap-3">
             {TIPOS_ORDEM.filter((t) => porTipo.has(t)).map((tipo) => (
