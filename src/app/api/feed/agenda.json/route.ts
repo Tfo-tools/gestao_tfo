@@ -57,6 +57,9 @@ export async function GET(request: NextRequest) {
 
     const emBreve = eventosEmBreve(eventos, proximos);
     if (emBreve.length === 0) return textoPlano("");
+    // &checar=1: só olha se tem algo, sem "gastar" o aviso — o Atalho usa isso pra decidir se chama
+    // o que envia (que aí busca de novo, dessa vez marcando).
+    if (request.nextUrl.searchParams.get("checar")) return textoPlano(emBreve.map(textoEvento).join("\n"));
     const supabase = createAdminClient();
     const { data: ganhos } = await supabase
       .from("agenda_lembretes_enviados")
