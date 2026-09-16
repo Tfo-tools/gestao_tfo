@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { listarProximosEventos } from "@/lib/google-calendar";
+import { eventosIcloudTodasSocias } from "@/lib/agenda-icloud";
 
 /**
  * Agenda combinada: contato@ + agenda pessoal de qualquer sócia conectada, sem repetir compromisso.
@@ -34,21 +35,37 @@ export async function carregarAgendaCombinada(diasAFrente = 2): Promise<EventoAg
   // compromisso que existe nas duas (convite espelhado) o rótulo certo é o da compartilhada.
   const conexoesOrdenadas = [...(conexoes ?? [])].sort((a, b) => (a.profile_id === null ? -1 : 0) - (b.profile_id === null ? -1 : 0));
 
-  const listas = await Promise.all(
-    conexoesOrdenadas.map(async (c) => ({
-      origem: c.profile_id === null ? "Compartilhada (contato)" : (nomePorPerfil.get(c.profile_id) ?? "Agenda pessoal"),
-      eventos: await listarProximosEventos(diasAFrente, 50, c.profile_id),
+  const agora = new Date();
+  const ate = new Date(agora.getTime() + diasAFrente * 24 * 60 * 60 * 1000);
+  const [listasGoogle, icloud] = await Promise.all([
+    Promise.all(
+      conexoesOrdenadas.map(async (c) => ({
+        origem: c.profile_id === null ? "Compartilhada (contato)" : (nomePorPerfil.get(c.profile_id) ?? "Agenda pessoal"),
+        eventos: await listarProximosEventos(diasAFrente, 50, c.profile_id),
+      })),
+    ),
+    eventosIcloudTodasSocias(agora, ate),
+  ]);
+  // iCloud (convite do marido etc.) entra por último, rotulado "Pessoal (nome)".
+  const listas = [
+    ...listasGoogle,
+    ...[...new Set(icloud.map((e) => e.profileId))].map((pid) => ({
+      origem: `Pessoal (${icloud.find((e) => e.profileId === pid)!.nomeDono})`,
+      eventos: icloud.filter((e) => e.profileId === pid),
     })),
-  );
+  ];
 
   // iCalUID é estável entre a cópia do organizador e a de cada convidado do MESMO evento —
   // diferente de `id`, que só é único dentro de um calendário.
+  // Chave = iCalUID + início: evento recorrente repete o iCalUID em cada instância (Google e iCloud),
+  // e só pelo UID a segunda semana em diante sumiria.
   const vistos = new Set<string>();
   const eventos: EventoAgenda[] = [];
   for (const lista of listas) {
     for (const ev of lista.eventos) {
-      if (vistos.has(ev.iCalUID)) continue;
-      vistos.add(ev.iCalUID);
+      const chave = `${ev.iCalUID}|${ev.inicioIso}`;
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
       eventos.push({
         id: ev.iCalUID,
         titulo: ev.titulo,

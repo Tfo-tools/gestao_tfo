@@ -8,6 +8,7 @@ import {
   criarRegraDisponibilidade,
   excluirRegraDisponibilidade,
   cancelarReuniao,
+  salvarIcsPessoal,
   type ActionState,
 } from "./actions";
 import type { EventoGoogle } from "@/lib/google-calendar";
@@ -45,6 +46,7 @@ export function AgendaManager({
   eventosGoogle,
   contaPessoalConectada,
   eventosPessoais,
+  icsPessoalUrl,
   atas,
   pessoas,
   iaConfigurada,
@@ -58,6 +60,7 @@ export function AgendaManager({
   eventosGoogle: EventoGoogle[];
   contaPessoalConectada: string | null;
   eventosPessoais: EventoGoogle[];
+  icsPessoalUrl: string | null;
   atas: Ata[];
   pessoas: { id: string; nome: string }[];
   iaConfigurada: boolean;
@@ -97,7 +100,7 @@ export function AgendaManager({
       {contaPessoalConectada && (
         <CompromissosGoogleCard
           titulo="Seus compromissos"
-          explicacao="Os próximos 30 dias da sua agenda pessoal."
+          explicacao="Os próximos 30 dias da sua agenda pessoal — Google e, se cadastrado, o calendário do iPhone (marcado como Pessoal)."
           eventos={eventosPessoais}
           ataPorEvento={ataPorEvento}
           pessoas={pessoas}
@@ -108,28 +111,52 @@ export function AgendaManager({
       <TiposReuniaoCard tipos={tipos} regras={regras} />
       <ProximasReunioesCard reunioes={reunioes} ataPorReuniao={ataPorReuniao} pessoas={pessoas} iaConfigurada={iaConfigurada} />
 
-      <ConexaoPessoalColapsavel contaPessoalConectada={contaPessoalConectada} />
+      <ConexaoPessoalColapsavel contaPessoalConectada={contaPessoalConectada} icsPessoalUrl={icsPessoalUrl} />
     </div>
   );
 }
 
-function ConexaoPessoalColapsavel({ contaPessoalConectada }: { contaPessoalConectada: string | null }) {
+function ConexaoPessoalColapsavel({ contaPessoalConectada, icsPessoalUrl }: { contaPessoalConectada: string | null; icsPessoalUrl: string | null }) {
   const [aberto, setAberto] = useState(false);
+  const [state, formAction, pending] = useActionState(salvarIcsPessoal, initialState);
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
       <button type="button" onClick={() => setAberto((v) => !v)} className="flex w-full items-center justify-between text-left">
-        <span className="font-heading text-sm font-semibold">Sua agenda pessoal (Google)</span>
+        <span className="font-heading text-sm font-semibold">Sua agenda pessoal</span>
         <span className="shrink-0 text-[12px] text-primary-deep">{aberto ? "Recolher ▲" : "Gerenciar ▾"}</span>
       </button>
       {aberto && (
-        <div className="mt-4">
+        <div className="mt-4 flex flex-col gap-5">
           <ConexaoGoogleCard
             titulo="Conexão com sua conta Google"
             explicacao="Conecte sua própria conta Google pra ver seus compromissos aqui — só leitura, isso nunca cria ou altera nada na sua agenda. A agenda compartilhada (contato@) fica em Configurações."
             contaConectada={contaPessoalConectada}
             linkConectar="/api/google/connect?tipo=pessoal"
           />
+
+          <div className="rounded-lg border border-border-soft bg-bg p-4">
+            <h3 className="text-[12.5px] font-semibold">Calendário do iPhone (iCloud)</h3>
+            <p className="mt-1 mb-3 text-[11.5px] text-text-muted">
+              Pra compromissos que não estão no Google (convites que chegam no seu iCloud, por exemplo). No iPhone: Calendário →
+              Calendários → ⓘ ao lado do seu calendário pessoal → ligue <b>Calendário Público</b> → Compartilhar Link → cole aqui.
+              Entra como <b>Pessoal</b>: bloqueia o link de agendamento e aparece no resumo — quem agenda nunca vê o título.
+            </p>
+            <form action={formAction} className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[280px] flex-1">
+                <label className="mb-1 block text-[10.5px] text-text-faint">Link público (webcal:// ou https://)</label>
+                <input name="url" type="text" defaultValue={icsPessoalUrl ?? ""} placeholder="webcal://p00-caldav.icloud.com/published/2/…" className="input w-full font-mono text-[11px]" />
+              </div>
+              <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white disabled:opacity-60">
+                {pending ? "Conferindo…" : "Salvar"}
+              </button>
+              {state.error && <p className="w-full text-[11px] text-danger">{state.error}</p>}
+              {state.success && !state.error && <p className="w-full text-[11px] text-success">Salvo — o calendário foi lido com sucesso.</p>}
+            </form>
+            {icsPessoalUrl && (
+              <p className="mt-2 text-[10.5px] text-text-faint">Cadastrado. Pra remover, apague o campo e salve.</p>
+            )}
+          </div>
         </div>
       )}
     </div>

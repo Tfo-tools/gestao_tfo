@@ -94,3 +94,30 @@ export async function cancelarReuniao(id: string): Promise<{ error: string | nul
   revalidatePath("/agenda");
   return { error: null };
 }
+
+/** Salva (ou limpa, se vazio) o link "Calendário Público" do iCloud da sócia logada. Valida lendo o
+ * .ics uma vez — se o link não devolver um calendário, não grava. */
+export async function salvarIcsPessoal(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const url = String(formData.get("url") || "").trim();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada." };
+
+  if (url) {
+    if (!/^(webcal|https?):\/\//i.test(url)) return { error: "Cole o link completo (começa com webcal:// ou https://)." };
+    try {
+      const resp = await fetch(url.replace(/^webcal:\/\//i, "https://"), { cache: "no-store" });
+      const texto = resp.ok ? await resp.text() : "";
+      if (!texto.includes("BEGIN:VCALENDAR")) return { error: "Esse link não devolveu um calendário. Confira se \"Calendário Público\" está ligado." };
+    } catch {
+      return { error: "Não consegui abrir esse link." };
+    }
+  }
+
+  const { error } = await supabase.from("profiles").update({ ics_pessoal_url: url || null }).eq("id", user.id);
+  if (error) return { error: "Não foi possível salvar." };
+  revalidatePath("/agenda");
+  return { error: null, success: true };
+}

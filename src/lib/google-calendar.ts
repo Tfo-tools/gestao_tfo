@@ -247,8 +247,14 @@ export async function periodosOcupadosGoogle(diasAFrente: number): Promise<{ dat
   const listas = await Promise.all(
     (conexoes ?? []).map((c) => listarEventosBrutos(c.profile_id, agora.toISOString(), ate.toISOString(), 250)),
   );
-  return listas
+  const google = listas
     .flat()
     .filter((ev) => ev.transparency !== "transparent" && ev.start?.dateTime && ev.end?.dateTime)
     .map((ev) => ({ data_hora_inicio: ev.start!.dateTime!, data_hora_fim: ev.end!.dateTime! }));
+  // Agenda pessoal do iCloud (convite do marido etc.) também ocupa — só como bloqueio, sem título.
+  const { eventosIcloudTodasSocias } = await import("@/lib/agenda-icloud");
+  const icloud = (await eventosIcloudTodasSocias(agora, ate))
+    .filter((ev) => !ev.transparente && !ev.diaTodo)
+    .map((ev) => ({ data_hora_inicio: ev.inicioIso, data_hora_fim: ev.fimIso }));
+  return [...google, ...icloud];
 }

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { contaGoogleConectada, listarProximosEventos } from "@/lib/google-calendar";
 import { anthropicConfigurado } from "@/lib/anthropic";
 import { AgendaManager, type ReuniaoAgendada } from "./agenda-manager";
+import { lerEventosIcs } from "@/lib/agenda-icloud";
 import type { Ata } from "./atas-manager";
 import type { TarefaComPrazo } from "./calendario-semana";
 
@@ -31,6 +32,7 @@ export default async function AgendaPage() {
     { data: pessoas },
     { data: atas },
     { data: tarefasComPrazo },
+    { data: perfilAtual },
   ] = await Promise.all([
     supabase.from("tipos_reuniao").select("id, nome, slug, duracao_minutos, descricao, ativo").order("nome"),
     supabase.from("disponibilidade_regras").select("id, tipo_reuniao_id, dia_semana, hora_inicio, hora_fim"),
@@ -59,13 +61,23 @@ export default async function AgendaPage() {
       .select("id, titulo, data_reuniao, participantes, conteudo, reuniao_id, google_event_id")
       .order("data_reuniao", { ascending: false }),
     supabase.from("tarefas").select("id, titulo, prazo, responsavel_id, status").not("prazo", "is", null),
+    user ? supabase.from("profiles").select("ics_pessoal_url").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
+  const icsPessoalUrl = (perfilAtual as { ics_pessoal_url?: string | null } | null)?.ics_pessoal_url ?? null;
 
   // Só busca no Google depois de saber que tem conta conectada — evita uma chamada de API à toa.
-  const [eventosGoogle, eventosPessoais] = await Promise.all([
+  const [eventosGoogle, eventosPessoaisGoogle, eventosIcloud] = await Promise.all([
     contaConectada ? listarProximosEventos(DIAS_A_FRENTE_LISTAGEM) : Promise.resolve([]),
     contaPessoalConectada && user ? listarProximosEventos(DIAS_A_FRENTE_LISTAGEM, 20, user.id) : Promise.resolve([]),
+    icsPessoalUrl
+      ? lerEventosIcs(icsPessoalUrl, agora, new Date(agora.getTime() + DIAS_A_FRENTE_LISTAGEM * 24 * 60 * 60 * 1000)).catch(() => [])
+      : Promise.resolve([]),
   ]);
+  // iCloud entra rotulado no título, pra distinguir na lista "Seus compromissos".
+  const eventosPessoais = [
+    ...eventosPessoaisGoogle,
+    ...eventosIcloud.map((e) => ({ ...e, titulo: `${e.titulo} · Pessoal` })),
+  ].sort((a, b) => a.inicioIso.localeCompare(b.inicioIso));
 
   const reunioesAgendadas = (reunioes ?? []) as unknown as ReuniaoAgendada[];
   const reunioesParaCalendario = (reunioesCalendario ?? []) as unknown as ReuniaoAgendada[];
@@ -74,8 +86,9 @@ export default async function AgendaPage() {
   // pessoal de quem foi convidada — é o MESMO compromisso, não dois. `iCalUID` é estável entre a
   // cópia do organizador (contato@) e a cópia da convidada, ao contrário de `id` (só único dentro
   // de um calendário), então dá pra reconhecer e não listar de novo na agenda pessoal.
-  const idsNaAgendaCompartilhada = new Set(eventosGoogle.map((e) => e.iCalUID));
-  const eventosPessoaisSemDuplicata = eventosPessoais.filter((e) => !idsNaAgendaCompartilhada.has(e.iCalUID));
+  // Chave = iCalUID + início: evento recorrente repete o iCalUID em cada instância.
+  const idsNaAgendaCompartilhada = new Set(eventosGoogle.map((e) => `${e.iCalUID}|${e.inicioIso}`));
+  const eventosPessoaisSemDuplicata = eventosPessoais.filter((e) => !idsNaAgendaCompartilhada.has(`${e.iCalUID}|${e.inicioIso}`));
 
   return (
     <div>
@@ -98,6 +111,7 @@ export default async function AgendaPage() {
         eventosGoogle={eventosGoogle}
         contaPessoalConectada={contaPessoalConectada}
         eventosPessoais={eventosPessoaisSemDuplicata}
+        icsPessoalUrl={icsPessoalUrl}
         atas={(atas ?? []) as Ata[]}
         pessoas={pessoas ?? []}
         iaConfigurada={anthropicConfigurado()}
