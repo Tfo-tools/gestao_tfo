@@ -114,11 +114,14 @@ export async function criarEventoReuniao(input: {
   fimIso: string;
   timeZone: string;
   emailsConvidados: string[];
-}): Promise<string | null> {
+}): Promise<{ id: string; meetLink: string | null } | null> {
   const accessToken = await obterAccessTokenValido(null);
   if (!accessToken) return null;
 
-  const resp = await fetch(`${EVENTS_URL}?sendUpdates=all`, {
+  // conferenceDataVersion=1 + createRequest: o Google cria a sala do Meet junto com o evento, e o
+  // convite já chega pra todo mundo com o botão "Entrar com o Google Meet" — sem isso a reunião
+  // marcada pelo link vinha sem sala e alguém tinha que mandar o link na mão.
+  const resp = await fetch(`${EVENTS_URL}?sendUpdates=all&conferenceDataVersion=1`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -127,14 +130,20 @@ export async function criarEventoReuniao(input: {
       start: { dateTime: input.inicioIso, timeZone: input.timeZone },
       end: { dateTime: input.fimIso, timeZone: input.timeZone },
       attendees: input.emailsConvidados.map((email) => ({ email })),
+      conferenceData: {
+        createRequest: {
+          requestId: crypto.randomUUID(),
+          conferenceSolutionKey: { type: "hangoutsMeet" },
+        },
+      },
     }),
   });
   if (!resp.ok) {
     console.error("Erro ao criar evento no Google Calendar:", await resp.text());
     return null;
   }
-  const evento = (await resp.json()) as { id: string };
-  return evento.id;
+  const evento = (await resp.json()) as { id: string; hangoutLink?: string };
+  return { id: evento.id, meetLink: evento.hangoutLink ?? null };
 }
 
 export async function cancelarEventoReuniao(googleEventId: string): Promise<void> {

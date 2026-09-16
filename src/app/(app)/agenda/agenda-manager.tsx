@@ -23,6 +23,7 @@ export type ReuniaoAgendada = {
   data_hora_fim: string;
   status: string;
   observacoes: string | null;
+  meet_link: string | null;
   tipos_reuniao: { nome: string } | null;
   contatos_externos: { nome: string; email: string; empresa: string | null } | null;
 };
@@ -459,6 +460,11 @@ function ProximasReunioesCard({
                   {r.observacoes && <p className="mt-0.5 text-[10.5px] text-text-faint">{r.observacoes}</p>}
                 </div>
                 <div className="flex shrink-0 items-center gap-2.5">
+                  {r.meet_link && (
+                    <a href={r.meet_link} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-medium text-primary-deep">
+                      Meet
+                    </a>
+                  )}
                   <AtaInline
                     chave={{ reuniao_id: r.id }}
                     ataExistente={ataPorReuniao.get(r.id) ?? null}

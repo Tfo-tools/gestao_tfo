@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { criarEventoReuniao, periodosOcupadosGoogle } from "@/lib/google-calendar";
 import { calcularSlotsDisponiveis, TIMEZONE_AGENDA, DIAS_A_FRENTE } from "@/lib/agenda-slots";
 
-export type AgendamentoState = { error: string | null; sucesso?: { dataHora: string } };
+export type AgendamentoState = { error: string | null; sucesso?: { dataHora: string; meetLink: string | null } };
 
 /** Roda com a service role porque quem chama aqui é um visitante sem login — a validação de
  * autorização de quem PODE mexer nas tabelas de agenda é feita nas telas internas (/agenda),
@@ -82,7 +82,7 @@ export async function criarAgendamento(_prevState: AgendamentoState, formData: F
     .map((u) => u.email)
     .filter((e): e is string => !!e);
 
-  const googleEventId = await criarEventoReuniao({
+  const eventoGoogle = await criarEventoReuniao({
     titulo: `${tipo.nome} — TFO com ${nome}`,
     descricao: [`Agendado via TFO-Gestão.`, empresa ? `Empresa: ${empresa}` : null, observacoes ? `Observações: ${observacoes}` : null]
       .filter(Boolean)
@@ -93,9 +93,12 @@ export async function criarAgendamento(_prevState: AgendamentoState, formData: F
     emailsConvidados: [...emailsSocias, email],
   });
 
-  if (googleEventId) {
-    await admin.from("reunioes_agendadas").update({ google_event_id: googleEventId }).eq("id", reuniao.id);
+  if (eventoGoogle) {
+    await admin
+      .from("reunioes_agendadas")
+      .update({ google_event_id: eventoGoogle.id, meet_link: eventoGoogle.meetLink })
+      .eq("id", reuniao.id);
   }
 
-  return { error: null, sucesso: { dataHora: inicioIso } };
+  return { error: null, sucesso: { dataHora: inicioIso, meetLink: eventoGoogle?.meetLink ?? null } };
 }

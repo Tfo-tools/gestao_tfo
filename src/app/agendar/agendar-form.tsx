@@ -52,8 +52,18 @@ export function AgendarForm({
         <p className="text-[15px] font-semibold text-success">Reunião confirmada!</p>
         <p className="mt-2 text-[13px] text-text-muted">
           {formatDia(state.sucesso.dataHora)}, às {formatHora(state.sucesso.dataHora)}. Você recebe um convite por e-mail com os
-          detalhes.
+          detalhes{state.sucesso.meetLink ? " e o link da videochamada" : ""}.
         </p>
+        {state.sucesso.meetLink && (
+          <a
+            href={state.sucesso.meetLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-block rounded-lg bg-wine-deep px-4 py-2 text-[12.5px] font-medium text-white"
+          >
+            Link do Google Meet
+          </a>
+        )}
       </div>
     );
   }

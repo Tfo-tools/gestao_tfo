@@ -37,7 +37,7 @@ export default async function AgendaPage() {
     supabase
       .from("reunioes_agendadas")
       .select(
-        "id, data_hora_inicio, data_hora_fim, status, observacoes, tipos_reuniao(nome), contatos_externos(nome, email, empresa)",
+        "id, data_hora_inicio, data_hora_fim, status, observacoes, meet_link, tipos_reuniao(nome), contatos_externos(nome, email, empresa)",
       )
       .eq("status", "confirmada")
       .gte("data_hora_inicio", agora.toISOString())
@@ -45,7 +45,7 @@ export default async function AgendaPage() {
     supabase
       .from("reunioes_agendadas")
       .select(
-        "id, data_hora_inicio, data_hora_fim, status, observacoes, tipos_reuniao(nome), contatos_externos(nome, email, empresa)",
+        "id, data_hora_inicio, data_hora_fim, status, observacoes, meet_link, tipos_reuniao(nome), contatos_externos(nome, email, empresa)",
       )
       .eq("status", "confirmada")
       .gte("data_hora_inicio", inicioJanelaCalendario)
