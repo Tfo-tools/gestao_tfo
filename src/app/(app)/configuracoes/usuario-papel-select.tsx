@@ -5,6 +5,7 @@ import { alterarPapelUsuario, definirEscopoInvestidor, type PapelUsuario } from 
 
 const LABEL: Record<string, string> = {
   socia: "Sócia",
+  equipe: "Equipe",
   contabilidade: "Contabilidade externa",
   investidor_fomento: "Investidor de fomento",
   investidor: "Investidor (equity)",
@@ -65,6 +66,7 @@ export function UsuarioPapelSelect({
           className="input py-1 text-[11.5px]"
         >
           <option value="socia">Sócia</option>
+          <option value="equipe">Equipe (sem documentos, vendas e configurações)</option>
           <option value="contabilidade">Contabilidade externa</option>
           <option value="investidor_fomento">Investidor de fomento</option>
           <option value="investidor">Investidor (equity)</option>

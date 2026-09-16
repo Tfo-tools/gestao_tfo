@@ -13,7 +13,7 @@ export async function convidarUsuario(
   const email = String(formData.get("email") || "").trim();
   const nome = String(formData.get("nome") || "").trim();
   const papelRaw = String(formData.get("papel") || "socia");
-  const papel = papelRaw === "contabilidade" ? "contabilidade" : "socia";
+  const papel = papelRaw === "contabilidade" || papelRaw === "equipe" ? papelRaw : "socia";
 
   if (!email) {
     return { error: "Informe o e-mail." };
@@ -37,7 +37,7 @@ export async function convidarUsuario(
   return { error: null, success: true };
 }
 
-export type PapelUsuario = "socia" | "contabilidade" | "investidor_fomento" | "investidor";
+export type PapelUsuario = "socia" | "equipe" | "contabilidade" | "investidor_fomento" | "investidor";
 
 /** Muda o papel de uma usuária já cadastrada. Sócia: acesso completo. Contabilidade externa: só
  * Realizado (despesas, ativos, contratações fechadas, relatório real — sem cenário, projeção nem

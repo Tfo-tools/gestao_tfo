@@ -98,7 +98,7 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
       items: [
         { kind: "link", href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
         { kind: "link", href: "/contratacoes/realizado", label: "Contratações", icon: IconUsers },
-        { kind: "em-breve", label: "Vendas", icon: IconShoppingCart },
+        ...(papel === "equipe" ? [] : [{ kind: "em-breve" as const, label: "Vendas", icon: IconShoppingCart }]),
         { kind: "link", href: "/ativos", label: "Ativos", icon: IconArchive },
         {
           kind: "link",
@@ -129,10 +129,14 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
         { kind: "link", href: "/produtos", label: "Produtos", icon: IconBox },
       ],
     },
-    {
-      titulo: "Empresa",
-      items: [{ kind: "link", href: "/documentos", label: "Documentos", icon: IconFolder }],
-    },
+    ...(papel === "equipe"
+      ? []
+      : [
+          {
+            titulo: "Empresa",
+            items: [{ kind: "link" as const, href: "/documentos", label: "Documentos", icon: IconFolder }],
+          },
+        ]),
   ];
 }
 
@@ -156,7 +160,7 @@ export function Sidebar({
 
   const grupos = montarGrupos(cenarios, papel);
   const ehContabilidade = papel === "contabilidade";
-  const semConfiguracoes = ehContabilidade || papel === "investidor_fomento" || papel === "investidor";
+  const semConfiguracoes = ehContabilidade || papel === "equipe" || papel === "investidor_fomento" || papel === "investidor";
 
   // No celular o drawer fecha no próprio clique do link (ver `fecharNoCelular`) — sem isso ele
   // ficaria aberto por cima da tela nova.

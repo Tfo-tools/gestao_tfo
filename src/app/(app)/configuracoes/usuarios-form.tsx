@@ -14,8 +14,9 @@ export function UsuariosForm() {
       <h2 className="mb-1 font-heading text-sm font-semibold">Convidar usuária</h2>
       <p className="mb-4 text-[12px] text-text-muted">
         Ela recebe um e-mail para definir a senha e acessar o painel. Sócia tem acesso completo;
-        Contabilidade externa vê só o realizado (despesas, ativos, contratações fechadas e
-        relatório real) — sem cenário, projeção nem captação.
+        Equipe vê tudo menos Documentos da empresa, Vendas e Configurações; Contabilidade externa vê
+        só o realizado (despesas, ativos, contratações fechadas e relatório real) — sem cenário,
+        projeção nem captação.
       </p>
       <form
         ref={formRef}
@@ -39,6 +40,7 @@ export function UsuariosForm() {
           <label className="mb-1.5 block text-[11.5px] font-medium text-text-muted">Acesso</label>
           <select name="papel" defaultValue="socia" className="input">
             <option value="socia">Sócia (completo)</option>
+            <option value="equipe">Equipe (tudo, menos documentos, vendas e configurações)</option>
             <option value="contabilidade">Contabilidade externa (só realizado)</option>
           </select>
         </div>

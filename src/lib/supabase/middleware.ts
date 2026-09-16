@@ -34,6 +34,15 @@ function rotaLiberadaParaInvestidor(pathname: string, escopoId: string | null): 
   return false;
 }
 
+/** Equipe (colaboradora interna, ex.: CTO): tudo que a sócia vê, menos o que é da relação
+ * societária/fiscal — Documentos da empresa, Vendas (NF e receita das sócias) — e Configurações
+ * (convites e papéis: ninguém se promove a sócia sozinha). */
+const ROTAS_BLOQUEADAS_EQUIPE = ["/documentos", "/vendas", "/configuracoes"];
+
+function rotaLiberadaParaEquipe(pathname: string): boolean {
+  return !ROTAS_BLOQUEADAS_EQUIPE.some((prefixo) => pathname === prefixo || pathname.startsWith(`${prefixo}/`));
+}
+
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -89,10 +98,12 @@ export async function updateSession(request: NextRequest) {
         ? rotaLiberadaParaContabilidade(request.nextUrl.pathname, request.nextUrl.searchParams)
         : papel === "investidor_fomento" || papel === "investidor"
           ? rotaLiberadaParaInvestidor(request.nextUrl.pathname, perfil?.escopo_investidor_id ?? null)
-          : true;
+          : papel === "equipe"
+            ? rotaLiberadaParaEquipe(request.nextUrl.pathname)
+            : true;
     if (!liberado) {
       const url = request.nextUrl.clone();
-      url.pathname = papel === "investidor_fomento" || papel === "investidor" ? "/prestacao-de-contas" : "/custos";
+      url.pathname = papel === "investidor_fomento" || papel === "investidor" ? "/prestacao-de-contas" : papel === "equipe" ? "/" : "/custos";
       url.search = "";
       return NextResponse.redirect(url);
     }
