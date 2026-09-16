@@ -30,7 +30,7 @@ export async function convidarUsuario(
   if (error) {
     return { error: error.message.includes("already been registered")
       ? "Esse e-mail já tem um convite ou conta ativa."
-      : "Não foi possível enviar o convite." };
+      : `Não foi possível enviar o convite (${error.message}).` };
   }
 
   revalidatePath("/configuracoes");
