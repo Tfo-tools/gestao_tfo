@@ -195,11 +195,17 @@ export function proximoAlarme(eventos: EventoAgenda[], minutosAntes: number, hor
     .sort((a, b) => a - b)[0];
   // Data completa com fuso, não "HH:MM" solto: texto de hora sem fuso o Atalhos converte
   // "adivinhando", e chegou a criar alarme 1h fora. Brasil não tem horário de verão — -03:00 fixo.
-  if (proximo) return isoSaoPaulo(new Date(proximo));
+  // "dd/MM/yyyy HH:mm" em hora local: ISO com fuso o iPhone converteu 2h fora; formato brasileiro
+  // por extenso ele lê como hora local, sem conversão.
+  if (proximo) return dataHoraBrasil(new Date(proximo));
   const amanha = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  return `${dataLocal(amanha.toISOString())}T${horaSemente}:00-03:00`;
+  return `${dataBrasil(amanha)} ${horaSemente}`;
 }
 
-function isoSaoPaulo(d: Date) {
-  return `${dataLocal(d.toISOString())}T${horaLocal(d.toISOString())}:00-03:00`;
+function dataBrasil(d: Date) {
+  return d.toLocaleDateString("pt-BR", { timeZone: FUSO, day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function dataHoraBrasil(d: Date) {
+  return `${dataBrasil(d)} ${horaLocal(d.toISOString())}`;
 }
