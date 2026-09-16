@@ -234,15 +234,21 @@ export async function listarProximosEventos(diasAFrente: number, maxResults = 20
   }));
 }
 
-/** Períodos ocupados no calendário COMPARTILHADO (independente de terem sido criados por aqui ou
- * não) — cruza com a disponibilidade na hora de montar os horários livres pro agendamento público,
- * pra não oferecer um horário que já tem outro compromisso marcado direto no Google. Ignora eventos
- * marcados como "Livre" (transparency: transparent) e eventos de dia inteiro. */
+/** Períodos ocupados em TODAS as agendas conectadas — a compartilhada (contato@) e a pessoal de
+ * cada sócia que conectou a dela. Cruza com a disponibilidade na hora de montar os horários livres
+ * pro agendamento público: a reunião é com as duas, então só vale horário livre em todas. O que é
+ * pessoal entra só como "ocupado" — título nunca chega a quem agenda. Ignora eventos marcados
+ * como "Livre" (transparency: transparent) e eventos de dia inteiro. */
 export async function periodosOcupadosGoogle(diasAFrente: number): Promise<{ data_hora_inicio: string; data_hora_fim: string }[]> {
   const agora = new Date();
   const ate = new Date(agora.getTime() + diasAFrente * 24 * 60 * 60 * 1000);
-  const brutos = await listarEventosBrutos(null, agora.toISOString(), ate.toISOString(), 250);
-  return brutos
+  const admin = createAdminClient();
+  const { data: conexoes } = await admin.from("google_calendar_conexao").select("profile_id");
+  const listas = await Promise.all(
+    (conexoes ?? []).map((c) => listarEventosBrutos(c.profile_id, agora.toISOString(), ate.toISOString(), 250)),
+  );
+  return listas
+    .flat()
     .filter((ev) => ev.transparency !== "transparent" && ev.start?.dateTime && ev.end?.dateTime)
     .map((ev) => ({ data_hora_inicio: ev.start!.dateTime!, data_hora_fim: ev.end!.dateTime! }));
 }
