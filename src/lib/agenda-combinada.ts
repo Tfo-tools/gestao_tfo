@@ -193,5 +193,13 @@ export function proximoAlarme(eventos: EventoAgenda[], minutosAntes: number, hor
     .map((e) => new Date(e.inicioIso).getTime() - minutosAntes * 60000)
     .filter((t) => t >= limite)
     .sort((a, b) => a - b)[0];
-  return proximo ? horaLocal(new Date(proximo).toISOString()) : horaSemente;
+  // Data completa com fuso, não "HH:MM" solto: texto de hora sem fuso o Atalhos converte
+  // "adivinhando", e chegou a criar alarme 1h fora. Brasil não tem horário de verão — -03:00 fixo.
+  if (proximo) return isoSaoPaulo(new Date(proximo));
+  const amanha = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return `${dataLocal(amanha.toISOString())}T${horaSemente}:00-03:00`;
+}
+
+function isoSaoPaulo(d: Date) {
+  return `${dataLocal(d.toISOString())}T${horaLocal(d.toISOString())}:00-03:00`;
 }
