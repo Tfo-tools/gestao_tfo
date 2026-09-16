@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { carregarAgendaCombinada, carregarPendencias, lembretesDeHoje, textoProximos, textoResumoHoje } from "@/lib/agenda-combinada";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  carregarAgendaCombinada,
+  carregarPendencias,
+  dataLocal,
+  eventosEmBreve,
+  lembretesDeHoje,
+  proximoAlarme,
+  textoEvento,
+  textoResumoHoje,
+} from "@/lib/agenda-combinada";
 
 /**
  * Agenda combinada — lida pelo script do Mac e pelo Atalho do iPhone (essas agendas não estão no
@@ -8,11 +18,15 @@ import { carregarAgendaCombinada, carregarPendencias, lembretesDeHoje, textoProx
  *   ?formato=texto&dia=hoje      → mensagem pronta: agenda de hoje + contas/tarefas vencendo
  *   ?formato=texto&proximos=15   → só o que começa nos próximos N min (vazio se nada)
  *   ?formato=lembretes           → um item por compromisso de hoje com o alerta já calculado
- *                                  (início − 15 min), pro Atalho criar Lembretes nativos
+ *   ?formato=proximo-alarme      → "HH:MM" do próximo alarme a criar (ou a semente de amanhã)
+ * O texto de "proximos" só sai UMA vez por compromisso (marca em agenda_lembretes_enviados):
+ * o Atalho do iPhone roda em qualquer alarme, inclusive o despertador — a segunda chamada
+ * recebe vazio e não manda nada.
  */
 export const dynamic = "force-dynamic";
 
 const MINUTOS_ANTES = 15;
+const HORA_SEMENTE = "08:01";
 
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("token");
@@ -30,10 +44,27 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(lembretesDeHoje(eventos, MINUTOS_ANTES), { headers: semCache });
   }
 
+  const textoPlano = (texto: string) =>
+    new NextResponse(texto, { headers: { "Content-Type": "text/plain; charset=utf-8", ...semCache } });
+
+  if (formato === "proximo-alarme") {
+    return textoPlano(proximoAlarme(eventos, MINUTOS_ANTES, HORA_SEMENTE));
+  }
+
   if (formato === "texto") {
     const proximos = Number(request.nextUrl.searchParams.get("proximos"));
-    const texto = proximos > 0 ? textoProximos(eventos, proximos) : textoResumoHoje(eventos, await carregarPendencias());
-    return new NextResponse(texto, { headers: { "Content-Type": "text/plain; charset=utf-8", ...semCache } });
+    if (!(proximos > 0)) return textoPlano(textoResumoHoje(eventos, await carregarPendencias()));
+
+    const emBreve = eventosEmBreve(eventos, proximos);
+    if (emBreve.length === 0) return textoPlano("");
+    const supabase = createAdminClient();
+    const { data: ganhos } = await supabase
+      .from("agenda_lembretes_enviados")
+      .upsert(emBreve.map((e) => ({ chave: `whatsapp:${e.id}:${dataLocal(e.inicioIso)}` })), { onConflict: "chave", ignoreDuplicates: true })
+      .select("chave");
+    const chavesGanhas = new Set((ganhos ?? []).map((g) => g.chave));
+    const novos = emBreve.filter((e) => chavesGanhas.has(`whatsapp:${e.id}:${dataLocal(e.inicioIso)}`));
+    return textoPlano(novos.map(textoEvento).join("\n"));
   }
 
   return NextResponse.json({ eventos }, { headers: semCache });

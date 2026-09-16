@@ -179,3 +179,19 @@ export function textoEvento(ev: EventoAgenda) {
 export function textoProximos(eventos: EventoAgenda[], minutos: number) {
   return eventosEmBreve(eventos, minutos).map(textoEvento).join("\n");
 }
+
+/**
+ * Hora (HH:MM local) do PRÓXIMO alarme que o iPhone deve criar: o alerta (início − N min) do
+ * primeiro compromisso de hoje que ainda está a pelo menos 2 min no futuro. Quando não sobra
+ * nenhum, devolve a hora-semente do dia seguinte — um alarme sem repetição marcado pra uma hora
+ * já passada toca amanhã, e é assim que a corrente se reinicia sozinha todo dia.
+ */
+export function proximoAlarme(eventos: EventoAgenda[], minutosAntes: number, horaSemente: string) {
+  const limite = Date.now() + 2 * 60000;
+  const proximo = eventosDeHoje(eventos)
+    .filter((e) => !e.diaTodo)
+    .map((e) => new Date(e.inicioIso).getTime() - minutosAntes * 60000)
+    .filter((t) => t >= limite)
+    .sort((a, b) => a - b)[0];
+  return proximo ? horaLocal(new Date(proximo).toISOString()) : horaSemente;
+}
