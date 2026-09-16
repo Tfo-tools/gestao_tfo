@@ -25,7 +25,9 @@ export async function GET(request: NextRequest) {
   const semCache = { "Cache-Control": "no-store" };
 
   if (formato === "lembretes") {
-    return NextResponse.json({ lembretes: lembretesDeHoje(eventos, MINUTOS_ANTES) }, { headers: semCache });
+    // Lista no topo (não embrulhada em objeto): o Atalhos já a lê como lista de dicionários e cai
+    // direto no "Repetir com Cada", sem precisar de um "Obter Valor do Dicionário" antes.
+    return NextResponse.json(lembretesDeHoje(eventos, MINUTOS_ANTES), { headers: semCache });
   }
 
   if (formato === "texto") {
