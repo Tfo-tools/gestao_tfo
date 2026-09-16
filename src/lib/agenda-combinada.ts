@@ -148,10 +148,15 @@ export function textoResumoHoje(eventos: EventoAgenda[], pendencias: Pendencia[]
 export function lembretesDeHoje(eventos: EventoAgenda[], minutosAntes: number) {
   return eventosDeHoje(eventos)
     .filter((e) => !e.diaTodo)
-    .map((e) => ({
-      titulo: `⏰ ${horaLocal(e.inicioIso)} ${e.titulo} (${e.origem})`,
-      alerta: new Date(new Date(e.inicioIso).getTime() - minutosAntes * 60000).toISOString(),
-    }));
+    .map((e) => {
+      const alerta = new Date(new Date(e.inicioIso).getTime() - minutosAntes * 60000);
+      return {
+        titulo: `⏰ ${horaLocal(e.inicioIso)} ${e.titulo} (${e.origem})`,
+        alerta: alerta.toISOString(),
+        // "HH:MM" local — é o que a ação "Criar Alarme" do Atalhos espera, sem converter data.
+        hora: horaLocal(alerta.toISOString()),
+      };
+    });
 }
 
 export function minutosPara(ev: EventoAgenda) {
