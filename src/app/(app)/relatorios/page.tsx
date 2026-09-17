@@ -875,6 +875,9 @@ export async function RelatorioPlanos({
             cenarioId={cenarioId}
             itens={alocacoes ?? []}
             nomeCenario={nome}
+            totalCaptado={capitalPadrao}
+            somenteLeitura
+            linkEditar={`/plano/${cenarioId}#destinacao`}
           />
           <GraficoReceitaEInvestimento
             nome={nome}

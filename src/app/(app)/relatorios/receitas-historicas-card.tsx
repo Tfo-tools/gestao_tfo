@@ -49,6 +49,61 @@ export function ReceitasHistoricas({
 
   const resumo = resumirReceitasHistoricas(itens, periodo);
 
+  // Relatório é leitura: vira uma observação no amarelo da marca, com o resumo e um atalho pra
+  // onde se edita (Plano → Vendas). Sem formulário, sem interruptor.
+  if (somenteLeitura) {
+    const ativos = itens.filter((i) => i.mostrar);
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-cream-deep/30 bg-cream px-5 py-4 text-wine">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h2 className="font-heading text-[13px] font-semibold">Tração antes do produto</h2>
+            <span className="rounded-full bg-wine px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-cream">observação</span>
+          </div>
+          {ativos.length === 0 ? (
+            <p className="mt-1 text-[12px] text-wine/80">Nenhuma receita de serviço registrada.</p>
+          ) : (
+            <>
+              <ul className="mt-1.5 flex flex-col gap-0.5 text-[12px]">
+                {ativos.map((i) => {
+                  const meses = mesesDaReceita(i, periodo.fim);
+                  return (
+                    <li key={i.id} className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="font-medium">{i.descricao}</span>
+                      <span className="text-wine/75">
+                        {brl(Number(i.valor_mensal))}/mês · {mesLabel(i.data_inicio)}
+                        {i.data_fim ? ` a ${mesLabel(i.data_fim)}` : " em diante"} · {meses} meses
+                      </span>
+                      <span className="font-mono font-semibold">{brl(Number(i.valor_mensal) * meses)}</span>
+                      <span className="rounded border border-wine/30 px-1.5 py-px text-[10px]">{i.entra_na_dre ? "na DRE" : "só contexto"}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mt-2 text-[11.5px] text-wine/80">
+                Total realizado antes do produto: <b className="font-mono">{brl(resumo.total)}</b>
+                {resumo.totalNoPeriodo > 0 && <> · {brl(resumo.totalNoPeriodo)} caem dentro do período do plano</>}
+              </p>
+            </>
+          )}
+        </div>
+        {linkEditar && (
+          <a
+            href={linkEditar}
+            title="Editar em Plano → Vendas"
+            aria-label="Editar em Plano → Vendas"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-wine/30 text-wine hover:bg-wine hover:text-cream"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" width={15} height={15}>
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+          </a>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
       <h2 className="mb-1 flex items-center font-heading text-[13px] font-semibold">

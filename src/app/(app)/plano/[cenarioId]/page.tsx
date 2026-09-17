@@ -8,6 +8,7 @@ import { MetasHeader } from "../metas-header";
 import { MetasForm } from "./metas-form";
 import { CompletarCopia } from "./completar-copia";
 import { RecalcularProjecao } from "./recalcular-projecao";
+import { AlocacaoInvestimento } from "@/app/(app)/relatorios/alocacao-investimento";
 
 // "Completar cópia" copia o que falta e recalcula todos os produtos — leva alguns segundos.
 export const maxDuration = 60;
@@ -50,9 +51,10 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
     ]);
 
   // Quais produtos este cenário simula: no Base, por status; nos demais, por seleção explícita.
-  const [{ data: produtosTodos }, { data: vinculos }] = await Promise.all([
+  const [{ data: produtosTodos }, { data: vinculos }, { data: alocacoes }] = await Promise.all([
     supabase.from("produtos").select("id, nome, status").order("nome"),
     supabase.from("produto_cenario").select("produto_id").eq("cenario_id", cenarioId),
+    supabase.from("alocacao_investimento").select("id, categoria, percentual, observacoes").eq("cenario_id", cenarioId).order("created_at"),
   ]);
   const selecionados = new Set(((vinculos ?? []) as { produto_id: string }[]).map((v) => v.produto_id));
   const produtosDoCenario = ((produtosTodos ?? []) as { id: string; nome: string; status: StatusProduto }[]).map((p) => ({
@@ -134,6 +136,11 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
           descricao="Programas de fomento/investimento ligados a este cenário."
           status={`${programasCount ?? 0} programa${(programasCount ?? 0) === 1 ? "" : "s"} vinculado${(programasCount ?? 0) === 1 ? "" : "s"}`}
         />
+      </div>
+
+      {/* Edição mora aqui; Relatórios só mostra (link "editar" de lá cai em #destinacao). */}
+      <div className="mt-5">
+        <AlocacaoInvestimento cenarioId={cenarioId} itens={alocacoes ?? []} nomeCenario={cenario.nome} />
       </div>
     </div>
   );
