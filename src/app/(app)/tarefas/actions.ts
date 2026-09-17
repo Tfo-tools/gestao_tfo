@@ -15,6 +15,9 @@ function opcional(fd: FormData, k: string) {
 function etiquetas(fd: FormData) {
   return [...new Set(texto(fd, "etiquetas").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean))];
 }
+function participantes(fd: FormData) {
+  return [...new Set(fd.getAll("participantes").map(String).filter(Boolean))];
+}
 function dependencias(fd: FormData) {
   return fd.getAll("depende_de").map(String).filter(Boolean);
 }
@@ -32,7 +35,19 @@ function camposTarefa(fd: FormData) {
     fase_id: opcional(fd, "fase_id"),
     parent_id: opcional(fd, "parent_id"),
     etiquetas: etiquetas(fd),
+    participantes: participantes(fd),
   };
+}
+
+/** "Projeto: + novo…" no formulário da tarefa cria o projeto na hora e devolve o id dele. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resolverProjeto(supabase: any, fd: FormData, projetoId: string | null, userId: string | null): Promise<string | null | { error: string }> {
+  if (projetoId !== "__novo") return projetoId;
+  const nome = texto(fd, "novo_projeto");
+  if (!nome) return { error: "Dê um nome pro projeto novo." };
+  const { data, error } = await supabase.from("projetos").insert({ nome, criado_por: userId }).select("id").single();
+  if (error || !data) return { error: "Não foi possível criar o projeto." };
+  return data.id as string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,6 +67,10 @@ export async function criarTarefa(_prevState: TarefaFormState, formData: FormDat
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  const projeto = await resolverProjeto(supabase, formData, campos.projeto_id, user?.id ?? null);
+  if (projeto && typeof projeto === "object") return projeto;
+  campos.projeto_id = projeto;
 
   // Subtarefa herda projeto e fase da mãe quando não vierem preenchidos.
   if (campos.parent_id && (!campos.projeto_id || !campos.fase_id)) {
@@ -81,6 +100,15 @@ export async function atualizarTarefa(_prevState: TarefaFormState, formData: For
   if (campos.parent_id === id) return { error: "Uma tarefa não pode ser subtarefa dela mesma." };
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const projeto = await resolverProjeto(supabase, formData, campos.projeto_id, user?.id ?? null);
+  if (projeto && typeof projeto === "object") return projeto;
+  campos.projeto_id = projeto;
+  // Trocou de projeto: a fase antiga não pertence mais a ele.
+  if (campos.projeto_id !== opcional(formData, "projeto_id")) campos.fase_id = null;
+
   const { error } = await supabase
     .from("tarefas")
     .update({ ...campos, updated_at: new Date().toISOString() })

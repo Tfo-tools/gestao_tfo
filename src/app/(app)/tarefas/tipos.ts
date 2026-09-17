@@ -36,6 +36,8 @@ export type Tarefa = {
   fase_id: string | null;
   parent_id: string | null;
   etiquetas: string[];
+  /** Quem faz junto (profiles.id), além do responsável. */
+  participantes: string[];
   ordem: number;
 };
 

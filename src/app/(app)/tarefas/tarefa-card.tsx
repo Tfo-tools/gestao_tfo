@@ -205,7 +205,10 @@ function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number
   );
 }
 
-/** A caixinha da tarefa: título, etiquetas, prazo, status, subtarefas como checklist. */
+/**
+ * A caixinha da tarefa. Recolhida (padrão) mostra só título + prazo + quem; clicar abre
+ * etiquetas, descrição, subtarefas, status e ações — assim cabem muitas na tela.
+ */
 export function TarefaCard({
   no,
   dados,
@@ -219,11 +222,13 @@ export function TarefaCard({
   mostrarFase?: boolean;
   mostrarProjeto?: boolean;
 }) {
+  const [aberto, setAberto] = useState(false);
   const [editando, setEditando] = useState(false);
   const [novaSub, setNovaSub] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const responsavel = dados.pessoas.find((p) => p.id === no.responsavel_id);
+  const participantes = dados.pessoas.filter((p) => no.participantes.includes(p.id) && p.id !== no.responsavel_id);
   const produto = dados.produtos.find((p) => p.id === no.produto_id);
   const fase = dados.fases.find((f) => f.id === no.fase_id);
   const projeto = dados.projetos.find((p) => p.id === no.projeto_id);
@@ -232,6 +237,8 @@ export function TarefaCard({
   const atrasada = !feita && !!no.prazo && no.prazo < hoje;
   const hojeVence = !feita && no.prazo === hoje;
   const bloqueada = !feita && no.aguardando.length > 0;
+  const primeiro = (nome: string) => nome.split(" ")[0];
+  const quem = [responsavel && primeiro(responsavel.nome), ...participantes.map((p) => primeiro(p.nome))].filter(Boolean).join(" + ");
 
   if (editando) {
     return (
@@ -241,106 +248,137 @@ export function TarefaCard({
     );
   }
 
+  const corPrazo = atrasada ? "font-semibold text-danger" : hojeVence ? "font-semibold text-primary-deep" : "text-text-faint";
+  const textoPrazo = no.prazo ? (atrasada ? `atrasada ${fmt(no.prazo)}` : hojeVence ? "vence hoje" : fmt(no.prazo)) : "";
+
   return (
     <div
-      className={`group flex flex-col gap-1.5 rounded-lg border p-3 ${
+      className={`flex flex-col rounded-lg border ${
         feita ? "border-border-soft bg-bg opacity-60" : bloqueada ? "border-warning bg-warning-soft/40" : no.status === "fazendo" ? "border-primary-fill bg-surface" : "border-border-soft bg-surface"
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className={`text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`}>{no.titulo}</span>
-        <span className="flex shrink-0 items-center gap-1.5 opacity-0 group-hover:opacity-100">
-          <button type="button" onClick={() => setEditando(true)} className="text-[10.5px] font-medium text-primary-deep">
-            editar
-          </button>
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={() => {
-              const aviso = no.filhas.length > 0 ? `Excluir essa tarefa e suas ${no.filhas.length} subtarefa(s)?` : "Excluir essa tarefa?";
-              if (!confirm(aviso)) return;
-              startTransition(async () => {
-                await excluirTarefa(no.id);
-              });
-            }}
-            className="text-[11px] text-danger"
-          >
-            ×
-          </button>
+      {/* Cabeçalho — sempre visível, clicável */}
+      <button type="button" onClick={() => setAberto((v) => !v)} className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left">
+        <span className={`text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`}>
+          {no.titulo}
+          {bloqueada && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
+          {no.filhas.length > 0 && no.progresso !== null && <span className="ml-1 text-[10px] font-normal text-text-faint">{Math.round(no.progresso * 100)}%</span>}
         </span>
-      </div>
+        <span className="flex shrink-0 flex-col items-end text-[10.5px] leading-tight">
+          {textoPrazo && <span className={corPrazo}>{textoPrazo}</span>}
+          {quem && <span className="text-text-faint">{quem}</span>}
+        </span>
+      </button>
 
-      {(mostrarProjeto && projeto) || (mostrarFase && fase) || no.etiquetas.length > 0 || produto || no.area ? (
-        <div className="flex flex-wrap gap-1">
-          {mostrarProjeto && projeto && <span className="rounded-full bg-wine-soft px-1.5 py-0.5 text-[10px] text-wine">{projeto.nome}</span>}
-          {mostrarFase && fase && <span className="rounded-full bg-primary-soft px-1.5 py-0.5 text-[10px] text-primary-deep">{fase.nome}</span>}
-          {no.etiquetas.map((e) => (
-            <span key={e} className="rounded-full bg-cream px-1.5 py-0.5 text-[10px] text-wine">
-              #{e}
-            </span>
-          ))}
-          {no.area && <span className="rounded-full bg-bg px-1.5 py-0.5 text-[10px] text-text-muted">{no.area}</span>}
-          {produto && <span className="rounded-full bg-bg px-1.5 py-0.5 text-[10px] text-text-muted">{produto.nome}</span>}
-        </div>
-      ) : null}
-
-      {no.descricao && <p className="line-clamp-2 whitespace-pre-line text-[11px] text-text-muted">{no.descricao}</p>}
-
-      {bloqueada && (
-        <p className="text-[10.5px] text-cream-deep" title={no.aguardando.map((a) => a.titulo).join(", ")}>
-          ⏳ aguarda {no.aguardando.length === 1 ? no.aguardando[0].titulo : `${no.aguardando.length} tarefas`}
-        </p>
-      )}
-
-      {no.filhas.length > 0 && (
-        <div className="flex flex-col gap-0.5 border-t border-border-soft pt-1.5">
-          {no.progresso !== null && (
-            <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-text-faint">
-              <span className="h-1 flex-1 overflow-hidden rounded-full bg-bg">
-                <span className="block h-full rounded-full bg-primary-fill" style={{ width: `${Math.round(no.progresso * 100)}%` }} />
-              </span>
-              {Math.round(no.progresso * 100)}%
+      {aberto && (
+        <div className="flex flex-col gap-1.5 border-t border-border-soft px-3 pb-2.5 pt-2">
+          {((mostrarProjeto && projeto) || (mostrarFase && fase) || no.etiquetas.length > 0 || produto || no.area) && (
+            <div className="flex flex-wrap gap-1">
+              {mostrarProjeto && projeto && <span className="rounded-full bg-wine-soft px-1.5 py-0.5 text-[10px] text-wine">{projeto.nome}</span>}
+              {mostrarFase && fase && <span className="rounded-full bg-primary-soft px-1.5 py-0.5 text-[10px] text-primary-deep">{fase.nome}</span>}
+              {no.etiquetas.map((e) => (
+                <span key={e} className="rounded-full bg-cream px-1.5 py-0.5 text-[10px] text-wine">
+                  #{e}
+                </span>
+              ))}
+              {no.area && <span className="rounded-full bg-bg px-1.5 py-0.5 text-[10px] text-text-muted">{no.area}</span>}
+              {produto && <span className="rounded-full bg-bg px-1.5 py-0.5 text-[10px] text-text-muted">{produto.nome}</span>}
             </div>
           )}
-          {no.filhas.map((f) => (
-            <SubLinha key={f.id} no={f} nivel={0} dados={dados} dependeDe={dependeDe} />
-          ))}
+
+          {(responsavel || participantes.length > 0) && (
+            <p className="text-[10.5px] text-text-muted">
+              {responsavel && (
+                <>
+                  <span className="font-medium">{responsavel.nome}</span> (responsável)
+                </>
+              )}
+              {participantes.length > 0 && (
+                <>
+                  {responsavel && " · "}com {participantes.map((p) => p.nome).join(", ")}
+                </>
+              )}
+            </p>
+          )}
+
+          {no.descricao && <p className="whitespace-pre-line text-[11px] text-text-muted">{no.descricao}</p>}
+
+          {(no.data_inicio || no.prazo) && (
+            <p className={`text-[10.5px] ${corPrazo}`}>
+              {no.data_inicio && `${fmt(no.data_inicio)} → `}
+              {textoPrazo}
+            </p>
+          )}
+
+          {bloqueada && (
+            <p className="text-[10.5px] text-cream-deep" title={no.aguardando.map((a) => a.titulo).join(", ")}>
+              ⏳ aguarda {no.aguardando.length === 1 ? no.aguardando[0].titulo : `${no.aguardando.length} tarefas`}
+            </p>
+          )}
+
+          {no.filhas.length > 0 && (
+            <div className="flex flex-col gap-0.5 border-t border-border-soft pt-1.5">
+              {no.progresso !== null && (
+                <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-text-faint">
+                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-bg">
+                    <span className="block h-full rounded-full bg-primary-fill" style={{ width: `${Math.round(no.progresso * 100)}%` }} />
+                  </span>
+                  {Math.round(no.progresso * 100)}%
+                </div>
+              )}
+              {no.filhas.map((f) => (
+                <SubLinha key={f.id} no={f} nivel={0} dados={dados} dependeDe={dependeDe} />
+              ))}
+            </div>
+          )}
+
+          {novaSub && <NovaTarefaCard dados={dados} projetoInicial={no.projeto_id} faseInicial={no.fase_id} parentId={no.id} aoConcluir={() => setNovaSub(false)} />}
+
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <span className="flex items-center gap-2">
+              <button type="button" onClick={() => setEditando(true)} className="text-[10.5px] font-medium text-primary-deep">
+                editar
+              </button>
+              {!novaSub && (
+                <button type="button" onClick={() => setNovaSub(true)} title="Adicionar subtarefa" className="text-[10.5px] text-text-muted hover:text-primary-deep">
+                  + sub
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => {
+                  const aviso = no.filhas.length > 0 ? `Excluir essa tarefa e suas ${no.filhas.length} subtarefa(s)?` : "Excluir essa tarefa?";
+                  if (!confirm(aviso)) return;
+                  startTransition(async () => {
+                    await excluirTarefa(no.id);
+                  });
+                }}
+                className="text-[11px] text-danger"
+              >
+                ×
+              </button>
+            </span>
+            <select
+              value={no.status}
+              disabled={isPending}
+              onChange={(e) => {
+                const novoStatus = e.target.value;
+                startTransition(async () => {
+                  await mudarStatusTarefa(no.id, novoStatus);
+                });
+              }}
+              className="input input-compacto w-[88px] text-[10.5px]"
+            >
+              {STATUS_ORDEM.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABEL[s]}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
-
-      {novaSub && <NovaTarefaCard dados={dados} projetoInicial={no.projeto_id} faseInicial={no.fase_id} parentId={no.id} aoConcluir={() => setNovaSub(false)} />}
-
-      <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-        <span className={`min-w-0 truncate text-[10.5px] ${atrasada ? "font-semibold text-danger" : hojeVence ? "font-semibold text-primary-deep" : "text-text-faint"}`}>
-          {responsavel && <span className="mr-1.5">{responsavel.nome.split(" ")[0]}</span>}
-          {no.data_inicio && `${fmt(no.data_inicio)} → `}
-          {no.prazo ? (atrasada ? `atrasada ${fmt(no.prazo)}` : hojeVence ? "vence hoje" : fmt(no.prazo)) : ""}
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5">
-          {!novaSub && (
-            <button type="button" onClick={() => setNovaSub(true)} title="Adicionar subtarefa" className="text-[10.5px] text-text-muted hover:text-primary-deep">
-              + sub
-            </button>
-          )}
-          <select
-            value={no.status}
-            disabled={isPending}
-            onChange={(e) => {
-              const novoStatus = e.target.value;
-              startTransition(async () => {
-                await mudarStatusTarefa(no.id, novoStatus);
-              });
-            }}
-            className="input input-compacto w-[88px] text-[10.5px]"
-          >
-            {STATUS_ORDEM.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
-        </span>
-      </div>
     </div>
   );
 }

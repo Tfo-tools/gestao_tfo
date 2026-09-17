@@ -76,7 +76,14 @@ export function CamposTarefa({
                   {p.nome}
                 </option>
               ))}
+            <option value="__novo">+ Novo projeto…</option>
           </select>
+        </div>
+      )}
+      {projetoId === "__novo" && (
+        <div>
+          <label className={rotulo}>Nome do projeto novo</label>
+          <input name="novo_projeto" type="text" placeholder="Ex: Registro de marca" required className="input input-compacto w-full" />
         </div>
       )}
       {projetoId && fasesDoProjeto.length > 0 && (
@@ -90,6 +97,20 @@ export function CamposTarefa({
               </option>
             ))}
           </select>
+        </div>
+      )}
+
+      {pessoas.length > 1 && (
+        <div className="col-span-2">
+          <label className={rotulo}>Participa junto</label>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+            {pessoas.map((p) => (
+              <label key={p.id} className="flex items-center gap-1 text-[11px]">
+                <input type="checkbox" name="participantes" value={p.id} defaultChecked={tarefa?.participantes?.includes(p.id) ?? false} />
+                {p.nome.split(" ")[0]}
+              </label>
+            ))}
+          </div>
         </div>
       )}
 
