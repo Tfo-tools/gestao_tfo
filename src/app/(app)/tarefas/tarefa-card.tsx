@@ -4,6 +4,7 @@ import { useActionState, useRef, useState, useTransition } from "react";
 import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, type TarefaFormState } from "./actions";
 import { CamposTarefa } from "./campos-tarefa";
+import { useCardAberto } from "./cards-contexto";
 import { STATUS_LABEL, STATUS_ORDEM, type FaseProjeto, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
 
 export type DadosFormulario = {
@@ -207,7 +208,7 @@ function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number
 
 /**
  * A caixinha da tarefa. Aberta mostra tudo; recolhida só título + prazo + quem. Clicar no
- * título alterna. Com muitas tarefas na tela a página já manda recolhida.
+ * título alterna; "recolher tudo / abrir tudo" (cards-contexto) muda todos de uma vez.
  */
 export function TarefaCard({
   no,
@@ -215,17 +216,14 @@ export function TarefaCard({
   dependeDe,
   mostrarFase = true,
   mostrarProjeto = false,
-  abertoInicial = true,
 }: {
   no: TarefaNo;
   dados: DadosFormulario;
   dependeDe: Map<string, string[]>;
   mostrarFase?: boolean;
   mostrarProjeto?: boolean;
-  /** Aberto por padrão; a página manda `false` quando há muitas tarefas na tela. */
-  abertoInicial?: boolean;
 }) {
-  const [aberto, setAberto] = useState(abertoInicial);
+  const [aberto, alternarAberto] = useCardAberto();
   const [editando, setEditando] = useState(false);
   const [novaSub, setNovaSub] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -266,7 +264,7 @@ export function TarefaCard({
       }`}
     >
       {/* Cabeçalho — sempre visível, clicável */}
-      <button type="button" onClick={() => setAberto((v) => !v)} className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left">
+      <button type="button" onClick={alternarAberto} className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left">
         <span className={`text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`}>
           {no.titulo}
           {bloqueada && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}

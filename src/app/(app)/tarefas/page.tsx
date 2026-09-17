@@ -2,6 +2,7 @@ import { FASES } from "@/lib/fases";
 import { createClient } from "@/lib/supabase/server";
 import { LinhaDoTempo } from "./linha-do-tempo";
 import { ProjetosPanel, type PillProjeto } from "./projetos-panel";
+import { BotaoRecolherTudo, CardsProvider } from "./cards-contexto";
 import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { montarArvore, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
@@ -115,7 +116,8 @@ export default async function TarefasPage({
   const gradeCards = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] items-start gap-2";
 
   return (
-    <div className="flex flex-col gap-3">
+    <CardsProvider abertoInicial={abertoInicial}>
+      <div className="flex flex-col gap-3">
       <RealceDependencias />
       <div className="flex flex-wrap items-baseline gap-x-3">
         <h1 className="font-heading text-[22px] font-semibold">Tarefas</h1>
@@ -152,12 +154,18 @@ export default async function TarefasPage({
         <a href={link({ visao: "linha" })} className={visao === "linha" ? "font-semibold text-text" : "text-text-muted underline"}>
           linha do tempo
         </a>
+        {visao === "lista" && (
+          <>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <BotaoRecolherTudo />
+          </>
+        )}
       </div>
 
       {visao === "linha" ? (
         <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} />
       ) : wbs && projetoAtual ? (
-        <Wbs projeto={projetoAtual} fases={fasesDoProjeto} raizes={raizes} dados={dados} dependeDe={dependeDe} contagem={contagem[projetoAtual.id]} abertoInicial={abertoInicial} />
+        <Wbs projeto={projetoAtual} fases={fasesDoProjeto} raizes={raizes} dados={dados} dependeDe={dependeDe} contagem={contagem[projetoAtual.id]} />
       ) : (
         <div className="flex flex-col gap-4">
           {grupos.map((g, i) => (
@@ -174,7 +182,7 @@ export default async function TarefasPage({
               <div className={gradeCards}>
                 {i === 0 && <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} />}
                 {g.nos.map((n) => (
-                  <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={agrupar !== "fase"} mostrarProjeto={!projetoAtual && agrupar !== "fase"} abertoInicial={abertoInicial} />
+                  <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={agrupar !== "fase"} mostrarProjeto={!projetoAtual && agrupar !== "fase"} />
                 ))}
               </div>
             </div>
@@ -186,7 +194,8 @@ export default async function TarefasPage({
           )}
         </div>
       )}
-    </div>
+      </div>
+    </CardsProvider>
   );
 }
 
@@ -201,7 +210,6 @@ function Wbs({
   dados,
   dependeDe,
   contagem,
-  abertoInicial,
 }: {
   projeto: Projeto;
   fases: FaseProjeto[];
@@ -209,7 +217,6 @@ function Wbs({
   dados: DadosFormulario;
   dependeDe: Map<string, string[]>;
   contagem?: { total: number; feitas: number };
-  abertoInicial: boolean;
 }) {
   const colunas: { chave: string; fase: FaseProjeto | null; nos: TarefaNo[] }[] = fases.map((f) => ({ chave: f.id, fase: f, nos: raizes.filter((r) => r.fase_id === f.id) }));
   const semFase = raizes.filter((r) => !fases.some((f) => f.id === r.fase_id));
@@ -256,7 +263,7 @@ function Wbs({
                 )}
               </div>
               {c.nos.map((n) => (
-                <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} abertoInicial={abertoInicial} />
+                <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} />
               ))}
               <NovaTarefaCard dados={dados} projetoInicial={projeto.id} faseInicial={c.fase?.id ?? null} rotulo="+ tarefa" />
             </div>
