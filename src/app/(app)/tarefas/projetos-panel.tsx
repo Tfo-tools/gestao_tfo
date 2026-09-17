@@ -11,17 +11,21 @@ function fmt(iso: string | null) {
   return iso ? new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "";
 }
 
+export type PillProjeto = { href: string; label: string; ativo: boolean; contagem?: { total: number; feitas: number } };
+
 /**
- * Cadastro de projetos e das fases de cada um. Fica recolhido por padrão — o dia a dia é a lista
- * de tarefas; aqui só se mexe ao abrir um projeto novo ou desenhar as fases dele.
+ * Barra de projetos: pills de seleção (Todas / cada projeto / Sem projeto) e, à direita,
+ * "gerenciar" que abre o cadastro (projetos + fases). O dia a dia é só clicar na pill.
  */
 export function ProjetosPanel({
+  pills,
   projetos,
   fases,
   fasesProduto,
   contagem,
   abertoInicial = false,
 }: {
+  pills: PillProjeto[];
   projetos: Projeto[];
   fases: FaseProjeto[];
   fasesProduto: FaseProdutoOpcao[];
@@ -34,17 +38,30 @@ export function ProjetosPanel({
   const formRef = useRef<HTMLFormElement>(null);
 
   return (
-    <div className="rounded-xl border border-border bg-surface">
-      <button type="button" onClick={() => setAberto((v) => !v)} className="flex w-full items-center justify-between px-4 py-3 text-left">
-        <span className="font-heading text-[13px] font-semibold">
-          Projetos e fases <span className="ml-1 font-normal text-text-faint">({projetos.filter((p) => p.status === "ativo").length} ativos)</span>
-        </span>
-        <span className="text-[11px] text-text-muted">{aberto ? "recolher" : "abrir"}</span>
-      </button>
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {pills.map((p) => (
+          <a
+            key={p.href}
+            href={p.href}
+            className={`rounded-lg px-2.5 py-1 text-[11.5px] font-medium ${p.ativo ? "bg-wine-deep text-white" : "border border-border text-text-muted hover:border-wine"}`}
+          >
+            {p.label}
+            {p.contagem && p.contagem.total > 0 && (
+              <span className="ml-1 opacity-70">
+                {p.contagem.feitas}/{p.contagem.total}
+              </span>
+            )}
+          </a>
+        ))}
+        <button type="button" onClick={() => setAberto((v) => !v)} className="ml-auto text-[11px] text-text-muted underline">
+          {aberto ? "fechar cadastro" : projetos.length === 0 ? "+ criar projeto" : "gerenciar projetos e fases"}
+        </button>
+      </div>
 
       {aberto && (
-        <div className="flex flex-col gap-3 border-t border-border-soft px-4 py-3">
-          {projetos.length === 0 && <p className="text-[12px] text-text-faint">Nenhum projeto ainda. Crie o primeiro abaixo — as tarefas passam a poder ser ligadas a ele.</p>}
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3">
+          {projetos.length === 0 && <p className="text-[11.5px] text-text-faint">Nenhum projeto ainda. Crie o primeiro — as tarefas passam a poder ser ligadas a ele e organizadas por fase.</p>}
           {projetos.map((p) => (
             <ProjetoItem key={p.id} projeto={p} fases={fases.filter((f) => f.projeto_id === p.id)} fasesProduto={fasesProduto} contagem={contagem[p.id]} />
           ))}
@@ -55,19 +72,19 @@ export function ProjetosPanel({
               await formAction(fd);
               formRef.current?.reset();
             }}
-            className="flex flex-wrap items-end gap-2 border-t border-border-soft pt-3"
+            className="grid grid-cols-[1fr_2fr_auto_auto] items-end gap-2 border-t border-border-soft pt-2"
           >
-            <div className="min-w-[160px] flex-1">
-              <label className="mb-1 block text-[10.5px] text-text-faint">Novo projeto</label>
-              <input name="nome" placeholder="Ex: Comunicação Q4" required className="input w-full" />
-            </div>
-            <div className="min-w-[200px] flex-[2]">
-              <label className="mb-1 block text-[10.5px] text-text-faint">Objetivo</label>
-              <input name="objetivo" placeholder="Ex: atingir as metas de conversão da fase de validação" className="input w-full" />
+            <div>
+              <label className="mb-0.5 block text-[10px] text-text-faint">Novo projeto</label>
+              <input name="nome" placeholder="Ex: Comunicação Q4" required className="input input-compacto w-full" />
             </div>
             <div>
-              <label className="mb-1 block text-[10.5px] text-text-faint">Serve à fase de produto</label>
-              <select name="produto_fase_id" className="input w-[190px]">
+              <label className="mb-0.5 block text-[10px] text-text-faint">Objetivo</label>
+              <input name="objetivo" placeholder="Ex: atingir as metas de conversão da fase de validação" className="input input-compacto w-full" />
+            </div>
+            <div>
+              <label className="mb-0.5 block text-[10px] text-text-faint">Serve à fase de produto</label>
+              <select name="produto_fase_id" className="input input-compacto w-[180px]">
                 <option value="">—</option>
                 {fasesProduto.map((f) => (
                   <option key={f.id} value={f.id}>
@@ -76,10 +93,10 @@ export function ProjetosPanel({
                 ))}
               </select>
             </div>
-            <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60">
+            <button type="submit" disabled={pending} className="rounded-md bg-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-white disabled:opacity-60">
               {pending ? "…" : "+ Projeto"}
             </button>
-            {state.error && <p className="w-full text-[11px] text-danger">{state.error}</p>}
+            {state.error && <p className="col-span-4 text-[11px] text-danger">{state.error}</p>}
           </form>
         </div>
       )}
@@ -107,19 +124,19 @@ function ProjetoItem({
 
   if (editando) {
     return (
-      <form action={formAction} className="flex flex-wrap items-end gap-2 rounded-lg border border-primary-fill bg-primary-soft/20 p-3">
+      <form action={formAction} className="flex flex-wrap items-end gap-2 rounded-lg border border-primary-fill bg-primary-soft/20 p-2">
         <input type="hidden" name="id" value={projeto.id} />
         <div className="min-w-[160px] flex-1">
           <label className="mb-1 block text-[10.5px] text-text-faint">Nome</label>
-          <input name="nome" defaultValue={projeto.nome} required className="input w-full" />
+          <input name="nome" defaultValue={projeto.nome} required className="input input-compacto w-full" />
         </div>
         <div className="min-w-[200px] flex-[2]">
           <label className="mb-1 block text-[10.5px] text-text-faint">Objetivo</label>
-          <input name="objetivo" defaultValue={projeto.objetivo ?? ""} className="input w-full" />
+          <input name="objetivo" defaultValue={projeto.objetivo ?? ""} className="input input-compacto w-full" />
         </div>
         <div>
           <label className="mb-1 block text-[10.5px] text-text-faint">Fase de produto</label>
-          <select name="produto_fase_id" defaultValue={projeto.produto_fase_id ?? ""} className="input w-[190px]">
+          <select name="produto_fase_id" defaultValue={projeto.produto_fase_id ?? ""} className="input input-compacto w-[180px]">
             <option value="">—</option>
             {fasesProduto.map((f) => (
               <option key={f.id} value={f.id}>
@@ -130,7 +147,7 @@ function ProjetoItem({
         </div>
         <div>
           <label className="mb-1 block text-[10.5px] text-text-faint">Status</label>
-          <select name="status" defaultValue={projeto.status} className="input w-[120px]">
+          <select name="status" defaultValue={projeto.status} className="input input-compacto w-[110px]">
             <option value="ativo">Ativo</option>
             <option value="concluido">Concluído</option>
             <option value="arquivado">Arquivado</option>
@@ -148,7 +165,7 @@ function ProjetoItem({
   }
 
   return (
-    <div className={`rounded-lg border border-border-soft p-3 ${projeto.status !== "ativo" ? "opacity-60" : ""}`}>
+    <div className={`rounded-lg border border-border-soft p-2.5 ${projeto.status !== "ativo" ? "opacity-60" : ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
