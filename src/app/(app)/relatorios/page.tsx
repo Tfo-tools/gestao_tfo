@@ -868,6 +868,8 @@ export async function RelatorioPlanos({
             cenarioId={cenarioId}
             itens={(receitasHistoricas ?? []) as ReceitaHistorica[]}
             periodo={resumo.periodo}
+            somenteLeitura
+            linkEditar={`/plano/${cenarioId}/vendas#tracao`}
           />
           <AlocacaoInvestimento
             cenarioId={cenarioId}

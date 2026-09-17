@@ -24,14 +24,20 @@ const mesLabel = (iso: string) =>
     year: "numeric",
   });
 
+/** `somenteLeitura`: versão pra Relatórios — só mostra o que está ligado, sem interruptores nem
+ * formulário; a edição fica no plano (link em `linkEditar`). Relatório é tela de leitura. */
 export function ReceitasHistoricas({
   cenarioId,
   itens,
   periodo,
+  somenteLeitura = false,
+  linkEditar,
 }: {
   cenarioId: string;
   itens: ReceitaHistorica[];
   periodo: { inicio: string | null; fim: string | null };
+  somenteLeitura?: boolean;
+  linkEditar?: string;
 }) {
   const [state, formAction, pending] = useActionState(
     salvarReceitaHistorica,
@@ -47,6 +53,11 @@ export function ReceitasHistoricas({
     <div className="rounded-xl border border-border bg-surface p-5">
       <h2 className="mb-1 flex items-center font-heading text-[13px] font-semibold">
         Tração antes do produto
+        {somenteLeitura && linkEditar && (
+          <a href={linkEditar} className="ml-auto text-[11px] font-medium text-primary-deep">
+            editar no plano →
+          </a>
+        )}
         <InfoTooltip texto="Receita de serviço já realizada antes de existir software — a consultoria, por exemplo. Por padrão fica FORA da simulação: não entra em MRR, ARR, preço médio, CAC, churn nem no EBITDA projetado — é prova de que a metodologia já era vendida. Se o contrato continua dentro do período do plano, ligue 'Na DRE': os meses dentro do horizonte entram na receita consolidada e pagam imposto, sem COGS, e continuam fora de MRR/ARR/CAC/LTV. 'Mostrando' controla só a exibição na tela e na planilha." />
       </h2>
       <p className="mb-4 text-[11px] text-text-muted">
@@ -61,7 +72,7 @@ export function ReceitasHistoricas({
             da empresa até fevereiro.
           </p>
         )}
-        {itens.map((i) => {
+        {itens.filter((i) => !somenteLeitura || i.mostrar).map((i) => {
           const meses = mesesDaReceita(i, periodo.fim);
           const total = Number(i.valor_mensal) * meses;
           return (
@@ -75,6 +86,13 @@ export function ReceitasHistoricas({
                   <span className="font-mono text-[12px] font-semibold text-primary-deep">
                     {brl(total)}
                   </span>
+                  {somenteLeitura && (
+                    <span className="rounded border border-border px-1.5 py-0.5 text-[10.5px] text-text-muted">
+                      {i.entra_na_dre ? "Na DRE" : "Só contexto"}
+                    </span>
+                  )}
+                  {!somenteLeitura && (
+                  <>
                   <button
                     type="button"
                     disabled={isPending}
@@ -133,6 +151,8 @@ export function ReceitasHistoricas({
                   >
                     ×
                   </button>
+                  </>
+                  )}
                 </div>
               </div>
               <p className="mt-0.5 text-[10.5px] text-text-faint">
@@ -166,6 +186,7 @@ export function ReceitasHistoricas({
         )}
       </div>
 
+      {!somenteLeitura && (
       <form
         ref={formRef}
         key={editando?.id ?? "novo"}
@@ -242,6 +263,7 @@ export function ReceitasHistoricas({
           </button>
         )}
       </form>
+      )}
       {state.error && (
         <p className="mt-1 text-[11px] text-danger">{state.error}</p>
       )}

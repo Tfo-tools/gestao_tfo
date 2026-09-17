@@ -10,6 +10,8 @@ import { AvisoTelaGrande } from "@/components/aviso-tela-grande";
 import { CanaisAquisicao } from "@/app/(app)/produtos/[id]/canais-aquisicao";
 import { TabelaProjecao, type LinhaProjecao } from "./tabela-projecao";
 import { PontoPartidaCard } from "./ponto-partida";
+import { ReceitasHistoricas } from "@/app/(app)/relatorios/receitas-historicas-card";
+import type { ReceitaHistorica } from "@/lib/receitas-historicas";
 import type { PontoPartida } from "@/lib/ponto-partida";
 
 // Salvar o ponto de partida recalcula a projeção de todos os produtos — leva alguns segundos.
@@ -38,7 +40,10 @@ export default async function PlanoVendasPage({
 
   if (!cenario) notFound();
 
-  const resumo = await agregarPorCenario(supabase, cenarioId);
+  const [resumo, { data: receitasHistoricas }] = await Promise.all([
+    agregarPorCenario(supabase, cenarioId),
+    supabase.from("receitas_historicas").select("*").eq("cenario_id", cenarioId).order("data_inicio"),
+  ]);
   const metricas = computeMetricas(
     resumo.linhasPeriodo,
     resumo.totalInvestido,
@@ -285,6 +290,15 @@ export default async function PlanoVendasPage({
             produtos={produtos ?? []}
           />
         )}
+
+        {/* Tração antes do produto (receita de serviço): a edição mora aqui; o Relatório só mostra. */}
+        <div id="tracao">
+          <ReceitasHistoricas
+            cenarioId={cenarioId}
+            itens={(receitasHistoricas ?? []) as ReceitaHistorica[]}
+            periodo={resumo.periodo}
+          />
+        </div>
 
         <details className="group rounded-xl border border-border bg-surface">
           <summary className="flex cursor-pointer items-center gap-2 px-5 py-3.5 text-[13px] font-semibold">
