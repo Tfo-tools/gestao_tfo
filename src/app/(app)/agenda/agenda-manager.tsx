@@ -100,7 +100,7 @@ export function AgendaManager({
       {contaPessoalConectada && (
         <CompromissosGoogleCard
           titulo="Seus compromissos"
-          explicacao="Os próximos 30 dias da sua agenda pessoal — Google e, se cadastrado, o calendário do iPhone (só como \"Compromisso pessoal\", sem o nome)."
+          explicacao="Os próximos 30 dias da sua agenda pessoal — Google e, se cadastrado, o calendário do iPhone (só como 'Compromisso pessoal', sem o nome)."
           eventos={eventosPessoais}
           ataPorEvento={ataPorEvento}
           pessoas={pessoas}
