@@ -70,7 +70,8 @@ export function AlocacaoInvestimento({
         ) : (
           <div className="flex flex-col gap-2">
             {ordenados.map((i, idx) => {
-              const azul = idx % 2 === 0;
+              // Paleta da marca em rodízio: azul (letra branca) → amarelo (letra vinho) → vinho (letra amarela).
+              const estilo = ["bg-primary text-white", "bg-cream text-wine", "bg-wine text-cream"][idx % 3];
               // Barra proporcional à maior frente (a maior ocupa a largura toda) — assim as
               // diferenças entre frentes ficam legíveis mesmo quando nenhuma passa de 40%.
               const largura = Math.max(18, (Number(i.percentual) / maior) * 100);
@@ -78,9 +79,7 @@ export function AlocacaoInvestimento({
                 <div key={i.id}>
                   <div className="h-8 w-full overflow-hidden rounded-md bg-bg">
                     <div
-                      className={`flex h-full items-center justify-between gap-3 rounded-md px-3 text-[12px] ${
-                        azul ? "bg-primary-deep text-white" : "bg-cream text-wine"
-                      }`}
+                      className={`flex h-full items-center justify-between gap-3 rounded-md px-3 text-[12px] ${estilo}`}
                       style={{ width: `${largura}%` }}
                     >
                       <span className="truncate font-medium capitalize">{i.categoria}</span>
