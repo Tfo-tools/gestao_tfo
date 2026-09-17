@@ -229,7 +229,7 @@ export function TarefaCard({
 
   const responsavel = dados.pessoas.find((p) => p.id === no.responsavel_id);
   const participantes = dados.pessoas.filter((p) => no.participantes.includes(p.id) && p.id !== no.responsavel_id);
-  const produto = dados.produtos.find((p) => p.id === no.produto_id);
+  const produtosDaTarefa = dados.produtos.filter((p) => no.produtos.includes(p.id));
   const fase = dados.fases.find((f) => f.id === no.fase_id);
   const projeto = dados.projetos.find((p) => p.id === no.projeto_id);
   const hoje = new Date().toISOString().slice(0, 10);
@@ -272,7 +272,7 @@ export function TarefaCard({
 
       {aberto && (
         <div className="flex flex-col gap-1.5 border-t border-border-soft px-3 pb-2.5 pt-2">
-          {((mostrarProjeto && projeto) || (mostrarFase && fase) || no.etiquetas.length > 0 || produto || no.area) && (
+          {((mostrarProjeto && projeto) || (mostrarFase && fase) || no.etiquetas.length > 0 || produtosDaTarefa.length > 0 || no.area) && (
             <div className="flex flex-wrap gap-1">
               {mostrarProjeto && projeto && <span className="rounded-full bg-wine-soft px-1.5 py-0.5 text-[10px] text-wine">{projeto.nome}</span>}
               {mostrarFase && fase && <span className="rounded-full bg-primary-soft px-1.5 py-0.5 text-[10px] text-primary-deep">{fase.nome}</span>}
@@ -282,7 +282,11 @@ export function TarefaCard({
                 </span>
               ))}
               {no.area && <span className="rounded-full bg-bg px-1.5 py-0.5 text-[10px] text-text-muted">{no.area}</span>}
-              {produto && <span className="rounded-full bg-bg px-1.5 py-0.5 text-[10px] text-text-muted">{produto.nome}</span>}
+              {produtosDaTarefa.map((p) => (
+                <span key={p.id} className="rounded-full bg-bg px-1.5 py-0.5 text-[10px] text-text-muted">
+                  {p.nome}
+                </span>
+              ))}
             </div>
           )}
 

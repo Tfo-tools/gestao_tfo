@@ -32,14 +32,14 @@ export default async function TarefasPage({
       supabase.from("tarefa_dependencias").select("tarefa_id, depende_de_id"),
       supabase
         .from("tarefas")
-        .select("id, titulo, descricao, responsavel_id, prazo, data_inicio, status, produto_id, area, projeto_id, fase_id, parent_id, etiquetas, participantes, ordem")
+        .select("id, titulo, descricao, responsavel_id, prazo, data_inicio, status, produtos, area, projeto_id, fase_id, parent_id, etiquetas, participantes, ordem")
         .order("created_at", { ascending: true }),
     ]);
 
   const projetos = (projetosRaw ?? []) as Projeto[];
   const fases = (fasesRaw ?? []) as FaseProjeto[];
   const deps = (depsRaw ?? []) as Dependencia[];
-  const todas = ((todasRaw ?? []) as Tarefa[]).map((t) => ({ ...t, etiquetas: t.etiquetas ?? [], participantes: t.participantes ?? [], ordem: t.ordem ?? 0 }));
+  const todas = ((todasRaw ?? []) as Tarefa[]).map((t) => ({ ...t, etiquetas: t.etiquetas ?? [], participantes: t.participantes ?? [], produtos: t.produtos ?? [], ordem: t.ordem ?? 0 }));
   const fasesProduto: FaseProdutoOpcao[] = (fasesProdutoRaw ?? []).map((f) => {
     const p = f.produtos as unknown as { nome: string } | { nome: string }[] | null;
     const nome = Array.isArray(p) ? p[0]?.nome : p?.nome;

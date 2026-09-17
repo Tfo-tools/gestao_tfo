@@ -134,17 +134,19 @@ export function CamposTarefa({
             <label className={rotulo}>Tema / área</label>
             <input name="area" type="text" defaultValue={tarefa?.area ?? ""} placeholder="opcional" className="input input-compacto w-full" />
           </div>
-          <div>
-            <label className={rotulo}>Produto</label>
-            <select name="produto_id" defaultValue={tarefa?.produto_id ?? ""} className="input input-compacto w-full">
-              <option value="">—</option>
-              {produtos.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nome}
-                </option>
-              ))}
-            </select>
-          </div>
+          {produtos.length > 0 && (
+            <div className="col-span-2">
+              <label className={rotulo}>Produtos que a tarefa atende</label>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                {produtos.map((p) => (
+                  <label key={p.id} className="flex items-center gap-1 text-[11px]">
+                    <input type="checkbox" name="produtos" value={p.id} defaultChecked={tarefa?.produtos?.includes(p.id) ?? false} />
+                    {p.nome}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="col-span-2">
             <label className={rotulo}>Descrição</label>
             <textarea name="descricao" rows={2} defaultValue={tarefa?.descricao ?? ""} className="input input-compacto w-full" />

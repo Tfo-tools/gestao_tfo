@@ -15,8 +15,8 @@ function opcional(fd: FormData, k: string) {
 function etiquetas(fd: FormData) {
   return [...new Set(texto(fd, "etiquetas").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean))];
 }
-function participantes(fd: FormData) {
-  return [...new Set(fd.getAll("participantes").map(String).filter(Boolean))];
+function lista(fd: FormData, k: string) {
+  return [...new Set(fd.getAll(k).map(String).filter(Boolean))];
 }
 function dependencias(fd: FormData) {
   return fd.getAll("depende_de").map(String).filter(Boolean);
@@ -29,13 +29,13 @@ function camposTarefa(fd: FormData) {
     responsavel_id: opcional(fd, "responsavel_id"),
     prazo: opcional(fd, "prazo"),
     data_inicio: opcional(fd, "data_inicio"),
-    produto_id: opcional(fd, "produto_id"),
+    produtos: lista(fd, "produtos"),
     area: opcional(fd, "area"),
     projeto_id: opcional(fd, "projeto_id"),
     fase_id: opcional(fd, "fase_id"),
     parent_id: opcional(fd, "parent_id"),
     etiquetas: etiquetas(fd),
-    participantes: participantes(fd),
+    participantes: lista(fd, "participantes"),
   };
 }
 

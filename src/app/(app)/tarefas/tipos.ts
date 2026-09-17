@@ -30,7 +30,8 @@ export type Tarefa = {
   prazo: string | null;
   data_inicio: string | null;
   status: string;
-  produto_id: string | null;
+  /** Produtos que a tarefa atende (produtos.id); vazio = nenhum em particular. */
+  produtos: string[];
   area: string | null;
   projeto_id: string | null;
   fase_id: string | null;
