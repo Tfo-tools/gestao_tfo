@@ -73,11 +73,8 @@ export default async function AgendaPage() {
       ? lerEventosIcs(icsPessoalUrl, agora, new Date(agora.getTime() + DIAS_A_FRENTE_LISTAGEM * 24 * 60 * 60 * 1000)).catch(() => [])
       : Promise.resolve([]),
   ]);
-  // iCloud entra rotulado no título, pra distinguir na lista "Seus compromissos".
-  const eventosPessoais = [
-    ...eventosPessoaisGoogle,
-    ...eventosIcloud.map((e) => ({ ...e, titulo: `${e.titulo} · Pessoal` })),
-  ].sort((a, b) => a.inicioIso.localeCompare(b.inicioIso));
+  // iCloud já chega como "Compromisso pessoal" (título real nunca sai de lá).
+  const eventosPessoais = [...eventosPessoaisGoogle, ...eventosIcloud].sort((a, b) => a.inicioIso.localeCompare(b.inicioIso));
 
   const reunioesAgendadas = (reunioes ?? []) as unknown as ReuniaoAgendada[];
   const reunioesParaCalendario = (reunioesCalendario ?? []) as unknown as ReuniaoAgendada[];

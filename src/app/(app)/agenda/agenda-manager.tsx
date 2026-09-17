@@ -100,7 +100,7 @@ export function AgendaManager({
       {contaPessoalConectada && (
         <CompromissosGoogleCard
           titulo="Seus compromissos"
-          explicacao="Os próximos 30 dias da sua agenda pessoal — Google e, se cadastrado, o calendário do iPhone (marcado como Pessoal)."
+          explicacao="Os próximos 30 dias da sua agenda pessoal — Google e, se cadastrado, o calendário do iPhone (só como \"Compromisso pessoal\", sem o nome)."
           eventos={eventosPessoais}
           ataPorEvento={ataPorEvento}
           pessoas={pessoas}
@@ -140,7 +140,7 @@ function ConexaoPessoalColapsavel({ contaPessoalConectada, icsPessoalUrl }: { co
             <p className="mt-1 mb-3 text-[11.5px] text-text-muted">
               Pra compromissos que não estão no Google (convites que chegam no seu iCloud, por exemplo). No iPhone: Calendário →
               Calendários → ⓘ ao lado do seu calendário pessoal → ligue <b>Calendário Público</b> → Compartilhar Link → cole aqui.
-              Entra como <b>Pessoal</b>: bloqueia o link de agendamento e aparece no resumo — quem agenda nunca vê o título.
+              O app mostra só <b>"Compromisso pessoal"</b> com o horário — o nome real do compromisso nunca sai do seu iPhone. Bloqueia o link de agendamento e entra no resumo e nos avisos.
             </p>
             <form action={formAction} className="flex flex-wrap items-end gap-2">
               <div className="min-w-[280px] flex-1">

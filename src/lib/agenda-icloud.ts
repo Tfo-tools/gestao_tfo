@@ -22,9 +22,6 @@ function desdobrar(ics: string) {
   return ics.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "");
 }
 
-function desescapar(s: string) {
-  return s.replace(/\\n/g, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
-}
 
 type Prop = { nome: string; params: Record<string, string>; valor: string };
 
@@ -128,15 +125,13 @@ export async function lerEventosIcs(url: string, janelaIni: Date, janelaFim: Dat
 
   for (const bloco of texto.split("BEGIN:VEVENT").slice(1)) {
     const corpo = bloco.split("END:VEVENT")[0];
-    let uid = "", summary = "", location: string | null = null, rrule: string | null = null, transp = "OPAQUE", status = "";
+    let uid = "", rrule: string | null = null, transp = "OPAQUE", status = "";
     let dtstart: ReturnType<typeof lerData> | null = null, dtend: ReturnType<typeof lerData> | null = null;
     const exdates = new Set<number>();
     for (const linha of corpo.split("\n")) {
       const p = lerProp(linha);
       if (!p) continue;
       if (p.nome === "UID") uid = p.valor;
-      else if (p.nome === "SUMMARY") summary = desescapar(p.valor);
-      else if (p.nome === "LOCATION") location = desescapar(p.valor) || null;
       else if (p.nome === "DTSTART") dtstart = lerData(p);
       else if (p.nome === "DTEND") dtend = lerData(p);
       else if (p.nome === "RRULE") rrule = p.valor;
@@ -149,12 +144,14 @@ export async function lerEventosIcs(url: string, janelaIni: Date, janelaFim: Dat
     for (const t of expandir(dtstart.ms, duracao, rrule, exdates, ini, fim)) {
       const inicioIso = dtstart.diaTodo ? paraIsoLocal(t).slice(0, 10) : paraIsoLocal(t);
       const fimIso = dtstart.diaTodo ? paraIsoLocal(t + duracao).slice(0, 10) : paraIsoLocal(t + duracao);
+      // Título, local e descrição NUNCA saem do iCloud: o que o app (e as outras pessoas com acesso a
+      // ele) veem é só "Compromisso pessoal" — o horário é o que importa pra bloquear e lembrar.
       eventos.push({
         id: `${uid}:${t}`,
         iCalUID: uid,
-        titulo: summary || "(sem título)",
+        titulo: "Compromisso pessoal",
         descricao: null,
-        local: location,
+        local: null,
         inicioIso,
         fimIso,
         diaTodo: dtstart.diaTodo,

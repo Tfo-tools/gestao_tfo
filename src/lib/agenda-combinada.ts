@@ -50,7 +50,7 @@ export async function carregarAgendaCombinada(diasAFrente = 2): Promise<EventoAg
   const listas = [
     ...listasGoogle,
     ...[...new Set(icloud.map((e) => e.profileId))].map((pid) => ({
-      origem: `Pessoal (${icloud.find((e) => e.profileId === pid)!.nomeDono})`,
+      origem: icloud.find((e) => e.profileId === pid)!.nomeDono,
       eventos: icloud.filter((e) => e.profileId === pid),
     })),
   ];
