@@ -254,9 +254,14 @@ export function TarefaCard({
   const corPrazo = atrasada ? "font-semibold text-danger" : hojeVence ? "font-semibold text-primary-deep" : "text-text-faint";
   const textoPrazo = no.prazo ? (atrasada ? `atrasada ${fmt(no.prazo)}` : hojeVence ? "vence hoje" : fmt(no.prazo)) : "";
 
+  const libera = feita ? [] : no.libera;
+
   return (
     <div
-      className={`flex flex-col rounded-lg border ${
+      data-tarefa={no.id}
+      data-aguarda={no.aguardando.map((a) => a.id).join(",")}
+      data-libera={libera.map((l) => l.id).join(",")}
+      className={`card-tarefa flex flex-col rounded-lg border ${
         feita ? "border-border-soft bg-bg opacity-60" : bloqueada ? "border-warning bg-warning-soft/40" : no.status === "fazendo" ? "border-primary-fill bg-surface" : "border-border-soft bg-surface"
       }`}
     >
@@ -265,6 +270,7 @@ export function TarefaCard({
         <span className={`text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`}>
           {no.titulo}
           {bloqueada && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
+          {libera.length > 0 && <span title={`Libera: ${libera.map((l) => l.titulo).join(", ")}`}> 🔓</span>}
           {no.filhas.length > 0 && no.progresso !== null && <span className="ml-1 text-[10px] font-normal text-text-faint">{Math.round(no.progresso * 100)}%</span>}
         </span>
         <span className="flex shrink-0 flex-col items-end text-[10.5px] leading-tight">
@@ -320,6 +326,11 @@ export function TarefaCard({
           {bloqueada && (
             <p className="text-[10.5px] text-cream-deep" title={no.aguardando.map((a) => a.titulo).join(", ")}>
               ⏳ aguarda {no.aguardando.length === 1 ? no.aguardando[0].titulo : `${no.aguardando.length} tarefas`}
+            </p>
+          )}
+          {libera.length > 0 && (
+            <p className="text-[10.5px] text-primary-deep" title={libera.map((l) => l.titulo).join(", ")}>
+              🔓 libera {libera.length === 1 ? libera[0].titulo : `${libera.length} tarefas`}
             </p>
           )}
 

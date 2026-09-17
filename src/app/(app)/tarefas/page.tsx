@@ -2,6 +2,7 @@ import { FASES } from "@/lib/fases";
 import { createClient } from "@/lib/supabase/server";
 import { LinhaDoTempo } from "./linha-do-tempo";
 import { ProjetosPanel, type PillProjeto } from "./projetos-panel";
+import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { montarArvore, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
 
@@ -115,6 +116,7 @@ export default async function TarefasPage({
 
   return (
     <div className="flex flex-col gap-3">
+      <RealceDependencias />
       <div className="flex flex-wrap items-baseline gap-x-3">
         <h1 className="font-heading text-[22px] font-semibold">Tarefas</h1>
         <p className="text-[12px] text-text-muted">

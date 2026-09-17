@@ -48,6 +48,8 @@ export type TarefaNo = Tarefa & {
   filhas: TarefaNo[];
   /** Tarefas das quais esta depende e que ainda não estão feitas — se houver, está bloqueada. */
   aguardando: Tarefa[];
+  /** Tarefas ainda abertas que dependem desta — o que ela "libera" ao ficar feita. */
+  libera: Tarefa[];
   /** Progresso das filhas (0–1), ou null se não tem filhas. */
   progresso: number | null;
 };
@@ -60,12 +62,15 @@ export const STATUS_ORDEM = ["a_fazer", "fazendo", "feito"];
 export function montarArvore(tarefas: Tarefa[], deps: Dependencia[]): TarefaNo[] {
   const porId = new Map<string, Tarefa>(tarefas.map((t) => [t.id, t]));
   const nos = new Map<string, TarefaNo>();
-  for (const t of tarefas) nos.set(t.id, { ...t, filhas: [], aguardando: [], progresso: null });
+  for (const t of tarefas) nos.set(t.id, { ...t, filhas: [], aguardando: [], libera: [], progresso: null });
 
   for (const d of deps) {
     const no = nos.get(d.tarefa_id);
     const alvo = porId.get(d.depende_de_id);
     if (no && alvo && alvo.status !== "feito") no.aguardando.push(alvo);
+    const dependente = porId.get(d.tarefa_id);
+    const noAlvo = nos.get(d.depende_de_id);
+    if (noAlvo && dependente && dependente.status !== "feito") noAlvo.libera.push(dependente);
   }
 
   const raizes: TarefaNo[] = [];

@@ -98,6 +98,15 @@
     outline: none;
     border-color: var(--color-primary-fill);
   }
+  /* Tarefas: ao passar o mouse num card, o que ele aguarda (amarelo) e o que libera (azul). */
+  .card-tarefa.realce-aguarda {
+    outline: 2px solid var(--color-warning);
+    outline-offset: 2px;
+  }
+  .card-tarefa.realce-libera {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
   /* Campo curto em linha densa (grades, listas de parcelas): mesma borda, metade da altura. */
   .input-compacto {
     padding: 0.3rem 0.5rem;
