@@ -109,6 +109,8 @@ export default async function TarefasPage({
   ];
 
   const projetoInicial = projetoSel && projetoSel !== "sem" ? projetoSel : null;
+  // Até 12 caixinhas na tela, abertas; acima disso, recolhidas (clique abre).
+  const abertoInicial = raizes.length <= 12;
   const gradeCards = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] items-start gap-2";
 
   return (
@@ -153,7 +155,7 @@ export default async function TarefasPage({
       {visao === "linha" ? (
         <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} />
       ) : wbs && projetoAtual ? (
-        <Wbs projeto={projetoAtual} fases={fasesDoProjeto} raizes={raizes} dados={dados} dependeDe={dependeDe} contagem={contagem[projetoAtual.id]} />
+        <Wbs projeto={projetoAtual} fases={fasesDoProjeto} raizes={raizes} dados={dados} dependeDe={dependeDe} contagem={contagem[projetoAtual.id]} abertoInicial={abertoInicial} />
       ) : (
         <div className="flex flex-col gap-4">
           {grupos.map((g, i) => (
@@ -170,7 +172,7 @@ export default async function TarefasPage({
               <div className={gradeCards}>
                 {i === 0 && <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} />}
                 {g.nos.map((n) => (
-                  <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={agrupar !== "fase"} mostrarProjeto={!projetoAtual && agrupar !== "fase"} />
+                  <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={agrupar !== "fase"} mostrarProjeto={!projetoAtual && agrupar !== "fase"} abertoInicial={abertoInicial} />
                 ))}
               </div>
             </div>
@@ -197,6 +199,7 @@ function Wbs({
   dados,
   dependeDe,
   contagem,
+  abertoInicial,
 }: {
   projeto: Projeto;
   fases: FaseProjeto[];
@@ -204,6 +207,7 @@ function Wbs({
   dados: DadosFormulario;
   dependeDe: Map<string, string[]>;
   contagem?: { total: number; feitas: number };
+  abertoInicial: boolean;
 }) {
   const colunas: { chave: string; fase: FaseProjeto | null; nos: TarefaNo[] }[] = fases.map((f) => ({ chave: f.id, fase: f, nos: raizes.filter((r) => r.fase_id === f.id) }));
   const semFase = raizes.filter((r) => !fases.some((f) => f.id === r.fase_id));
@@ -250,7 +254,7 @@ function Wbs({
                 )}
               </div>
               {c.nos.map((n) => (
-                <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} />
+                <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} abertoInicial={abertoInicial} />
               ))}
               <NovaTarefaCard dados={dados} projetoInicial={projeto.id} faseInicial={c.fase?.id ?? null} rotulo="+ tarefa" />
             </div>

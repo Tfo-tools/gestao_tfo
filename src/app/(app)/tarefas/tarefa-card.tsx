@@ -87,7 +87,7 @@ export function NovaTarefaCard({
       <button
         type="button"
         onClick={() => setAberto(true)}
-        className="flex min-h-[44px] w-full items-center justify-center rounded-lg border border-dashed border-border text-[12px] text-text-muted hover:border-primary-fill hover:text-primary-deep"
+        className="flex h-full min-h-[44px] w-full items-center justify-center self-stretch rounded-lg border border-dashed border-border text-[12px] text-text-muted hover:border-primary-fill hover:text-primary-deep"
       >
         {rotulo}
       </button>
@@ -206,8 +206,8 @@ function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number
 }
 
 /**
- * A caixinha da tarefa. Recolhida (padrão) mostra só título + prazo + quem; clicar abre
- * etiquetas, descrição, subtarefas, status e ações — assim cabem muitas na tela.
+ * A caixinha da tarefa. Aberta mostra tudo; recolhida só título + prazo + quem. Clicar no
+ * título alterna. Com muitas tarefas na tela a página já manda recolhida.
  */
 export function TarefaCard({
   no,
@@ -215,14 +215,17 @@ export function TarefaCard({
   dependeDe,
   mostrarFase = true,
   mostrarProjeto = false,
+  abertoInicial = true,
 }: {
   no: TarefaNo;
   dados: DadosFormulario;
   dependeDe: Map<string, string[]>;
   mostrarFase?: boolean;
   mostrarProjeto?: boolean;
+  /** Aberto por padrão; a página manda `false` quando há muitas tarefas na tela. */
+  abertoInicial?: boolean;
 }) {
-  const [aberto, setAberto] = useState(false);
+  const [aberto, setAberto] = useState(abertoInicial);
   const [editando, setEditando] = useState(false);
   const [novaSub, setNovaSub] = useState(false);
   const [isPending, startTransition] = useTransition();
