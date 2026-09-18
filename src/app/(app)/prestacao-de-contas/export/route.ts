@@ -30,41 +30,33 @@ export async function GET() {
     .eq("id", perfil.escopo_investidor_id)
     .single();
 
+  // Período do orçamento: só pra constar no arquivo. Quem entra é a despesa VINCULADA ao programa
+  // no lançamento (paga com o recurso dele) — não a conta nem a data. Antes entrava todo lançamento
+  // nas contas orçadas, e o zip levava ao avaliador nota de despesa que não saiu do recurso.
   const { data: linhas } = await supabase
     .from("programa_linhas_previstas")
-    .select("plano_contas_id, data_inicio, data_fim")
+    .select("data_inicio, data_fim")
     .eq("programa_id", perfil.escopo_investidor_id);
-
-  const contaIds = [...new Set((linhas ?? []).map((l) => l.plano_contas_id).filter(Boolean))];
-  if (contaIds.length === 0) {
-    return new NextResponse("Esse programa ainda não tem contas orçadas — nada pra baixar.", { status: 404 });
-  }
-
   const datas = (linhas ?? []).flatMap((l) => [l.data_inicio, l.data_fim]).filter(Boolean) as string[];
   const desde = datas.length > 0 ? datas.reduce((a, b) => (a < b ? a : b)) : undefined;
   const ate = datas.length > 0 ? datas.reduce((a, b) => (a > b ? a : b)) : undefined;
 
-  let query = supabase
+  const { data: despesas } = await supabase
     .from("despesas")
     .select(
       "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo)",
     )
-    .in("plano_contas_id", contaIds)
+    .eq("programa_id", perfil.escopo_investidor_id)
     .order("data_gasto", { ascending: true });
-  if (desde) query = query.gte("data_gasto", desde);
-  if (ate) query = query.lte("data_gasto", ate);
-
-  const { data: despesas } = await query;
   const linhasComprovante = (despesas ?? []) as unknown as LinhaComprovante[];
   if (linhasComprovante.length === 0) {
-    return new NextResponse("Nenhum lançamento encontrado nas contas orçadas desse programa.", { status: 404 });
+    return new NextResponse("Nenhuma despesa vinculada a esse programa ainda — nada pra baixar.", { status: 404 });
   }
 
   const zipFinal = await gerarZipComprovantes(supabase, linhasComprovante, {
     tituloPlanilha: `Prestação de contas — ${programa?.nome ?? "Programa de fomento"}`,
     periodoTexto: desde && ate ? `${desde} a ${ate}` : "todo o período orçado",
-    notaExtra:
-      "Lançamentos das contas orçadas pra esse programa, dentro do período de execução previsto nas linhas do orçamento.",
+    notaExtra: "Despesas pagas com o recurso deste programa (vinculadas a ele no lançamento).",
   });
 
   const nomeArquivo = `prestacao-de-contas-${(programa?.nome ?? "programa").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.zip`;

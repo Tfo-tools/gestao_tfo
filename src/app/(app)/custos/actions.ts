@@ -203,6 +203,8 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
   const valor_fatura = valorFaturaRaw ? Number(valorFaturaRaw) : null;
   const fatura = formData.get("fatura") as File | null;
   const comprovantePagamento = formData.get("comprovante_pagamento") as File | null;
+  // Programa que a despesa comprova (pago com o recurso dele) — define o "usado" da prestação.
+  const programa_id = String(formData.get("programa_id") || "") || null;
 
   if (!data_gasto || !plano_contas_id || !valor_total) {
     return { error: "Preencha data, categoria e valor." };
@@ -228,6 +230,7 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
       pagador,
       forma_pagamento,
       valor_fatura,
+      programa_id,
       criado_por: user?.id ?? null,
     })
     .select("id")
@@ -401,6 +404,7 @@ export async function atualizarDespesa(
       pagador,
       forma_pagamento: resumoPagamento ?? forma_pagamento,
       valor_fatura,
+      ...(formData.has("programa_id") ? { programa_id: String(formData.get("programa_id") || "") || null } : {}),
     })
     .eq("id", id);
 

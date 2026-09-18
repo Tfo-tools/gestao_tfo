@@ -347,3 +347,12 @@ Regra nos três cenários: faixas por clientes só em 2028 (R$ 30 mil até 800, 
   link próprio (/agendar?tipo=slug) e .ics na confirmação para quem não usa Google — quem usa Google já
   recebe o convite, e "adicionar ao Google" duplicaria o evento. No calendário da agenda, tarefa
   aparece só como "Tarefa V"/"Tarefa E" na cor da pessoa; o nome, ao passar o mouse.
+- **"Usado" de um programa = despesa vinculada a ele no lançamento** (substitui a regra de conta +
+  período). O que define é de onde saiu o dinheiro: `despesas.programa_id` marca a despesa paga com o
+  recurso do programa. A regra antiga contava qualquer lançamento numa conta orçada dentro do período
+  — e mostrava como usado do Centelha serviços contábeis pagos pela empresa antes de o recurso sair.
+  A conta bancária específica do programa (o edital do Centelha exige uma) é marcada em
+  `meios_pagamento.programa_id`: pagar por ela preenche o vínculo sozinho, editável no lançamento
+  (o FUNSES pode ou não exigir conta própria). Vale para a Destinação, a Prestação de Contas (visão do
+  avaliador e da sócia) e o .zip de comprovantes. Despesa vinculada numa conta não orçada aparece como
+  "fora do orçamento". Editar a despesa numa tela sem o campo não apaga o vínculo.

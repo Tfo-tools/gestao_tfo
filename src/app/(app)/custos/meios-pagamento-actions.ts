@@ -12,6 +12,8 @@ export type MeioPagamento = {
   /** Ciclo da fatura (só cartão): dia de vencimento e quantos dias antes ela fecha. */
   dia_vencimento?: number | null;
   dias_fechamento_antes?: number | null;
+  /** Conta específica de um programa (o Centelha exige uma): o que sai dela comprova o programa. */
+  programa_id?: string | null;
 };
 
 export async function criarMeioPagamento(input: {
@@ -20,6 +22,7 @@ export async function criarMeioPagamento(input: {
   titular_tipo: "pessoa" | "empresa";
   titular_pessoa_id: string | null;
   bandeira: string | null;
+  programa_id?: string | null;
 }): Promise<{ error: string | null; meio?: MeioPagamento }> {
   const banco = input.banco.trim();
   if (!banco) return { error: "Informe o banco." };
@@ -36,8 +39,9 @@ export async function criarMeioPagamento(input: {
       titular_tipo: input.titular_tipo,
       titular_pessoa_id: input.titular_tipo === "pessoa" ? input.titular_pessoa_id : null,
       bandeira: input.tipo === "cartao" ? input.bandeira?.trim() || null : null,
+      programa_id: input.tipo === "conta" ? input.programa_id || null : null,
     })
-    .select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, dia_vencimento, dias_fechamento_antes")
+    .select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, dia_vencimento, dias_fechamento_antes, programa_id")
     .single();
 
   if (error || !data) return { error: "Não foi possível cadastrar." };

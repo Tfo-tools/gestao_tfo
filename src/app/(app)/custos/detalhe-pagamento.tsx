@@ -88,7 +88,10 @@ export function DetalhePagamento({
   pagador,
   nomesSocias,
   dataReferencia,
+  programas,
 }: {
+  /** Programas — só pra marcar uma conta nova como conta específica de um deles. */
+  programas?: { id: string; nome: string }[];
   name: string;
   valorTotal: number;
   defaultValue?: ItemPagamento[];
@@ -353,6 +356,7 @@ export function DetalhePagamento({
                     <div className="grid grid-cols-2 gap-2.5">
                       <div className="col-span-2">
                         <SeletorMeioPagamento
+                          programas={programas}
                           tipo="conta"
                           meiosIniciais={meios}
                           pessoas={pessoas}

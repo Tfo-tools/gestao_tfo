@@ -45,9 +45,11 @@ export default async function ExtratoPage({
         .select("id, numero_parcela, valor, data_prevista, pagador, despesas(descricao, plano_contas:plano_contas_id(conta))")
         .eq("status", "prevista")
         .order("data_prevista", { ascending: true }),
-      supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira").eq("ativo", true).order("banco"),
+      supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, programa_id").eq("ativo", true).order("banco"),
     ]);
 
+  // Programas que uma despesa pode comprovar (pago com o recurso deles → prestação de contas).
+  const { data: programas } = await supabase.from("programas_investimento").select("id, nome").order("nome");
   const pagadores = (profiles ?? []).map((p) => p.nome);
   const pessoas = (profiles ?? []).map((p) => ({ id: p.id, nome: p.nome }));
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
@@ -62,8 +64,8 @@ export default async function ExtratoPage({
     .from("despesas")
     .select(
       produto
-        ? "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)"
-        : "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
+        ? "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)"
+        : "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
     )
     .order("data_gasto", { ascending: ordemAscendente });
 
@@ -155,7 +157,7 @@ export default async function ExtratoPage({
         <div className="rounded-xl border border-border bg-surface p-6">
           <h2 className="mb-1 font-heading text-sm font-semibold">Rateio entre sócias</h2>
           <p className="mb-4 text-[11.5px] text-text-muted">
-            Só o que saiu do bolso de cada uma ({formatBRL(totalGeral)}) — pago pela "Empresa" não entra, já foi coberto direto.
+            Só o que saiu do bolso de cada uma ({formatBRL(totalGeral)}) — pago pela “Empresa” não entra, já foi coberto direto.
             {temFiltroAtivo
               ? " Sobre o recorte filtrado abaixo — use período e descrição pra isolar um evento específico."
               : " Sobre tudo lançado até agora — filtre por período ou descrição abaixo pra isolar só um evento/feira."}
@@ -256,7 +258,7 @@ export default async function ExtratoPage({
         </div>
         {!mesExato && (
           <p className="mb-4 text-[11px] text-text-faint">
-            Pra fechar um mês (travar contra edição/exclusão), preencha "De" e "Até" com o mesmo mês.
+            Pra fechar um mês (travar contra edição/exclusão), preencha “De” e “Até” com o mesmo mês.
           </p>
         )}
 
@@ -351,6 +353,7 @@ export default async function ExtratoPage({
             <tbody>
               {(despesas ?? []).map((d) => (
                 <DespesaRow
+                  programas={programas ?? []}
                   key={d.id}
                   despesa={d as unknown as DespesaRowData}
                   planoContas={planoContas ?? []}

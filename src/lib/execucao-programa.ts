@@ -1,24 +1,46 @@
 /**
  * Execução de um programa (fomento ou investimento) por conta do plano de contas: quanto foi
- * previsto no orçamento e quanto já entrou na despesa.
+ * previsto no orçamento e quanto já foi pago com o recurso dele.
  *
  * Uma regra só, usada pela Prestação de Contas e pelo gráfico de destinação dos Indicadores — assim
  * o que o investidor confere e o que a sócia vê nunca divergem:
- *  - PREVISTO por conta = soma das linhas do orçamento proposto (programa_linhas_previstas) na conta.
- *  - REALIZADO por conta = despesas lançadas nessa conta entre a primeira e a última data do
- *    orçamento do programa. Não há vínculo direto despesa → programa; a conta e o período é que
- *    dizem o que foi executado com o recurso.
+ *  - PREVISTO por conta = soma das linhas do orçamento proposto (programa_linhas_previstas).
+ *  - USADO por conta = despesas VINCULADAS ao programa no lançamento (despesas.programa_id) — o que
+ *    foi pago com o recurso dele (a conta específica do programa já preenche o vínculo).
  *
- * É por programa, de propósito: dois programas que orçam a mesma conta contariam a mesma despesa
- * duas vezes se fossem somados.
+ * Antes o "usado" era qualquer despesa numa conta orçada dentro do período do programa, e isso
+ * contava gasto que não saiu do recurso (ex.: serviços contábeis pagos pela empresa antes de o
+ * Centelha liberar um real). O que define é de onde saiu o dinheiro, não a conta nem a data.
+ *
+ * Despesa vinculada numa conta que não estava no orçamento aparece como "fora do orçamento" — é o
+ * que a prestação de contas vai questionar primeiro.
  */
 
-export type ExecucaoConta = { id: string; conta: string; previsto: number; realizado: number };
+export type ExecucaoConta = {
+  id: string;
+  conta: string;
+  previsto: number;
+  realizado: number;
+  /** Conta sem linha no orçamento, mas com despesa vinculada ao programa. */
+  foraDoOrcamento?: boolean;
+};
+
+export type DespesaVinculada = {
+  id: string;
+  data_gasto: string;
+  descricao: string | null;
+  valor_total: number;
+  comprovado: boolean;
+  plano_contas_id: string;
+  plano_contas: { codigo: string; conta: string } | null;
+};
 
 export type ExecucaoPrograma = {
   porConta: ExecucaoConta[];
   totalPrevisto: number;
   totalRealizado: number;
+  /** As despesas que comprovam o programa, da mais recente pra mais antiga. */
+  despesas: DespesaVinculada[];
   desde: string | null;
   ate: string | null;
 };
@@ -31,28 +53,39 @@ type LinhaOrcamento = {
   plano_contas: { codigo: string; conta: string } | null;
 };
 
-/** A conta pura: recebe as linhas do orçamento e as despesas já filtradas. Testável sem banco. */
+type DespesaParaConta = Pick<DespesaVinculada, "plano_contas_id" | "valor_total"> & {
+  plano_contas?: { codigo: string; conta: string } | null;
+};
+
+const rotulo = (pc: { codigo: string; conta: string } | null | undefined) => (pc ? `${pc.codigo} — ${pc.conta}` : "—");
+
+/** A conta pura: recebe as linhas do orçamento e as despesas vinculadas. Testável sem banco. */
 export function calcularExecucao(
   linhas: LinhaOrcamento[],
-  despesas: { plano_contas_id: string; valor_total: number }[],
-): Omit<ExecucaoPrograma, "desde" | "ate"> {
-  const contaIds = [...new Set(linhas.map((l) => l.plano_contas_id))];
-  const realizadoPorConta = new Map<string, number>();
+  despesas: DespesaParaConta[],
+): Omit<ExecucaoPrograma, "desde" | "ate" | "despesas"> {
+  const usadoPorConta = new Map<string, number>();
+  const nomeDaConta = new Map<string, string>();
   for (const d of despesas) {
-    realizadoPorConta.set(d.plano_contas_id, (realizadoPorConta.get(d.plano_contas_id) ?? 0) + Number(d.valor_total));
+    usadoPorConta.set(d.plano_contas_id, (usadoPorConta.get(d.plano_contas_id) ?? 0) + Number(d.valor_total));
+    if (d.plano_contas) nomeDaConta.set(d.plano_contas_id, rotulo(d.plano_contas));
   }
-  const porConta = contaIds
+  const orcadas = [...new Set(linhas.map((l) => l.plano_contas_id))];
+  const porConta: ExecucaoConta[] = orcadas
     .map((id) => {
       const linhasConta = linhas.filter((l) => l.plano_contas_id === id);
-      const previsto = linhasConta.reduce((s, l) => s + Number(l.valor), 0);
       return {
         id,
-        conta: linhasConta[0]?.plano_contas ? `${linhasConta[0].plano_contas.codigo} — ${linhasConta[0].plano_contas.conta}` : "—",
-        previsto,
-        realizado: realizadoPorConta.get(id) ?? 0,
+        conta: rotulo(linhasConta[0]?.plano_contas),
+        previsto: linhasConta.reduce((s, l) => s + Number(l.valor), 0),
+        realizado: usadoPorConta.get(id) ?? 0,
       };
     })
     .sort((a, b) => b.previsto - a.previsto);
+  // Contas pagas com o recurso mas que não estavam no orçamento: vão pro fim, destacadas.
+  for (const [id, valor] of usadoPorConta) {
+    if (!orcadas.includes(id)) porConta.push({ id, conta: nomeDaConta.get(id) ?? "—", previsto: 0, realizado: valor, foraDoOrcamento: true });
+  }
   return {
     porConta,
     totalPrevisto: porConta.reduce((s, c) => s + c.previsto, 0),
@@ -60,7 +93,7 @@ export function calcularExecucao(
   };
 }
 
-/** Período do programa: da primeira à última data do orçamento. */
+/** Período do programa: da primeira à última data do orçamento (só pra exibir). */
 export function periodoDoOrcamento(linhas: Pick<LinhaOrcamento, "data_inicio" | "data_fim">[]): { desde: string | null; ate: string | null } {
   const datas = linhas.flatMap((l) => [l.data_inicio, l.data_fim]).filter((d): d is string => !!d);
   return {
@@ -74,21 +107,18 @@ export async function carregarExecucaoPrograma(
   supabase: any,
   programaId: string,
 ): Promise<ExecucaoPrograma> {
-  const { data: linhasRaw } = await supabase
-    .from("programa_linhas_previstas")
-    .select("plano_contas_id, valor, data_inicio, data_fim, plano_contas:plano_contas_id(codigo, conta)")
-    .eq("programa_id", programaId);
+  const [{ data: linhasRaw }, { data: despesasRaw }] = await Promise.all([
+    supabase
+      .from("programa_linhas_previstas")
+      .select("plano_contas_id, valor, data_inicio, data_fim, plano_contas:plano_contas_id(codigo, conta)")
+      .eq("programa_id", programaId),
+    supabase
+      .from("despesas")
+      .select("id, data_gasto, descricao, valor_total, comprovado, plano_contas_id, plano_contas:plano_contas_id(codigo, conta)")
+      .eq("programa_id", programaId)
+      .order("data_gasto", { ascending: false }),
+  ]);
   const linhas = ((linhasRaw ?? []) as LinhaOrcamento[]).filter((l) => l.plano_contas_id);
-  const { desde, ate } = periodoDoOrcamento(linhas);
-  const contaIds = [...new Set(linhas.map((l) => l.plano_contas_id))];
-
-  let despesas: { plano_contas_id: string; valor_total: number }[] = [];
-  if (contaIds.length > 0) {
-    let query = supabase.from("despesas").select("plano_contas_id, valor_total").in("plano_contas_id", contaIds);
-    if (desde) query = query.gte("data_gasto", desde);
-    if (ate) query = query.lte("data_gasto", ate);
-    const { data } = await query;
-    despesas = data ?? [];
-  }
-  return { ...calcularExecucao(linhas, despesas), desde, ate };
+  const despesas = ((despesasRaw ?? []) as DespesaVinculada[]).filter((d) => d.plano_contas_id);
+  return { ...calcularExecucao(linhas, despesas), despesas, ...periodoDoOrcamento(linhas) };
 }

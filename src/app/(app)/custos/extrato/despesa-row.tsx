@@ -40,6 +40,8 @@ export type DespesaRowData = {
   anexos_despesa: Anexo[];
   despesa_parcelas: Parcela[];
   despesa_pagamentos?: PagamentoDetalheRow[];
+  /** Programa que a despesa comprova (pago com o recurso dele). */
+  programa_id?: string | null;
 };
 
 function formatBRL(value: number) {
@@ -62,7 +64,10 @@ export function DespesaRow({
   pessoas,
   compacto = false,
   origem,
+  programas,
 }: {
+  /** Programas que a despesa pode comprovar. Sem a lista, o campo não aparece e o vínculo não muda. */
+  programas?: { id: string; nome: string }[];
   despesa: DespesaRowData;
   planoContas: PlanoContas[];
   produtos: Produto[];
@@ -107,6 +112,12 @@ export function DespesaRow({
   );
 
   const jaRateado = despesa.despesa_parcelas.length > 0;
+  const nomePrograma = despesa.programa_id ? programas?.find((p) => p.id === despesa.programa_id)?.nome ?? null : null;
+  const seloPrograma = nomePrograma && (
+    <span className="ml-1.5 whitespace-nowrap rounded bg-wine-soft px-1.5 py-0.5 font-sans text-[9.5px] font-semibold text-wine" title="Pago com o recurso do programa: entra na prestação de contas">
+      {nomePrograma}
+    </span>
+  );
   const colunas = compacto ? 3 : 8;
 
 
@@ -260,6 +271,19 @@ export function DespesaRow({
                 </div>
               </div>
             </div>
+            {programas && programas.length > 0 && (
+              <div>
+                <label className="mb-1 block text-[10.5px] text-text-faint">Comprova o programa</label>
+                <select name="programa_id" defaultValue={despesa.programa_id ?? ""} className="input w-[180px]">
+                  <option value="">Não — despesa da empresa</option>
+                  {programas.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60">
               {pending ? "…" : "Salvar"}
             </button>
@@ -377,7 +401,10 @@ export function DespesaRow({
             )}
           </td>
           <td className="min-w-0 px-2 py-2">
-            <div className="font-medium">{despesa.descricao || categoria}</div>
+            <div className="font-medium">
+              {despesa.descricao || categoria}
+              {seloPrograma}
+            </div>
             <div className="mt-0.5 text-[10.5px] leading-snug text-text-faint">{detalhes.join(" · ")}</div>
             <div className="mt-1.5">{acoes}</div>
           </td>
@@ -399,7 +426,10 @@ export function DespesaRow({
     <>
     <tr className="border-t border-border-soft">
       <td className="px-2 py-2.5 font-mono">{formatDate(despesa.data_gasto)}</td>
-      <td className="px-2 py-2.5">{despesa.plano_contas ? `${despesa.plano_contas.codigo} — ${despesa.plano_contas.conta}` : "—"}</td>
+      <td className="px-2 py-2.5">
+        {despesa.plano_contas ? `${despesa.plano_contas.codigo} — ${despesa.plano_contas.conta}` : "—"}
+        {seloPrograma}
+      </td>
       <td className="px-2 py-2.5 text-text-muted">{produtosVinculados.length > 0 ? produtosVinculados.map((p) => p.nome).join(", ") : "—"}</td>
       <td className="px-2 py-2.5 text-text-muted">{despesa.pagador ?? "—"}</td>
       <td className="px-2 py-2.5 text-text-muted">{despesa.descricao ?? "—"}</td>

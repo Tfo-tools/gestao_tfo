@@ -21,7 +21,10 @@ export function DespesaForm({
   usuarioAtual,
   meiosPagamento,
   pessoas,
+  programas = [],
 }: {
+  /** Programas de fomento/investimento que uma despesa pode comprovar. */
+  programas?: { id: string; nome: string }[];
   planoContas: PlanoContas[];
   produtos: Produto[];
   pagadores: string[];
@@ -41,6 +44,16 @@ export function DespesaForm({
   const [itensPagamento, setItensPagamento] = useState<ItemPagamento[]>([]);
   const [comprovado, setComprovado] = useState(false);
   const [dataGasto, setDataGasto] = useState(() => new Date().toISOString().slice(0, 10));
+  // Programa que a despesa comprova. Preenchido sozinho quando o pagamento sai da conta específica
+  // do programa; depois que a pessoa mexe no campo, a escolha dela prevalece.
+  const [programaId, setProgramaId] = useState("");
+  const [programaTocado, setProgramaTocado] = useState(false);
+  const aoMudarPagamento = (itens: ItemPagamento[]) => {
+    setItensPagamento(itens);
+    if (programaTocado) return;
+    const daConta = itens.map((i) => meiosPagamento.find((m) => m.id === i.meio_pagamento_id)?.programa_id).find(Boolean);
+    if (daConta) setProgramaId(daConta);
+  };
 
   const pagadorPadrao = usuarioAtual && pagadores.includes(usuarioAtual) ? usuarioAtual : "";
   const [pagador, setPagador] = useState(pagadorPadrao);
@@ -61,6 +74,8 @@ export function DespesaForm({
           setValorFatura("");
           setComprovado(false);
           setItensPagamento([]);
+          setProgramaId("");
+          setProgramaTocado(false);
           setPagador(pagadorPadrao);
           setDataGasto(new Date().toISOString().slice(0, 10));
           setBuscaKey((k) => k + 1);
@@ -153,14 +168,39 @@ export function DespesaForm({
               key={pagamentoKey}
               name="pagamento_detalhe"
               valorTotal={Number(valorPago) || 0}
-              onChange={setItensPagamento}
+              onChange={aoMudarPagamento}
               meios={meiosPagamento}
+              programas={programas}
               pessoas={pessoas}
               pagador={pagador}
               nomesSocias={nomesSocias}
               dataReferencia={recorrente ? null : dataGasto}
             />
           </Field>
+
+          {programas.length > 0 && !recorrente && (
+            <Field label="Comprova o programa">
+              <select
+                name="programa_id"
+                value={programaId}
+                onChange={(e) => {
+                  setProgramaId(e.target.value);
+                  setProgramaTocado(true);
+                }}
+                className="input w-full"
+              >
+                <option value="">Não — despesa da empresa</option>
+                {programas.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10.5px] text-text-faint">
+                Pago com o recurso do programa: entra no “usado” e na prestação de contas dele.
+              </p>
+            </Field>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

@@ -5,9 +5,11 @@ import { criarMeioPagamento, type MeioPagamento } from "./meios-pagamento-action
 
 type Pessoa = { id: string; nome: string };
 
-function tituloMeio(m: MeioPagamento, pessoas: Pessoa[]): string {
+function tituloMeio(m: MeioPagamento, pessoas: Pessoa[], programas: { id: string; nome: string }[] = []): string {
   const titular = m.titular_tipo === "empresa" ? "Empresa" : (pessoas.find((p) => p.id === m.titular_pessoa_id)?.nome ?? "—");
-  return m.bandeira ? `${m.banco} — ${titular} · ${m.bandeira}` : `${m.banco} — ${titular}`;
+  const programa = m.programa_id ? programas.find((p) => p.id === m.programa_id)?.nome : null;
+  const base = m.bandeira ? `${m.banco} — ${titular} · ${m.bandeira}` : `${m.banco} — ${titular}`;
+  return programa ? `${base} · conta do ${programa}` : base;
 }
 
 /** Digita, filtra os bancos/cartões já cadastrados; se não achar, cadastra um novo sem sair do
@@ -18,7 +20,10 @@ export function SeletorMeioPagamento({
   pessoas,
   bancoAtual,
   onSelecionar,
+  programas = [],
 }: {
+  /** Programas de fomento/investimento — só pra marcar uma conta nova como conta específica deles. */
+  programas?: { id: string; nome: string }[];
   tipo: "conta" | "cartao";
   meiosIniciais: MeioPagamento[];
   pessoas: Pessoa[];
@@ -42,6 +47,7 @@ export function SeletorMeioPagamento({
   const [novoTitularTipo, setNovoTitularTipo] = useState<"pessoa" | "empresa">("empresa");
   const [novoPessoaId, setNovoPessoaId] = useState("");
   const [novaBandeira, setNovaBandeira] = useState("");
+  const [novoPrograma, setNovoPrograma] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -87,6 +93,7 @@ export function SeletorMeioPagamento({
       titular_tipo: titularTipo,
       titular_pessoa_id: titularTipo === "pessoa" ? novoPessoaId || null : null,
       bandeira: novaBandeira || null,
+      programa_id: tipo === "conta" ? novoPrograma || null : null,
     });
     setSalvando(false);
     if (resultado.error || !resultado.meio) {
@@ -125,7 +132,7 @@ export function SeletorMeioPagamento({
                   onClick={() => selecionar(m)}
                   className="block w-full px-3 py-2 text-left text-[12px] hover:bg-bg"
                 >
-                  {tituloMeio(m, pessoas)}
+                  {tituloMeio(m, pessoas, programas)}
                 </button>
               ))}
               <button
@@ -177,6 +184,20 @@ export function SeletorMeioPagamento({
                 <div>
                   <label className="mb-1 block text-[10px] text-text-faint">Bandeira</label>
                   <input type="text" value={novaBandeira} onChange={(e) => setNovaBandeira(e.target.value)} placeholder="Ex: Visa" className="input w-full" />
+                </div>
+              )}
+              {tipo === "conta" && programas.length > 0 && (
+                <div>
+                  <label className="mb-1 block text-[10px] text-text-faint">Conta específica de programa (opcional)</label>
+                  <select value={novoPrograma} onChange={(e) => setNovoPrograma(e.target.value)} className="input w-full">
+                    <option value="">Não — conta da empresa</option>
+                    {programas.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        Conta do {p.nome}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[10px] text-text-faint">O que for pago por ela já nasce vinculado ao programa.</p>
                 </div>
               )}
               {erro && <p className="text-[11px] text-danger">{erro}</p>}

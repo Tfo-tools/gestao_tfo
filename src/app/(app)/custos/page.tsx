@@ -25,7 +25,7 @@ export default async function LancamentosPage() {
       supabase
         .from("despesas")
         .select(
-          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, despesa_recorrente_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
+          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, despesa_recorrente_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
         )
         // Tudo o que ainda precisa de atenção: sem comprovante, venha de lançamento avulso ou de
         // recorrência. Antes os de recorrência ficavam de fora e a lista parecia ter um item só —
@@ -38,11 +38,13 @@ export default async function LancamentosPage() {
       supabase.from("meses_fechados").select("mes"),
       supabase
         .from("meios_pagamento")
-        .select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, dia_vencimento, dias_fechamento_antes")
+        .select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, dia_vencimento, dias_fechamento_antes, programa_id")
         .eq("ativo", true)
         .order("banco"),
     ]);
 
+  // Programas que uma despesa pode comprovar (pago com o recurso deles → prestação de contas).
+  const { data: programas } = await supabase.from("programas_investimento").select("id, nome").order("nome");
   const pagadores = (profiles ?? []).map((p) => p.nome);
   const pessoas = (profiles ?? []).map((p) => ({
     id: p.id,
@@ -67,6 +69,7 @@ export default async function LancamentosPage() {
     // pra caber ao lado do formulário sem rolar a página.
     <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
       <DespesaForm
+        programas={programas ?? []}
         planoContas={planoContas ?? []}
         produtos={produtos ?? []}
         pagadores={pagadores}
@@ -96,6 +99,7 @@ export default async function LancamentosPage() {
               <tbody>
                 {pendentes.map((d) => (
                   <DespesaRow
+                    programas={programas ?? []}
                     key={d.id}
                     despesa={d as unknown as DespesaRowData}
                     planoContas={planoContas ?? []}
