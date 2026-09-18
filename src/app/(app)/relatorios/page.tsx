@@ -6,20 +6,19 @@ import {
   agregarPorCenario,
   computeMetricas,
   recortarPeriodo,
-  type Agregado,
   type Metricas,
   type ProgramaAporte,
 } from "@/lib/relatorios-cenario";
 import { ExportarInvestidor } from "./exportar-investidor";
-import { SimuladorRetorno } from "./simulador-retorno";
 import { DistribuicaoCustos, type LinhaDistribuicao } from "./distribuicao-custos";
+import { InvestimentoERetorno } from "./investimento-e-retorno";
+import { DestinacaoPorConta } from "./destinacao-por-conta";
+import { carregarExecucaoPrograma } from "@/lib/execucao-programa";
 import { ReceitasHistoricas } from "./receitas-historicas-card";
 import type { ReceitaHistorica } from "@/lib/receitas-historicas";
 import {
   carregarOrcamentoProgramas,
-  LABEL_CATEGORIA_USO,
   somaPorCategoria,
-  type LinhaOrcamento,
 } from "@/lib/orcamento-programa";
 import type { FocoInvestimento } from "@/lib/indicadores-investidor";
 import {
@@ -44,23 +43,6 @@ function formatMes(iso: string) {
     month: "short",
     year: "numeric",
   });
-}
-
-function buildPath(
-  values: number[],
-  width: number,
-  height: number,
-  min: number,
-  max: number,
-) {
-  const range = max - min || 1;
-  const step = values.length > 1 ? width / (values.length - 1) : width;
-  return values
-    .map(
-      (v, i) =>
-        `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - ((v - min) / range) * height).toFixed(1)}`,
-    )
-    .join(" ");
 }
 
 export default async function RelatoriosPage({
@@ -656,13 +638,12 @@ export async function RelatorioPlanos({
     (s, p) => s + p.valorPeriodo,
     0,
   );
-  // DRE em colunas: os 3 últimos anos do período (cada um com suas próprias métricas) + o total.
+  // Todos os anos do período (cada um com suas próprias métricas): o gráfico de custos mostra todos;
+  // a DRE em colunas usa os 3 últimos + o total, pra caber na largura.
   const anosDoPeriodo = [
     ...new Set(linhasPeriodo.map((l) => l.mes_referencia.slice(0, 4))),
-  ]
-    .sort()
-    .slice(-3);
-  const colunasAno = anosDoPeriodo.map((ano) => {
+  ].sort();
+  const colunasTodosAnos = anosDoPeriodo.map((ano) => {
     const doAno = linhasPeriodo.filter(
       (l) => l.mes_referencia.slice(0, 4) === ano,
     );
@@ -736,7 +717,32 @@ export async function RelatorioPlanos({
     linhasPeriodo[0]?.mes_referencia ??
     "";
 
+  const colunasAno = colunasTodosAnos.slice(-3);
+
   const semDados = resumo.linhas.length === 0;
+
+  // Investimento e retorno: marcos das parcelas que entram no período, e o painel certo — retorno
+  // só quando há investidor; com fomento apenas, o painel é do fomento (subvenção não se devolve).
+  const mesesPeriodoSet = new Set(linhasPeriodo.map((l) => l.mes_referencia));
+  const marcosAporte = resumo.aportes.programas.flatMap((p) =>
+    p.parcelas.filter((x) => mesesPeriodoSet.has(x.mes)).map((x) => ({ mes: x.mes, valor: x.valor, programa: p.nome })),
+  );
+  const programasResumo = resumo.aportes.programas.map((p) => ({
+    nome: p.nome,
+    tipo: p.tipo,
+    valorEmCaixa: p.parcelas.reduce((s, x) => s + x.valor, 0),
+    parcelas: p.parcelas.map((x) => ({ mes: x.mes, valor: x.valor })),
+  }));
+  const temInvestidor = resumo.aportes.programas.some((p) => p.entraNoRetorno) && capitalPadrao > 0 && !!mesSaida;
+  // Destinação por conta do plano de contas, programa a programa (mesma regra da Prestação de Contas).
+  const execucoes = await Promise.all(
+    resumo.aportes.programas.map(async (p) => ({
+      nome: p.nome,
+      tipo: p.tipo,
+      execucao: await carregarExecucaoPrograma(supabase, p.id),
+    })),
+  );
+  const temOrcamento = execucoes.some((e) => e.execucao.porConta.length > 0);
 
   return (
     <>
@@ -829,32 +835,13 @@ export async function RelatorioPlanos({
             nome={nome}
             metricas={metricas}
             totalInvestido={resumo.totalInvestido}
-            retornoInvestidor={retornoInvestidor}
             cenarioId={cenarioId}
             inicio={inicioSel}
             fim={fimSel}
           />
-          {capitalPadrao > 0 && mesSaida && (
-            <SimuladorRetorno
-              capitalPadrao={capitalPadrao}
-              equityPadrao={equityPadrao}
-              mesAportePadrao={mesAportePadrao}
-              mesSaida={mesSaida}
-              arrNaSaida={arrNaSaida}
-              ebitdaNaSaida={ebitdaNaSaida}
-              paybackMes={metricas.paybackMes}
-              paybackMeses={metricas.paybackMeses}
-              capitalRecuperadoPct={metricas.roiPct}
-              tirProjetoPct={metricas.tirAnualPct}
-              nomeRodada={
-                resumo.aportes.programas.find((p) => p.entraNoRetorno)?.nome ??
-                null
-              }
-            />
-          )}
           <DistribuicaoCustos
             linhas={[
-              ...colunasAno.map(
+              ...colunasTodosAnos.map(
                 (c): LinhaDistribuicao => ({
                   rotulo: c.ano,
                   sub: c.meses !== 12 ? `${c.meses}m` : undefined,
@@ -889,10 +876,39 @@ export async function RelatorioPlanos({
             inicio={inicioSel}
             fim={fimSel}
           />
-          <UsoDoRecurso
-            programas={resumo.aportes.programas}
-            orcamento={orcamento}
+          <InvestimentoERetorno
+            nome={nome}
+            meses={linhasPeriodo.map((l) => ({
+              mes: l.mes_referencia,
+              ebitda: l.ebitda,
+              aportes: investimentoPorMes.get(l.mes_referencia) ?? 0,
+            }))}
+            marcos={marcosAporte}
+            breakEvenMes={metricas.breakEvenMes}
+            programas={programasResumo}
+            notas={resumo.aportes.foraDoCaixa ?? []}
+            retorno={
+              temInvestidor
+                ? {
+                    capitalPadrao,
+                    equityPadrao,
+                    mesAportePadrao,
+                    mesSaida,
+                    arrNaSaida,
+                    ebitdaNaSaida,
+                    paybackMes: metricas.paybackMes,
+                    paybackMeses: metricas.paybackMeses,
+                    capitalRecuperadoPct: metricas.roiPct,
+                    tirProjetoPct: metricas.tirAnualPct,
+                    nomeRodada: resumo.aportes.programas.find((p) => p.entraNoRetorno)?.nome ?? null,
+                    valuation: retornoInvestidor.temValuation
+                      ? { moic: retornoInvestidor.moic ?? null, tirPct: retornoInvestidor.tirPct ?? null }
+                      : null,
+                  }
+                : null
+            }
           />
+          <DestinacaoPorConta programas={execucoes} />
           <ReceitasHistoricas
             cenarioId={cenarioId}
             itens={(receitasHistoricas ?? []) as ReceitaHistorica[]}
@@ -900,19 +916,17 @@ export async function RelatorioPlanos({
             somenteLeitura
             linkEditar={`/plano/${cenarioId}/vendas#tracao`}
           />
-          <AlocacaoInvestimento
-            cenarioId={cenarioId}
-            itens={alocacoes ?? []}
-            nomeCenario={nome}
-            totalCaptado={capitalPadrao}
-            somenteLeitura
-            linkEditar={`/plano/${cenarioId}#destinacao`}
-          />
-          <GraficoReceitaEInvestimento
-            nome={nome}
-            linhasPeriodo={linhasPeriodo}
-            investimentoPorMes={investimentoPorMes}
-          />
+          {/* Destinação manual (%) só quando nenhum programa tem orçamento proposto por conta. */}
+          {!temOrcamento && (
+            <AlocacaoInvestimento
+              cenarioId={cenarioId}
+              itens={alocacoes ?? []}
+              nomeCenario={nome}
+              totalCaptado={capitalPadrao}
+              somenteLeitura
+              linkEditar={`/plano/${cenarioId}#destinacao`}
+            />
+          )}
         </>
       )}
     </>
@@ -923,7 +937,6 @@ function MetricasInvestidor({
   nome,
   metricas,
   totalInvestido,
-  retornoInvestidor,
   cenarioId,
   inicio,
   fim,
@@ -931,7 +944,6 @@ function MetricasInvestidor({
   nome: string;
   metricas: Metricas;
   totalInvestido: number;
-  retornoInvestidor: ReturnType<typeof agregarRetornoProgramas>;
   cenarioId: string;
   inicio: string;
   fim: string;
@@ -1092,102 +1104,6 @@ function MetricasInvestidor({
               : "o fluxo não tem saída e retorno no período"
           }
         />
-        <Metrica
-          href="/fomento"
-          label="Retorno do investidor (equity)"
-          valor={
-            retornoInvestidor.temValuation && retornoInvestidor.roiPct != null
-              ? `${retornoInvestidor.roiPct.toFixed(0)}%`
-              : "sem valuation cadastrado"
-          }
-          detalhe={
-            retornoInvestidor.temValuation
-              ? `MOIC ${retornoInvestidor.moic?.toFixed(2)}x${retornoInvestidor.tirPct != null ? ` · TIR ${retornoInvestidor.tirPct.toFixed(1)}% a.a.` : " · sem reavaliação: veja a simulação da rodada"}`
-              : "cadastre o valuation em Fomento pra calcular"
-          }
-        />
-      </div>
-    </div>
-  );
-}
-
-/** Como o recurso de cada programa vinculado vai ser usado — lido do Orçamento proposto. */
-function UsoDoRecurso({
-  programas,
-  orcamento,
-}: {
-  programas: ProgramaAporte[];
-  orcamento: LinhaOrcamento[];
-}) {
-  if (programas.length === 0) return null;
-  return (
-    <div className="mb-5 rounded-xl border border-border bg-surface p-5">
-      <h2 className="mb-1 flex items-center font-heading text-[13px] font-semibold">
-        Uso do recurso — orçamento proposto
-        <InfoTooltip texto="Vem da tela Fomento & Investimento → programa → Orçamento proposto (atividade, período, rubrica, conta do plano de contas e valor). A conta define a frente: marketing, vendas, produto (P&D), operação (COGS) ou estrutura (G&A). Também é a base do 'foco do investimento' da planilha." />
-      </h2>
-      <p className="mb-3 text-[11px] text-text-muted">
-        Onde cada programa vinculado ao cenário aplica o dinheiro
-      </p>
-      <div className="flex flex-col gap-2.5">
-        {programas.map((p) => {
-          const linhas = orcamento.filter((l) => l.programa_id === p.id);
-          const total = linhas.reduce((s, l) => s + l.valor, 0);
-          const porCategoria = [...somaPorCategoria(linhas).entries()].sort(
-            (a, b) => b[1] - a[1],
-          );
-          return (
-            <div
-              key={p.id}
-              className="rounded-lg border border-border-soft px-3 py-2.5"
-            >
-              <div className="flex items-center justify-between gap-3 text-[12px]">
-                <span className="font-medium">
-                  {p.nome}{" "}
-                  <span className="text-[10.5px] font-normal text-text-faint">
-                    {p.entraNoRetorno
-                      ? "investimento novo"
-                      : p.tipo === "fomento"
-                        ? "fomento"
-                        : "já aplicado"}
-                  </span>
-                </span>
-                <Link
-                  href={`/fomento/${p.id}/orcamento`}
-                  className="text-[11px] text-primary-deep underline"
-                >
-                  {linhas.length > 0
-                    ? "Editar orçamento →"
-                    : "Cadastrar orçamento →"}
-                </Link>
-              </div>
-              {linhas.length === 0 ? (
-                <p className="mt-1 text-[11px] text-text-faint">
-                  Sem orçamento proposto cadastrado.
-                </p>
-              ) : (
-                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-text-muted">
-                  {porCategoria.map(([cat, v]) => (
-                    <span key={cat}>
-                      {LABEL_CATEGORIA_USO[cat]}:{" "}
-                      <span className="font-mono text-text">
-                        {formatBRL(v)}
-                      </span>{" "}
-                      <span className="text-text-faint">
-                        ({total > 0 ? ((v / total) * 100).toFixed(0) : 0}%)
-                      </span>
-                    </span>
-                  ))}
-                  <span className="text-text-faint">
-                    · total {formatBRL(total)}
-                    {Math.abs(total - p.valorTotal) > 1 &&
-                      ` de ${formatBRL(p.valorTotal)} do programa`}
-                  </span>
-                </div>
-              )}
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -1499,97 +1415,6 @@ function IndicadoresPeriodo({
   );
 }
 
-function GraficoReceitaEInvestimento({
-  nome,
-  linhasPeriodo,
-  investimentoPorMes,
-}: {
-  nome: string;
-  linhasPeriodo: Agregado[];
-  investimentoPorMes: Map<string, number>;
-}) {
-  const receitas = linhasPeriodo.map((l) => l.receita);
-  const investimentos = linhasPeriodo.map(
-    (l) => investimentoPorMes.get(l.mes_referencia) ?? 0,
-  );
-  const width = 1050;
-  const height = 220;
-  const min = 0;
-  const max = Math.max(1, ...receitas, ...investimentos);
-  const temInvestimento = investimentos.some((v) => v > 0);
-
-  // Eixo de mês/ano: mostra só um subconjunto legível (início, fim, e passos regulares no meio).
-  const totalMeses = linhasPeriodo.length;
-  const passo = Math.max(1, Math.ceil(totalMeses / 10));
-  const step = totalMeses > 1 ? width / (totalMeses - 1) : width;
-
-  return (
-    <div className="mb-5 rounded-xl border border-border bg-surface p-6">
-      <div className="mb-1 flex items-center justify-between">
-        <h2 className="font-heading text-sm font-semibold">
-          Receita e investimento — {nome}
-        </h2>
-      </div>
-      <div className="mb-3 flex items-center gap-4">
-        <Legenda cor="var(--color-primary-fill)" texto="Receita mensal" />
-        {temInvestimento && (
-          <Legenda
-            cor="var(--color-wine)"
-            texto="Aportes/fomentos (parcela do mês)"
-          />
-        )}
-      </div>
-      <svg
-        viewBox={`0 0 ${width} ${height + 28}`}
-        style={{
-          width: "100%",
-          height: "auto",
-          display: "block",
-          overflow: "visible",
-        }}
-      >
-        <line
-          x1="0"
-          y1={height}
-          x2={width}
-          y2={height}
-          stroke="var(--color-border)"
-          strokeWidth={1}
-        />
-        <path
-          d={buildPath(receitas, width, height, min, max)}
-          fill="none"
-          stroke="var(--color-primary-fill)"
-          strokeWidth={2.5}
-        />
-        {temInvestimento && (
-          <path
-            d={buildPath(investimentos, width, height, min, max)}
-            fill="none"
-            stroke="var(--color-wine)"
-            strokeWidth={2.5}
-          />
-        )}
-        {linhasPeriodo.map((l, i) => {
-          if (i !== 0 && i !== totalMeses - 1 && i % passo !== 0) return null;
-          return (
-            <text
-              key={l.mes_referencia}
-              x={i * step}
-              y={height + 20}
-              fontSize="11"
-              textAnchor="middle"
-              fill="var(--color-text-faint)"
-            >
-              {formatMes(l.mes_referencia)}
-            </text>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
 function pctReceita(valor: number, receita: number): string | null {
   return receita > 0 ? `${((valor / receita) * 100).toFixed(0)}%` : null;
 }
@@ -1649,17 +1474,5 @@ function DreLinha({
         );
       })}
     </tr>
-  );
-}
-
-function Legenda({ cor, texto }: { cor: string; texto: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className="inline-block h-[2px] w-3.5"
-        style={{ background: cor }}
-      />
-      <span className="text-[11px] text-text-muted">{texto}</span>
-    </div>
   );
 }

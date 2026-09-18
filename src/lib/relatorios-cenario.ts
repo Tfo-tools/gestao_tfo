@@ -381,6 +381,11 @@ export type AportesCenario = {
   capitalNovo: number;
   /** Capital novo por mês de entrada (parcelas não recebidas dos programas que entram no retorno). */
   capitalNovoPorMes: Map<string, number>;
+  /**
+   * Parcelas que vão direto a um terceiro e nunca entram na conta da empresa (ex.: bolsa CNPq paga
+   * à pesquisadora). Ficam fora do caixa, da DFC e da DRE — só como nota ao lado do programa.
+   */
+  foraDoCaixa?: { programa: string; valor: number; mes: string | null; descricao: string | null }[];
 };
 
 /**
@@ -422,23 +427,37 @@ export async function carregarAportes(
       .order("created_at"),
     supabase
       .from("parcelas_investimento")
-      .select("programa_id, valor, data_prevista, status")
+      .select("programa_id, valor, data_prevista, status, entra_no_caixa, condicao")
       .in("programa_id", ids),
   ]);
 
   const porMes = new Map<string, number>();
   const programas: ProgramaAporte[] = [];
+  const foraDoCaixa: NonNullable<AportesCenario["foraDoCaixa"]> = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const p of (programasRaw ?? []) as any[]) {
     const valorTotal = Number(p.valor_total ?? p.valor_proposto ?? 0);
-    const parcelasDoPrograma = (
+    const todasDoPrograma = (
       (parcelasRaw ?? []) as {
         programa_id: string;
         valor: number;
         data_prevista: string | null;
         status: string | null;
+        entra_no_caixa: boolean | null;
+        condicao: string | null;
       }[]
     ).filter((x) => x.programa_id === p.id);
+    // O que vai direto a um terceiro (bolsa paga à pesquisadora) não é caixa da empresa: sai do
+    // caixa, da DFC e da DRE, e vira só nota.
+    for (const x of todasDoPrograma.filter((x) => x.entra_no_caixa === false)) {
+      foraDoCaixa.push({
+        programa: p.nome,
+        valor: Number(x.valor),
+        mes: x.data_prevista ? `${x.data_prevista.slice(0, 7)}-01` : null,
+        descricao: x.condicao,
+      });
+    }
+    const parcelasDoPrograma = todasDoPrograma.filter((x) => x.entra_no_caixa !== false);
     let parcelas: ParcelaAporte[] = parcelasDoPrograma
       .filter((x) => x.data_prevista)
       .map((x) => ({
@@ -447,7 +466,7 @@ export async function carregarAportes(
         recebida: x.status === "recebida",
       }))
       .sort((a, b) => a.mes.localeCompare(b.mes));
-    if (parcelas.length === 0) {
+    if (parcelas.length === 0 && todasDoPrograma.length === 0) {
       const data = p.data_aporte ?? p.data_assinatura_prevista;
       if (data && valorTotal > 0)
         parcelas = [
@@ -516,6 +535,7 @@ export async function carregarAportes(
       0,
     ),
     capitalNovoPorMes,
+    foraDoCaixa,
   };
 }
 

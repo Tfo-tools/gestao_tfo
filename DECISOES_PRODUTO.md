@@ -321,3 +321,17 @@ Motivo: TIR de 70% e margem EBITDA de ~50% em 2030 não são defensáveis numa S
 Somos SaaS vertical B2B para PMEs de moda, não empresa de IA (a IA só traduz o acompanhamento em storytelling no Premium). Benchmark de P&D pra esse perfil: 10–15% na tração, 8–12% na escala. As faixas por clientes (R$ 30/38/45 mil) davam 3% da receita em 2030 — indefensável na banca.
 
 Regra nos três cenários: faixas por clientes só em 2028 (R$ 30 mil até 800, R$ 38 mil até 1.600); de 2029 em diante **10% da receita**, item "Produto & Engenharia". Realista: R$ 826 mil (2029) e R$ 1,63 mi (2030) ≈ 5 e 10 pessoas. Otimista: R$ 1,26 mi e R$ 2,8 mi. EBITDA 2030 Realista cai ~R$ 1,1 mi (margem ~50% → ~43%).
+- **Bolsa paga direto a terceiro não é caixa.** `parcelas_investimento.entra_no_caixa = false` marca a
+  parcela que vai direto a outra pessoa — a bolsa CNPq DTI-B do Centelha III (R$ 46.800) é paga à
+  coordenadora e nunca entra na conta da empresa. Fica fora do caixa, da DFC e da DRE e aparece só
+  como nota ao lado do programa. A subvenção (R$ 85.170) segue entrando no caixa e na linha de aportes
+  abaixo do resultado. Antes a bolsa inflava o caixa acumulado nos 4 cenários.
+- **Destinação do recurso por conta do plano de contas, com o "já usado".** Sai do orçamento proposto
+  de cada programa (não das rubricas — essas ficam na prestação de contas). "Usado" = despesas
+  lançadas nas contas orçadas dentro do período do orçamento do programa: a MESMA regra da Prestação
+  de Contas, agora num módulo só (`execucao-programa.ts`), para o que a sócia vê e o que o investidor
+  confere nunca divergirem. Por programa, porque dois programas que orçam a mesma conta contariam a
+  mesma despesa duas vezes se somados. A destinação manual (%) só aparece quando não há orçamento.
+- **Investimento e retorno num bloco só** (Indicadores, logo após a DRE): caixa acumulado com um marco
+  por parcela, break-even e saída. Painel de retorno só quando há investidor; com fomento apenas, o
+  painel mostra o fomento — subvenção não se devolve. O simulador da rodada fica recolhido no bloco.

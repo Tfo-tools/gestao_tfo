@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { carregarExecucaoPrograma } from "@/lib/execucao-programa";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -45,57 +46,22 @@ async function VisaoFomento({ escopoId }: { escopoId: string | null }) {
     );
   }
 
-  const [{ data: programa }, { data: rubricas }, { data: linhas }] = await Promise.all([
+  const [{ data: programa }, { data: rubricas }] = await Promise.all([
     supabase
       .from("programas_investimento")
       .select("nome, status, valor_total, valor_subvencao, valor_contrapartida, data_assinatura_prevista, observacoes")
       .eq("id", escopoId)
       .maybeSingle(),
     supabase.from("programa_rubricas").select("id, nome, fonte").eq("programa_id", escopoId).order("nome"),
-    supabase
-      .from("programa_linhas_previstas")
-      .select("plano_contas_id, valor, data_inicio, data_fim, plano_contas:plano_contas_id(codigo, conta)")
-      .eq("programa_id", escopoId),
   ]);
 
   if (!programa) {
     return <EstadoVazio texto="Programa não encontrado. Fale com a TFO pra revisar o acesso." />;
   }
 
-  type Linha = { plano_contas_id: string; valor: number; data_inicio: string; data_fim: string; plano_contas: { codigo: string; conta: string } | null };
-  const linhasTyped = (linhas ?? []) as unknown as Linha[];
-  const contaIds = [...new Set(linhasTyped.map((l) => l.plano_contas_id))];
-
-  const datas = linhasTyped.flatMap((l) => [l.data_inicio, l.data_fim]).filter(Boolean);
-  const desde = datas.length > 0 ? datas.reduce((a, b) => (a < b ? a : b)) : null;
-  const ate = datas.length > 0 ? datas.reduce((a, b) => (a > b ? a : b)) : null;
-
-  const realizadoPorConta = new Map<string, number>();
-  if (contaIds.length > 0) {
-    let query = supabase.from("despesas").select("plano_contas_id, valor_total").in("plano_contas_id", contaIds);
-    if (desde) query = query.gte("data_gasto", desde);
-    if (ate) query = query.lte("data_gasto", ate);
-    const { data: despesas } = await query;
-    for (const d of despesas ?? []) {
-      realizadoPorConta.set(d.plano_contas_id, (realizadoPorConta.get(d.plano_contas_id) ?? 0) + Number(d.valor_total));
-    }
-  }
-
-  const porConta = contaIds
-    .map((id) => {
-      const linhasConta = linhasTyped.filter((l) => l.plano_contas_id === id);
-      const previsto = linhasConta.reduce((s, l) => s + Number(l.valor), 0);
-      return {
-        id,
-        conta: linhasConta[0]?.plano_contas ? `${linhasConta[0].plano_contas.codigo} — ${linhasConta[0].plano_contas.conta}` : "—",
-        previsto,
-        realizado: realizadoPorConta.get(id) ?? 0,
-      };
-    })
-    .sort((a, b) => b.previsto - a.previsto);
-
-  const totalPrevisto = porConta.reduce((s, c) => s + c.previsto, 0);
-  const totalRealizado = porConta.reduce((s, c) => s + c.realizado, 0);
+  // Mesma regra do gráfico de destinação dos Indicadores (execucao-programa.ts): previsto pelo
+  // orçamento, realizado pelas despesas nas contas orçadas dentro do período do programa.
+  const { porConta, totalPrevisto, totalRealizado, desde, ate } = await carregarExecucaoPrograma(supabase, escopoId);
 
   return (
     <div className="flex flex-col gap-5">
