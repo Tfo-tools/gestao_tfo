@@ -7,6 +7,13 @@ import type { Ata } from "./atas-manager";
 import type { TarefaComPrazo } from "./calendario-semana";
 
 const DIAS_A_FRENTE_LISTAGEM = 30;
+
+/** Domingo 00:00 da semana corrente, no horário de São Paulo (-03:00, sem horário de verão). */
+function inicioDaSemanaSP(agora: Date): Date {
+  const local = new Date(agora.getTime() - 3 * 3600000);
+  const domingo = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - local.getUTCDay());
+  return new Date(domingo + 3 * 3600000);
+}
 // O calendário da semana precisa enxergar reuniões passadas também (pra navegar "semana
 // anterior"), diferente das outras seções da tela que só mostram o que ainda vai acontecer.
 const DIAS_ATRAS_CALENDARIO = 45;
@@ -70,7 +77,9 @@ export default async function AgendaPage() {
     contaConectada ? listarProximosEventos(DIAS_A_FRENTE_LISTAGEM) : Promise.resolve([]),
     contaPessoalConectada && user ? listarProximosEventos(DIAS_A_FRENTE_LISTAGEM, 20, user.id) : Promise.resolve([]),
     icsPessoalUrl
-      ? lerEventosIcs(icsPessoalUrl, agora, new Date(agora.getTime() + DIAS_A_FRENTE_LISTAGEM * 24 * 60 * 60 * 1000)).catch(() => [])
+      ? // Desde o domingo da semana: o calendário mostra a semana inteira, e compromisso de um dia que
+        // já passou (inclusive recorrente) sumia. A lista de próximos filtra pelo horário lá embaixo.
+        lerEventosIcs(icsPessoalUrl, inicioDaSemanaSP(agora), new Date(agora.getTime() + DIAS_A_FRENTE_LISTAGEM * 24 * 60 * 60 * 1000)).catch(() => [])
       : Promise.resolve([]),
   ]);
   // iCloud já chega como "Compromisso pessoal" (título real nunca sai de lá).
@@ -108,6 +117,10 @@ export default async function AgendaPage() {
         eventosGoogle={eventosGoogle}
         contaPessoalConectada={contaPessoalConectada}
         eventosPessoais={eventosPessoaisSemDuplicata}
+        // A lista de próximos só mostra o que ainda não terminou — o corte usa a hora do servidor, pra
+        // não depender do relógio do navegador. O calendário recebe a semana inteira.
+        eventosPessoaisProximos={eventosPessoaisSemDuplicata.filter((e) => new Date(e.fimIso || e.inicioIso).getTime() >= agora.getTime())}
+        temAgendaIcloud={!!icsPessoalUrl}
         icsPessoalUrl={icsPessoalUrl}
         atas={(atas ?? []) as Ata[]}
         pessoas={pessoas ?? []}

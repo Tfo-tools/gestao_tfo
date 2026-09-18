@@ -56,6 +56,8 @@ export function AgendaManager({
   eventosGoogle,
   contaPessoalConectada,
   eventosPessoais,
+  eventosPessoaisProximos,
+  temAgendaIcloud = false,
   icsPessoalUrl,
   atas,
   pessoas,
@@ -70,6 +72,10 @@ export function AgendaManager({
   eventosGoogle: EventoGoogle[];
   contaPessoalConectada: string | null;
   eventosPessoais: EventoGoogle[];
+  /** Só os que ainda não terminaram — pra lista "Seus compromissos". Sem isso, usa a lista toda. */
+  eventosPessoaisProximos?: EventoGoogle[];
+  /** Tem o calendário do iPhone cadastrado: a lista aparece mesmo sem Google pessoal conectado. */
+  temAgendaIcloud?: boolean;
   icsPessoalUrl: string | null;
   atas: Ata[];
   pessoas: { id: string; nome: string }[];
@@ -107,11 +113,11 @@ export function AgendaManager({
           iaConfigurada={iaConfigurada}
         />
       )}
-      {contaPessoalConectada && (
+      {(contaPessoalConectada || temAgendaIcloud) && (
         <CompromissosGoogleCard
           titulo="Seus compromissos"
           explicacao="Os próximos 30 dias da sua agenda pessoal — Google e, se cadastrado, o calendário do iPhone (só como 'Compromisso pessoal', sem o nome)."
-          eventos={eventosPessoais}
+          eventos={eventosPessoaisProximos ?? eventosPessoais}
           ataPorEvento={ataPorEvento}
           pessoas={pessoas}
           iaConfigurada={iaConfigurada}
