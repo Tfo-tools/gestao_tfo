@@ -112,6 +112,17 @@ export function DespesaRow({
   );
 
   const jaRateado = despesa.despesa_parcelas.length > 0;
+  // Comprovar um pendente é informar como foi pago: se saiu da conta específica do programa, o
+  // vínculo se preenche sozinho — igual ao lançamento novo. Por isso a recorrência não precisa de
+  // vínculo próprio: cada mês fica vinculado ao registrar a forma de pagamento dele.
+  const [programaId, setProgramaId] = useState(despesa.programa_id ?? "");
+  const [programaTocado, setProgramaTocado] = useState(false);
+  const aoMudarPagamento = (itens: ItemPagamento[]) => {
+    setItensPagamento(itens);
+    if (programaTocado) return;
+    const daConta = itens.map((i) => meiosPagamento.find((m) => m.id === i.meio_pagamento_id)?.programa_id).find(Boolean);
+    if (daConta) setProgramaId(daConta);
+  };
   const nomePrograma = despesa.programa_id ? programas?.find((p) => p.id === despesa.programa_id)?.nome ?? null : null;
   const seloPrograma = nomePrograma && (
     <span className="ml-1.5 whitespace-nowrap rounded bg-wine-soft px-1.5 py-0.5 font-sans text-[9.5px] font-semibold text-wine" title="Pago com o recurso do programa: entra na prestação de contas">
@@ -189,8 +200,9 @@ export function DespesaRow({
                 name="pagamento_detalhe"
                 valorTotal={Number(despesa.valor_total)}
                 defaultValue={itensPagamento}
-                onChange={setItensPagamento}
+                onChange={aoMudarPagamento}
                 meios={meiosPagamento}
+                programas={programas}
                 pessoas={pessoas}
                 pagador={pagadorEditado}
                 nomesSocias={nomesSocias}
@@ -274,7 +286,15 @@ export function DespesaRow({
             {programas && programas.length > 0 && (
               <div>
                 <label className="mb-1 block text-[10.5px] text-text-faint">Comprova o programa</label>
-                <select name="programa_id" defaultValue={despesa.programa_id ?? ""} className="input w-[180px]">
+                <select
+                  name="programa_id"
+                  value={programaId}
+                  onChange={(e) => {
+                    setProgramaId(e.target.value);
+                    setProgramaTocado(true);
+                  }}
+                  className="input w-[180px]"
+                >
                   <option value="">Não — despesa da empresa</option>
                   {programas.map((p) => (
                     <option key={p.id} value={p.id}>
