@@ -444,6 +444,12 @@ export async function criarNivelModulo(
   )
     ? Number(formData.get("desconto_cliente_existente_meses"))
     : null;
+  const reajuste_pct = formData.get("reajuste_pct")
+    ? Number(formData.get("reajuste_pct")) / 100
+    : null;
+  const reajuste_apos_meses = formData.get("reajuste_apos_meses")
+    ? Number(formData.get("reajuste_apos_meses"))
+    : null;
 
   if (!produto_id || !cenario_id || !nome || !preco || !data_disponibilidade) {
     return {
@@ -494,6 +500,8 @@ export async function criarNivelModulo(
     crescimento_adesao_mensal_pct,
     desconto_cliente_existente_pct,
     desconto_cliente_existente_meses,
+    reajuste_pct,
+    reajuste_apos_meses,
   });
 
   if (error) {

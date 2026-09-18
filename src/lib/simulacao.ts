@@ -121,6 +121,9 @@ export type ModuloInput = {
   crescimento_adesao_mensal_pct: number;
   /** Teto da curva de adesão — a % pra onde ela converge (em vez de sempre ir a 100%). Null = 100%. */
   percentual_permanencia_estimado: number | null;
+  /** Reajuste único: preço × (1 + pct) a partir de `reajuste_apos_meses` meses depois do lançamento do módulo. */
+  reajuste_pct: number | null;
+  reajuste_apos_meses: number | null;
   /** Beta testers do módulo — sempre testam ANTES do lançamento oficial, sem pagar; convertem no mês do lançamento. */
   betaTesters: BetaModuloInput[];
 };
@@ -587,6 +590,8 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     ? `${input.pontoPartida.mes.slice(0, 7)}-01`
     : null;
 
+  // Índice do mês em que cada módulo entrou — base do reajuste "N meses depois do lançamento".
+  const mesLancamentoModulo = new Map<number, number>();
   for (let i = 0; i < totalMeses; i++) {
     const mes = addMonths(dataBase, i);
     const fase = faseParaMes(input.fases, mes);
@@ -891,6 +896,15 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     });
 
     const lancadosNesteMes: number[] = [];
+    // Preço do módulo neste mês: o de tabela, ou reajustado depois de N meses do lançamento dele.
+    const precoModulo = (mi: number) => {
+      const m = input.modulos[mi];
+      const desde = mesLancamentoModulo.get(mi);
+      if (m.reajuste_pct && m.reajuste_apos_meses != null && desde != null && i - desde >= m.reajuste_apos_meses) {
+        return m.preco * (1 + m.reajuste_pct);
+      }
+      return m.preco;
+    };
     input.modulos.forEach((modulo, mi) => {
       const lancado =
         modulo.data_disponibilidade != null
@@ -901,6 +915,7 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
             : modulo.fase_lancamento != null &&
               faseIdxAtual >= FASE_ORDEM.indexOf(modulo.fase_lancamento);
       if (!lancado) return;
+      if (!mesLancamentoModulo.has(mi)) mesLancamentoModulo.set(mi, i);
 
       // No mês exato do lançamento oficial, os beta testers desse módulo convertem: com desconto
       // por um período (se configurado) ou direto pro preço cheio.
@@ -961,12 +976,13 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         fracaoNivelLlm = adocaoPct;
       }
 
-      receitaModulos += adocaoPct * clientesAtivos * modulo.preco;
-      receitaModulos += (betaModuloPermanentes.get(mi) ?? 0) * modulo.preco;
+      const precoAtual = precoModulo(mi);
+      receitaModulos += adocaoPct * clientesAtivos * precoAtual;
+      receitaModulos += (betaModuloPermanentes.get(mi) ?? 0) * precoAtual;
       receitaModulos += betaModuloComDesconto
         .filter((c) => c.moduloIdx === mi)
         .reduce(
-          (acc, c) => acc + c.quantidade * modulo.preco * (1 - c.desconto),
+          (acc, c) => acc + c.quantidade * precoAtual * (1 - c.desconto),
           0,
         );
     });
@@ -979,7 +995,7 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         acc +
         (adocaoModulos.get(mi) ?? 0) *
           fatorNivelExclusivo *
-          input.modulos[mi].preco,
+          precoModulo(mi),
       0,
     );
     const precoMedioVenda = arpu + precoModulosPorCliente;
@@ -999,7 +1015,7 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       } else if (lancadosNesteMes.includes(l.plano.indice)) {
         ajusteAcoes +=
           quantidade *
-          (input.modulos[l.plano.indice].preco - precoModulosPorCliente);
+          (precoModulo(l.plano.indice) - precoModulosPorCliente);
       }
     }
     ajusteAcoes *= fatorProRata;

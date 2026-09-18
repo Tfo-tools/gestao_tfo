@@ -156,7 +156,7 @@ export async function recalcularSimulacao(
     supabase
       .from("modulos_produto")
       .select(
-        "id, nome, preco, fase_lancamento, meses_apos_lancamento, data_disponibilidade, adesao_inicial_pct, crescimento_adesao_mensal_pct, percentual_permanencia_estimado",
+        "id, nome, preco, fase_lancamento, meses_apos_lancamento, data_disponibilidade, adesao_inicial_pct, crescimento_adesao_mensal_pct, percentual_permanencia_estimado, reajuste_pct, reajuste_apos_meses",
       )
       .eq("produto_id", produtoId)
       .eq("cenario_id", cenarioId),
@@ -440,6 +440,8 @@ export async function recalcularSimulacao(
         m.percentual_permanencia_estimado != null
           ? Number(m.percentual_permanencia_estimado)
           : null,
+      reajuste_pct: m.reajuste_pct != null ? Number(m.reajuste_pct) : null,
+      reajuste_apos_meses: m.reajuste_apos_meses,
       betaTesters: (betasModuloByModuloId.get(m.id) ?? []).map((b) => ({
         quantidade: Number(b.quantidade),
         condicao_especial_pct: b.condicao_especial_pct,

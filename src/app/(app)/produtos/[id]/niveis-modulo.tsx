@@ -20,6 +20,8 @@ type Nivel = {
   crescimento_adesao_mensal_pct: number;
   desconto_cliente_existente_pct: number | null;
   desconto_cliente_existente_meses: number | null;
+  reajuste_pct: number | null;
+  reajuste_apos_meses: number | null;
   betaTesters: BetaModulo[];
 };
 
@@ -127,6 +129,9 @@ export function NiveisModulo({
                   {(n.crescimento_adesao_mensal_pct * 100).toFixed(1)}%/mês
                   {n.percentual_permanencia_estimado != null
                     ? ` · estabiliza em ${(n.percentual_permanencia_estimado * 100).toFixed(1)}% dos clientes`
+                    : ""}
+                  {n.reajuste_pct != null && n.reajuste_apos_meses != null
+                    ? ` · +${(n.reajuste_pct * 100).toFixed(2)}% após ${n.reajuste_apos_meses}m (${formatBRL(Number(n.preco) * (1 + n.reajuste_pct))})`
                     : ""}
                   {n.media_usuarios_por_cliente != null
                     ? ` · média de ${n.media_usuarios_por_cliente} usuários/cliente`
@@ -417,6 +422,33 @@ function DrawerNivel({
                 name="desconto_cliente_existente_meses"
                 type="number"
                 placeholder="Em branco = permanente"
+                className="input"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="mb-1 flex items-center text-[10.5px] font-medium text-text-muted">
+                Reajuste de preço (%)
+                <InfoTooltip texto="Opcional. Aumento único aplicado ao preço deste nível depois de N meses do lançamento dele. Ex: 8,17% após 6 meses leva R$ 489 a R$ 529." />
+              </label>
+              <input
+                name="reajuste_pct"
+                type="number"
+                step="0.01"
+                placeholder="Ex: 8,17"
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10.5px] font-medium text-text-muted">
+                Reajuste após (meses)
+              </label>
+              <input
+                name="reajuste_apos_meses"
+                type="number"
+                placeholder="Ex: 6"
                 className="input"
               />
             </div>
