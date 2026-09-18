@@ -335,3 +335,15 @@ Regra nos três cenários: faixas por clientes só em 2028 (R$ 30 mil até 800, 
 - **Investimento e retorno num bloco só** (Indicadores, logo após a DRE): caixa acumulado com um marco
   por parcela, break-even e saída. Painel de retorno só quando há investidor; com fomento apenas, o
   painel mostra o fomento — subvenção não se devolve. O simulador da rodada fica recolhido no bloco.
+- **Rotina de gestão em calendário fixo** (Tarefas). Cada rotina tem frequência (semanal, quinzenal,
+  mensal, trimestral, anual) e dia fixo; cada ocorrência vira tarefa normal com a etiqueta "rotina",
+  criada 14 dias antes do vencimento — aparece na lista, no calendário da agenda e no resumo da manhã.
+  Calendário fixo: nasce na data dela mesmo que a anterior esteja atrasada. `rotinas.gerado_ate`
+  impede que tarefa apagada renasça; índice único (rotina_id, prazo) impede duplicata. A geração roda
+  ao abrir Tarefas e no cron diário das 8h. Dia 31 vira o último dia do mês. Sugestões de rotina só
+  preenchem o formulário — nada é criado sozinho. Excluir a rotina tira as tarefas abertas dela e
+  mantém as feitas como histórico; pausar e retomar não gera o que caiu durante a pausa.
+- **Agenda**: cada tipo de reunião tem "Texto do convite" (abre o e-mail do Google e a confirmação),
+  link próprio (/agendar?tipo=slug) e .ics na confirmação para quem não usa Google — quem usa Google já
+  recebe o convite, e "adicionar ao Google" duplicaria o evento. No calendário da agenda, tarefa
+  aparece só como "Tarefa V"/"Tarefa E" na cor da pessoa; o nome, ao passar o mouse.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import webpush from "web-push";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { gerarOcorrenciasRotinas } from "@/lib/rotinas";
 
 function hojeISO(offsetDias = 0) {
   const d = new Date();
@@ -18,6 +19,14 @@ export async function GET(request: NextRequest) {
   const auth = request.headers.get("authorization");
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  // Rotina de gestão: cria as ocorrências da janela mesmo que ninguém abra Tarefas. Isolado num
+  // try/catch pra uma falha aqui nunca derrubar os lembretes, que vêm logo abaixo.
+  try {
+    await gerarOcorrenciasRotinas(createAdminClient());
+  } catch (e) {
+    console.error("Rotinas: falha ao gerar ocorrências", e);
   }
 
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;

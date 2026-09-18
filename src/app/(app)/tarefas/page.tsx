@@ -5,6 +5,8 @@ import { ProjetosPanel, type PillProjeto } from "./projetos-panel";
 import { BotaoRecolherTudo, CardsProvider } from "./cards-contexto";
 import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
+import { RotinasPanel } from "./rotinas-panel";
+import { gerarOcorrenciasRotinas, hojeSP, proximaData, type Rotina } from "@/lib/rotinas";
 import { montarArvore, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
 
 type Agrupar = "nenhum" | "tema" | "fase" | "etiqueta";
@@ -23,6 +25,14 @@ export default async function TarefasPage({
   const agrupar = (["tema", "fase", "etiqueta"].includes(sp.agrupar ?? "") ? sp.agrupar : "nenhum") as Agrupar;
   const visao: Visao = sp.visao === "linha" ? "linha" : "lista";
   const supabase = await createClient();
+
+  // Rotina de gestão: cria as ocorrências que faltam antes de carregar as tarefas, pra próxima já
+  // aparecer. Idempotente — o cron diário faz o mesmo quando ninguém abre a tela.
+  await gerarOcorrenciasRotinas(supabase);
+  const { data: rotinasRaw } = await supabase.from("rotinas").select("*").order("ativo", { ascending: false }).order("created_at");
+  const rotinas = (rotinasRaw ?? []) as Rotina[];
+  const hojeLocal = hojeSP();
+  const proximas = Object.fromEntries(rotinas.map((r) => [r.id, r.ativo ? proximaData(r, hojeLocal) : null]));
 
   const [{ data: pessoas }, { data: produtos }, { data: projetosRaw }, { data: fasesRaw }, { data: fasesProdutoRaw }, { data: depsRaw }, { data: todasRaw }] =
     await Promise.all([
@@ -131,6 +141,8 @@ export default async function TarefasPage({
       </div>
 
       <ProjetosPanel pills={pills} projetos={projetos} fases={fases} fasesProduto={fasesProduto} contagem={contagem} />
+
+      <RotinasPanel rotinas={rotinas} pessoas={pessoas ?? []} proximas={proximas} />
 
       <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
         <Pill href={link({ status: undefined })} ativo={!status}>
