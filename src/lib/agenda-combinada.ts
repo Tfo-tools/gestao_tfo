@@ -137,7 +137,12 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
     itens.push({ texto: `💳 ${nome(p.ativos) ?? "Ativo no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje });
   }
   // Tarefa vem com quem faz: responsável primeiro, depois quem participa — "Emyli + Vanessa".
-  const primeiroNome = new Map((perfis ?? []).map((p) => [p.id, String(p.nome ?? "").split(" ")[0]]));
+  const primeiroNome = new Map(
+    (perfis ?? []).map((p) => {
+      const n = String(p.nome ?? "").split(" ")[0];
+      return [p.id, n.charAt(0).toUpperCase() + n.slice(1)];
+    }),
+  );
   for (const t of tarefas ?? []) {
     const ids = [t.responsavel_id, ...((t.participantes as string[] | null) ?? [])].filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
     const quem = ids.map((id) => primeiroNome.get(id)).filter(Boolean).join(" + ");
