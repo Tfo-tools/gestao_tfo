@@ -60,7 +60,7 @@ export default async function AgendaPage() {
       .from("reuniao_atas")
       .select("id, titulo, data_reuniao, participantes, conteudo, reuniao_id, google_event_id")
       .order("data_reuniao", { ascending: false }),
-    supabase.from("tarefas").select("id, titulo, prazo, responsavel_id, status").not("prazo", "is", null),
+    supabase.from("tarefas").select("id, titulo, prazo, responsavel_id, participantes, status").not("prazo", "is", null),
     user ? supabase.from("profiles").select("ics_pessoal_url").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const icsPessoalUrl = (perfilAtual as { ics_pessoal_url?: string | null } | null)?.ics_pessoal_url ?? null;

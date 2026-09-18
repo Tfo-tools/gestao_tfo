@@ -5,7 +5,15 @@ import { dataParaChaveSP } from "@/lib/agenda-slots";
 import type { ReuniaoAgendada } from "./agenda-manager";
 import type { EventoGoogle } from "@/lib/google-calendar";
 
-export type TarefaComPrazo = { id: string; titulo: string; prazo: string; responsavel_id: string | null; status: string };
+export type TarefaComPrazo = {
+  id: string;
+  titulo: string;
+  prazo: string;
+  responsavel_id: string | null;
+  /** Quem faz junto (tarefa "juntas" da rotina): o chip mostra "Tarefa V+E". */
+  participantes?: string[] | null;
+  status: string;
+};
 
 const DIAS_SEMANA_CURTO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -106,12 +114,14 @@ export function CalendarioSemana({
     const marcas = marcaDaPessoa(pessoas);
     for (const t of tarefas) {
       const marca = t.responsavel_id ? marcas.get(t.responsavel_id) : undefined;
+      // Tarefa em conjunto: as letras de todas ("V+E"), na cor de quem é a responsável.
+      const juntas = (t.participantes ?? []).map((id) => marcas.get(id)).filter((m): m is NonNullable<typeof m> => !!m);
       add(t.prazo, {
         tipo: "tarefa",
         titulo: t.titulo,
-        letra: marca?.letra ?? null,
+        letra: marca ? [marca, ...juntas].map((m) => m.letra).join("+") : null,
         cor: marca?.cor ?? "#8a6519",
-        responsavelNome: marca?.nome ?? null,
+        responsavelNome: marca ? [marca, ...juntas].map((m) => m.nome.split(" ")[0]).join(" e ") : null,
         feita: t.status === "feito",
       });
     }

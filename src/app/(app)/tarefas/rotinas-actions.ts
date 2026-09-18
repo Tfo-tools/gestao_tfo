@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { gerarOcorrenciasRotinas, hojeSP, type Frequencia } from "@/lib/rotinas";
+import { gerarOcorrenciasRotinas, hojeSP, type Frequencia, type ModoRotina } from "@/lib/rotinas";
 
 export type RotinaFormState = { error: string | null; success?: boolean };
 
@@ -37,7 +37,8 @@ export async function criarRotina(_prev: RotinaFormState, formData: FormData): P
   const { error } = await supabase.from("rotinas").insert({
     titulo,
     descricao: String(formData.get("descricao") || "").trim() || null,
-    responsavel_id: String(formData.get("responsavel_id") || "") || null,
+    pessoas: formData.getAll("pessoas").map(String).filter(Boolean),
+    modo: (formData.get("modo") === "juntas" ? "juntas" : "cada_uma") as ModoRotina,
     frequencia,
     dia_semana,
     dia_mes,

@@ -13,11 +13,24 @@
 
 export type Frequencia = "semanal" | "quinzenal" | "mensal" | "trimestral" | "anual";
 
+/**
+ * cada_uma: cada pessoa tem a sua tarefa (ex.: atualizar as despesas que ELA pagou na semana).
+ * juntas:   uma tarefa só, com todas (ex.: olhar os resultados juntas).
+ */
+export type ModoRotina = "cada_uma" | "juntas";
+
+export const LABEL_MODO: Record<ModoRotina, string> = {
+  cada_uma: "Cada uma tem a sua",
+  juntas: "Juntas (uma tarefa)",
+};
+
 export type Rotina = {
   id: string;
   titulo: string;
   descricao: string | null;
-  responsavel_id: string | null;
+  /** Quem tem a rotina (profiles.id). */
+  pessoas: string[];
+  modo: ModoRotina;
   frequencia: Frequencia;
   dia_semana: number | null;
   dia_mes: number | null;
@@ -134,15 +147,30 @@ export function descreverFrequencia(rotina: Pick<Rotina, "frequencia" | "dia_sem
 }
 
 /** Rotinas sugeridas pra gestão — só sugestões: nada é criado sem a sócia escolher. */
-export const ROTINAS_SUGERIDAS: Omit<Rotina, "id" | "responsavel_id" | "inicio" | "ativo" | "gerado_ate" | "area">[] = [
-  { titulo: "Conferir lançamentos pendentes e comprovantes", descricao: "Custos → Lançamentos: tudo sem comprovante da semana.", frequencia: "semanal", dia_semana: 1, dia_mes: null, mes_inicio: null },
-  { titulo: "Revisar caixa real × plano", descricao: "Indicadores e Relatórios: o realizado está dentro do cenário Base?", frequencia: "mensal", dia_semana: null, dia_mes: 5, mes_inicio: null },
-  { titulo: "Fechar o mês", descricao: "Conciliação, DAS, pró-labore e fechamento no Extrato.", frequencia: "mensal", dia_semana: null, dia_mes: 10, mes_inicio: null },
-  { titulo: "Revisar CAC, churn e funil", descricao: "Comparar com o planejado; agir no canal que desviou.", frequencia: "mensal", dia_semana: null, dia_mes: 15, mes_inicio: null },
-  { titulo: "Checar prazos de fomento e prestação de contas", descricao: "Parcelas previstas, comprovações e relatórios pendentes.", frequencia: "mensal", dia_semana: null, dia_mes: 20, mes_inicio: null },
-  { titulo: "Revisar recorrências e contratos", descricao: "Renovações, reajustes e assinaturas que não usamos mais.", frequencia: "trimestral", dia_semana: null, dia_mes: 1, mes_inicio: 1 },
-  { titulo: "Revisar o plano (cenários × realizado)", descricao: "Atualizar premissas do Base com o que já aconteceu.", frequencia: "trimestral", dia_semana: null, dia_mes: 15, mes_inicio: 1 },
+// O modo sugerido segue a natureza da tarefa: lançar o que cada uma pagou é de cada uma; olhar
+// resultado e decidir é juntas.
+export const ROTINAS_SUGERIDAS: Omit<Rotina, "id" | "pessoas" | "inicio" | "ativo" | "gerado_ate" | "area">[] = [
+  { titulo: "Atualizar as despesas feitas ou pagas na semana", descricao: "Custos → Lançamentos: o que cada uma pagou, com comprovante.", modo: "cada_uma", frequencia: "semanal", dia_semana: 5, dia_mes: null, mes_inicio: null },
+  { titulo: "Revisar caixa real × plano", descricao: "Indicadores e Relatórios: o realizado está dentro do cenário Base?", modo: "juntas", frequencia: "mensal", dia_semana: null, dia_mes: 5, mes_inicio: null },
+  { titulo: "Fechar o mês", descricao: "Conciliação, DAS, pró-labore e fechamento no Extrato.", modo: "juntas", frequencia: "mensal", dia_semana: null, dia_mes: 10, mes_inicio: null },
+  { titulo: "Revisar CAC, churn e funil", descricao: "Comparar com o planejado; agir no canal que desviou.", modo: "juntas", frequencia: "mensal", dia_semana: null, dia_mes: 15, mes_inicio: null },
+  { titulo: "Checar prazos de fomento e prestação de contas", descricao: "Parcelas previstas, comprovações e relatórios pendentes.", modo: "juntas", frequencia: "mensal", dia_semana: null, dia_mes: 20, mes_inicio: null },
+  { titulo: "Revisar recorrências e contratos", descricao: "Renovações, reajustes e assinaturas que não usamos mais.", modo: "juntas", frequencia: "trimestral", dia_semana: null, dia_mes: 1, mes_inicio: 1 },
+  { titulo: "Revisar o plano (cenários × realizado)", descricao: "Atualizar premissas do Base com o que já aconteceu.", modo: "juntas", frequencia: "trimestral", dia_semana: null, dia_mes: 15, mes_inicio: 1 },
 ];
+
+/**
+ * As tarefas de uma data: "cada uma" → uma por pessoa; "juntas" → uma só, a primeira pessoa como
+ * responsável e as demais como participantes. Sem ninguém escolhido, uma tarefa sem responsável.
+ */
+export function tarefasDaData(r: Pick<Rotina, "id" | "titulo" | "descricao" | "pessoas" | "modo" | "area">, prazo: string) {
+  const base = { titulo: r.titulo, descricao: r.descricao, prazo, status: "a_fazer", area: r.area, etiquetas: ["rotina"], produtos: [] as string[], rotina_id: r.id };
+  const pessoas = r.pessoas ?? [];
+  if (r.modo === "cada_uma" && pessoas.length > 0) {
+    return pessoas.map((p) => ({ ...base, responsavel_id: p, participantes: [] as string[] }));
+  }
+  return [{ ...base, responsavel_id: pessoas[0] ?? null, participantes: pessoas.slice(1) }];
+}
 
 /**
  * Cria as ocorrências que faltam de todas as rotinas ativas, até hoje + HORIZONTE_DIAS.
@@ -162,23 +190,12 @@ export async function gerarOcorrenciasRotinas(
     if (de > ate) continue;
     const datas = datasDaRotina(r, de, ate);
     if (datas.length > 0) {
-      const { error } = await supabase.from("tarefas").upsert(
-        datas.map((prazo) => ({
-          titulo: r.titulo,
-          descricao: r.descricao,
-          responsavel_id: r.responsavel_id,
-          prazo,
-          status: "a_fazer",
-          area: r.area,
-          etiquetas: ["rotina"],
-          produtos: [],
-          participantes: [],
-          rotina_id: r.id,
-        })),
-        { onConflict: "rotina_id,prazo", ignoreDuplicates: true },
-      );
+      const linhas = datas.flatMap((prazo) => tarefasDaData(r, prazo));
+      const { error } = await supabase
+        .from("tarefas")
+        .upsert(linhas, { onConflict: "rotina_id,prazo,responsavel_id", ignoreDuplicates: true });
       if (error) continue; // não avança o gerado_ate se não gravou — tenta de novo na próxima
-      criadas += datas.length;
+      criadas += linhas.length;
     }
     await supabase.from("rotinas").update({ gerado_ate: ate }).eq("id", r.id);
   }
