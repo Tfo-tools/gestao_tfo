@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { RecorrenteRow, type RecorrenteRowData } from "./recorrente-row";
 import { categoriaDeConta, labelCategoriaNegocio, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
+import { SecaoRecolhivel } from "@/components/secao-recolhivel";
 
 export default async function RecorrentesPage({
   searchParams,
@@ -38,6 +39,53 @@ export default async function RecorrentesPage({
   const recorrentesOrdenadas = [...recorrentesFiltradas].sort((a, b) =>
     ordemAntigas ? a.data_inicio.localeCompare(b.data_inicio) : b.data_inicio.localeCompare(a.data_inicio),
   );
+  // Ativas na lista principal; pausadas num bloco recolhido abaixo, no mesmo formato.
+  const ativas = recorrentesOrdenadas.filter((r) => r.ativo !== false);
+  const pausadas = recorrentesOrdenadas.filter((r) => r.ativo === false);
+  const valorMensal = (lista: typeof ativas) => lista.reduce((s, r) => s + Number(r.valor ?? 0), 0);
+  const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+  const tabela = (lista: typeof ativas) => (
+    <table className="w-full border-collapse text-[12.5px]">
+      <thead>
+        <tr className="text-left text-text-muted">
+          <th className="px-2 py-1.5 font-medium">Descrição</th>
+          <th className="px-2 py-1.5 font-medium">Categoria</th>
+          <th className="px-2 py-1.5 font-medium">Produto</th>
+          <th className="px-2 py-1.5 text-right font-medium">Valor/mês</th>
+          <th className="px-2 py-1.5 text-center font-medium">Dia</th>
+          <th className="px-2 py-1.5 font-medium">Início</th>
+          <th className="px-2 py-1.5 text-center font-medium">Status</th>
+          <th className="px-2 py-1.5" />
+        </tr>
+      </thead>
+      <tbody>
+        {lista.map((r) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rr = r as any;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const produtosLigados = (rr.despesa_recorrente_produtos ?? []).map((dp: any) => dp.produtos).filter(Boolean);
+          const dado: RecorrenteRowData = {
+            id: rr.id,
+            descricao: rr.descricao,
+            valor: rr.valor,
+            pagador: rr.pagador,
+            dia_do_mes: rr.dia_do_mes,
+            data_inicio: rr.data_inicio,
+            data_fim: rr.data_fim,
+            ativo: rr.ativo,
+            plano_contas_id: rr.plano_contas_id,
+            plano_contas: rr.plano_contas,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            produtoIds: produtosLigados.map((p: any) => p.id),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            produtoNomes: produtosLigados.map((p: any) => p.nome),
+          };
+          return <RecorrenteRow key={rr.id} recorrente={dado} planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} />;
+        })}
+      </tbody>
+    </table>
+  );
 
   return (
     <div className="flex flex-col gap-5">
@@ -46,7 +94,7 @@ export default async function RecorrentesPage({
         <Link href="/custos" className="font-medium text-primary-deep underline">
           Custos → Lançamentos
         </Link>
-        , marcando "Isso se repete todo mês?". Anexar fatura/comprovante, marcar como comprovado ou revisar o valor pago de cada mês
+        , marcando “Isso se repete todo mês?”. Anexar fatura/comprovante, marcar como comprovado ou revisar o valor pago de cada mês
         gerado é sempre em{" "}
         <Link href="/custos/extrato" className="font-medium text-primary-deep underline">
           Extrato
@@ -55,7 +103,9 @@ export default async function RecorrentesPage({
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-6">
-        <h2 className="mb-4 font-heading text-sm font-semibold">Recorrências cadastradas ({(recorrentes ?? []).length})</h2>
+        <h2 className="mb-4 font-heading text-sm font-semibold">
+          Recorrências ativas ({ativas.length}){ativas.length > 0 && <span className="ml-2 font-mono font-normal text-text-muted">{brl(valorMensal(ativas))}/mês</span>}
+        </h2>
         <form className="mb-4 flex flex-wrap items-end gap-3" method="get">
           <div>
             <label className="mb-1 block text-[11px] font-medium text-text-muted">Tipo de despesa</label>
@@ -90,51 +140,23 @@ export default async function RecorrentesPage({
             {recorrentesFiltradas.length === 1 ? "recorrência" : "recorrências"})
           </p>
         )}
-        {recorrentesOrdenadas.length === 0 ? (
+        {ativas.length === 0 ? (
           <p className="text-[13px] text-text-muted">
-            {tipo ? "Nenhuma recorrência desse tipo." : "Nenhuma despesa recorrente cadastrada ainda."}
+            {tipo ? "Nenhuma recorrência ativa desse tipo." : pausadas.length > 0 ? "Nenhuma recorrência ativa — as cadastradas estão pausadas." : "Nenhuma despesa recorrente cadastrada ainda."}
           </p>
         ) : (
-          <table className="w-full border-collapse text-[12.5px]">
-            <thead>
-              <tr className="text-left text-text-muted">
-                <th className="px-2 py-1.5 font-medium">Descrição</th>
-                <th className="px-2 py-1.5 font-medium">Categoria</th>
-                <th className="px-2 py-1.5 font-medium">Produto</th>
-                <th className="px-2 py-1.5 text-right font-medium">Valor/mês</th>
-                <th className="px-2 py-1.5 text-center font-medium">Dia</th>
-                <th className="px-2 py-1.5 font-medium">Início</th>
-                <th className="px-2 py-1.5 text-center font-medium">Status</th>
-                <th className="px-2 py-1.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {recorrentesOrdenadas.map((r) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const rr = r as any;
-                const produtosLigados = (rr.despesa_recorrente_produtos ?? []).map((dp: any) => dp.produtos).filter(Boolean);
-                const dado: RecorrenteRowData = {
-                  id: rr.id,
-                  descricao: rr.descricao,
-                  valor: rr.valor,
-                  pagador: rr.pagador,
-                  dia_do_mes: rr.dia_do_mes,
-                  data_inicio: rr.data_inicio,
-                  data_fim: rr.data_fim,
-                  ativo: rr.ativo,
-                  plano_contas_id: rr.plano_contas_id,
-                  plano_contas: rr.plano_contas,
-                  produtoIds: produtosLigados.map((p: any) => p.id),
-                  produtoNomes: produtosLigados.map((p: any) => p.nome),
-                };
-                return (
-                  <RecorrenteRow key={rr.id} recorrente={dado} planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} />
-                );
-              })}
-            </tbody>
-          </table>
+          tabela(ativas)
         )}
       </div>
+
+      {pausadas.length > 0 && (
+        <SecaoRecolhivel
+          titulo={`Recorrências pausadas (${pausadas.length})`}
+          resumo={`${brl(valorMensal(pausadas))}/mês fora das despesas — clique para ver e reativar`}
+        >
+          <div className="p-5">{tabela(pausadas)}</div>
+        </SecaoRecolhivel>
+      )}
     </div>
   );
 }

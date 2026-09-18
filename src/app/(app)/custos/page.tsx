@@ -25,15 +25,14 @@ export default async function LancamentosPage() {
       supabase
         .from("despesas")
         .select(
-          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
+          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, despesa_recorrente_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
         )
-        // Só o que ainda precisa de atenção: lançamento avulso (não recorrente — essas têm sua
-        // própria lista em Recorrentes) e ainda sem comprovante. Despesa já comprovada some daqui
-        // — pra editar/ver uma já comprovada, vai no Extrato.
-        .is("despesa_recorrente_id", null)
+        // Tudo o que ainda precisa de atenção: sem comprovante, venha de lançamento avulso ou de
+        // recorrência. Antes os de recorrência ficavam de fora e a lista parecia ter um item só —
+        // eram 7 pendentes escondidos. O selo "recorrente" diz de onde cada um veio.
         .eq("comprovado", false)
         .order("data_gasto", { ascending: false })
-        .limit(50),
+        .limit(200),
       supabase.from("profiles").select("id, nome, cartao_dia_vencimento, cartao_dias_fechamento_antes").order("nome"),
       supabase.from("despesas").select("plano_contas_id"),
       supabase.from("meses_fechados").select("mes"),
@@ -59,8 +58,14 @@ export default async function LancamentosPage() {
     usoPorConta[d.plano_contas_id] = (usoPorConta[d.plano_contas_id] ?? 0) + 1;
   }
 
+  const pendentes = despesas ?? [];
+  const totalPendente = pendentes.reduce((s, d) => s + Number(d.valor_total), 0);
+  const deRecorrencia = pendentes.filter((d) => d.despesa_recorrente_id != null).length;
+
   return (
-    <div className="grid grid-cols-[420px_1fr] items-start gap-5">
+    // Duas colunas da mesma largura: a lista de pendentes empilha a informação de cada lançamento
+    // pra caber ao lado do formulário sem rolar a página.
+    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
       <DespesaForm
         planoContas={planoContas ?? []}
         produtos={produtos ?? []}
@@ -71,42 +76,41 @@ export default async function LancamentosPage() {
         pessoas={pessoas}
       />
 
-      <div className="rounded-xl border border-border bg-surface p-6">
-        <h2 className="mb-1 font-heading text-sm font-semibold">Lançamentos pendentes</h2>
-        <p className="mb-4 text-[11.5px] text-text-muted">
-          Avulsos ainda sem comprovante. Já comprovado ou é recorrente? Vai em Extrato ou Recorrentes.
+      <div className="flex flex-col rounded-xl border border-border bg-surface p-5 lg:max-h-[calc(100vh-11rem)]">
+        <div className="mb-1 flex items-baseline justify-between gap-3">
+          <h2 className="font-heading text-sm font-semibold">
+            Lançamentos pendentes{pendentes.length > 0 && ` (${pendentes.length})`}
+          </h2>
+          {pendentes.length > 0 && <span className="font-mono text-[12.5px] font-semibold">{formatBRL(totalPendente)}</span>}
+        </div>
+        <p className="mb-3 text-[11px] text-text-muted">
+          Tudo sem comprovante, avulso ou de recorrência{deRecorrencia > 0 ? ` (${deRecorrencia} de recorrência)` : ""}. Ao
+          comprovar, o lançamento sai daqui e fica no Extrato.
         </p>
-        {(despesas ?? []).length === 0 ? (
+        {pendentes.length === 0 ? (
           <p className="text-[13px] text-text-muted">Nenhum lançamento pendente — tudo comprovado por aqui.</p>
         ) : (
-          <table className="w-full border-collapse text-[12.5px]">
-            <thead>
-              <tr className="text-left text-text-muted">
-                <th className="px-2 py-1.5 font-medium">Data</th>
-                <th className="px-2 py-1.5 font-medium">Categoria</th>
-                <th className="px-2 py-1.5 font-medium">Produto</th>
-                <th className="px-2 py-1.5 font-medium">Pagador</th>
-                <th className="px-2 py-1.5 font-medium">Descrição</th>
-                <th className="px-2 py-1.5 text-right font-medium">Valor</th>
-                <th className="px-2 py-1.5 text-center font-medium">Status</th>
-                <th className="px-2 py-1.5 font-medium">Comprovante / Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(despesas ?? []).map((d) => (
-                <DespesaRow
-                  key={d.id}
-                  despesa={d as unknown as DespesaRowData}
-                  planoContas={planoContas ?? []}
-                  produtos={produtos ?? []}
-                  pagadores={pagadores}
-                  fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
-                  meiosPagamento={meiosPagamento ?? []}
-                  pessoas={pessoas}
-                />
-              ))}
-            </tbody>
-          </table>
+          // A lista rola dentro do card quando cresce — a página continua sem rolagem.
+          <div className="-mx-1 min-h-0 overflow-y-auto px-1">
+            <table className="w-full border-collapse text-[12.5px]">
+              <tbody>
+                {pendentes.map((d) => (
+                  <DespesaRow
+                    key={d.id}
+                    despesa={d as unknown as DespesaRowData}
+                    planoContas={planoContas ?? []}
+                    produtos={produtos ?? []}
+                    pagadores={pagadores}
+                    fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
+                    meiosPagamento={meiosPagamento ?? []}
+                    pessoas={pessoas}
+                    compacto
+                    origem={d.despesa_recorrente_id != null ? "recorrente" : "avulso"}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

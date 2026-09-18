@@ -60,6 +60,8 @@ export function DespesaRow({
   variante = "parcelar",
   meiosPagamento,
   pessoas,
+  compacto = false,
+  origem,
 }: {
   despesa: DespesaRowData;
   planoContas: PlanoContas[];
@@ -71,6 +73,11 @@ export function DespesaRow({
   variante?: "parcelar" | "ratear";
   meiosPagamento: MeioPagamento[];
   pessoas: Pessoa[];
+  /** Lista de pendentes: a mesma linha (edição, anexo, parcelas, exclusão), exibida em 3 colunas
+   * empilhadas pra caber ao lado do formulário sem rolagem. O Extrato segue com as 8 colunas. */
+  compacto?: boolean;
+  /** Selo de onde veio o lançamento — só faz sentido na lista de pendentes, que mistura os dois. */
+  origem?: "avulso" | "recorrente";
 }) {
   const [editando, setEditando] = useState(false);
   const [mostrandoParcelas, setMostrandoParcelas] = useState(false);
@@ -100,6 +107,7 @@ export function DespesaRow({
   );
 
   const jaRateado = despesa.despesa_parcelas.length > 0;
+  const colunas = compacto ? 3 : 8;
 
 
   const produtosVinculados = despesa.despesa_produtos.map((dp) => dp.produtos).filter((p): p is { id: string; nome: string } => !!p);
@@ -108,7 +116,7 @@ export function DespesaRow({
   if (editando) {
     return (
       <tr className="border-t border-border-soft bg-primary-soft/20">
-        <td colSpan={8} className="px-2 py-3">
+        <td colSpan={colunas} className="px-2 py-3">
           <form action={formAction} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="id" value={despesa.id} />
             <div>
@@ -265,32 +273,8 @@ export function DespesaRow({
     );
   }
 
-  return (
+  const acoes = (
     <>
-    <tr className="border-t border-border-soft">
-      <td className="px-2 py-2.5 font-mono">{formatDate(despesa.data_gasto)}</td>
-      <td className="px-2 py-2.5">{despesa.plano_contas ? `${despesa.plano_contas.codigo} — ${despesa.plano_contas.conta}` : "—"}</td>
-      <td className="px-2 py-2.5 text-text-muted">{produtosVinculados.length > 0 ? produtosVinculados.map((p) => p.nome).join(", ") : "—"}</td>
-      <td className="px-2 py-2.5 text-text-muted">{despesa.pagador ?? "—"}</td>
-      <td className="px-2 py-2.5 text-text-muted">{despesa.descricao ?? "—"}</td>
-      <td className="px-2 py-2.5 text-right font-mono">
-        {formatBRL(Number(despesa.valor_total))}
-        {despesa.valor_fatura != null && Number(despesa.valor_total) - Number(despesa.valor_fatura) > 0.01 && (
-          <div className="mt-0.5 text-[10px] font-normal text-danger" title={`Fatura original: ${formatBRL(Number(despesa.valor_fatura))}`}>
-            +{formatBRL(Number(despesa.valor_total) - Number(despesa.valor_fatura))} juros
-          </div>
-        )}
-      </td>
-      <td className="px-2 py-2.5 text-center">
-        <span
-          className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${
-            despesa.comprovado ? "bg-success-soft text-success" : "bg-danger-soft text-danger"
-          }`}
-        >
-          {despesa.comprovado ? "Comprovado" : "Pendente"}
-        </span>
-      </td>
-      <td className="px-2 py-2.5">
         <div className="flex items-center gap-2.5">
           {despesa.anexos_despesa.length > 0 ? (
             <div className="flex flex-col gap-0.5">
@@ -358,20 +342,87 @@ export function DespesaRow({
         </div>
         {erroExclusao && <p className="mt-1 text-[10.5px] text-danger">{erroExclusao}</p>}
         {erroRateio && <p className="mt-1 text-[10.5px] text-danger">{erroRateio}</p>}
+    </>
+  );
+
+  const parcelasAbertas = variante === "parcelar" && mostrandoParcelas && (
+    <tr className="border-t border-border-soft">
+      <td colSpan={colunas} className="px-2 py-3">
+        <ParcelasDespesa
+          despesaId={despesa.id}
+          valorTotalDespesa={Number(despesa.valor_total)}
+          parcelas={despesa.despesa_parcelas}
+          pagadores={pagadores}
+        />
       </td>
     </tr>
-    {variante === "parcelar" && mostrandoParcelas && (
-      <tr className="border-t border-border-soft">
-        <td colSpan={8} className="px-2 py-3">
-          <ParcelasDespesa
-            despesaId={despesa.id}
-            valorTotalDespesa={Number(despesa.valor_total)}
-            parcelas={despesa.despesa_parcelas}
-            pagadores={pagadores}
-          />
-        </td>
-      </tr>
-    )}
+  );
+
+  if (compacto) {
+    const categoria = despesa.plano_contas ? `${despesa.plano_contas.codigo} — ${despesa.plano_contas.conta}` : "sem categoria";
+    const detalhes = [
+      categoria,
+      despesa.pagador,
+      produtosVinculados.length > 0 ? produtosVinculados.map((p) => p.nome).join(", ") : null,
+    ].filter(Boolean);
+    return (
+      <>
+        <tr className="border-t border-border-soft align-top">
+          <td className="whitespace-nowrap px-2 py-2 font-mono text-[11.5px]">
+            {formatDate(despesa.data_gasto)}
+            {origem === "recorrente" && (
+              <span className="mt-1 block w-fit rounded bg-bg px-1.5 py-0.5 font-sans text-[9.5px] font-semibold text-text-muted">
+                RECORRENTE
+              </span>
+            )}
+          </td>
+          <td className="min-w-0 px-2 py-2">
+            <div className="font-medium">{despesa.descricao || categoria}</div>
+            <div className="mt-0.5 text-[10.5px] leading-snug text-text-faint">{detalhes.join(" · ")}</div>
+            <div className="mt-1.5">{acoes}</div>
+          </td>
+          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+            {formatBRL(Number(despesa.valor_total))}
+            {despesa.valor_fatura != null && Number(despesa.valor_total) - Number(despesa.valor_fatura) > 0.01 && (
+              <div className="mt-0.5 text-[10px] font-normal text-danger">
+                +{formatBRL(Number(despesa.valor_total) - Number(despesa.valor_fatura))} juros
+              </div>
+            )}
+          </td>
+        </tr>
+        {parcelasAbertas}
+      </>
+    );
+  }
+
+  return (
+    <>
+    <tr className="border-t border-border-soft">
+      <td className="px-2 py-2.5 font-mono">{formatDate(despesa.data_gasto)}</td>
+      <td className="px-2 py-2.5">{despesa.plano_contas ? `${despesa.plano_contas.codigo} — ${despesa.plano_contas.conta}` : "—"}</td>
+      <td className="px-2 py-2.5 text-text-muted">{produtosVinculados.length > 0 ? produtosVinculados.map((p) => p.nome).join(", ") : "—"}</td>
+      <td className="px-2 py-2.5 text-text-muted">{despesa.pagador ?? "—"}</td>
+      <td className="px-2 py-2.5 text-text-muted">{despesa.descricao ?? "—"}</td>
+      <td className="px-2 py-2.5 text-right font-mono">
+        {formatBRL(Number(despesa.valor_total))}
+        {despesa.valor_fatura != null && Number(despesa.valor_total) - Number(despesa.valor_fatura) > 0.01 && (
+          <div className="mt-0.5 text-[10px] font-normal text-danger" title={`Fatura original: ${formatBRL(Number(despesa.valor_fatura))}`}>
+            +{formatBRL(Number(despesa.valor_total) - Number(despesa.valor_fatura))} juros
+          </div>
+        )}
+      </td>
+      <td className="px-2 py-2.5 text-center">
+        <span
+          className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${
+            despesa.comprovado ? "bg-success-soft text-success" : "bg-danger-soft text-danger"
+          }`}
+        >
+          {despesa.comprovado ? "Comprovado" : "Pendente"}
+        </span>
+      </td>
+      <td className="px-2 py-2.5">{acoes}</td>
+    </tr>
+    {parcelasAbertas}
     </>
   );
 }
