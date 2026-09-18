@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { simularProduto } from "@/lib/simulacao-produto";
 import { recalcularTodosProdutos } from "@/app/(app)/produtos/[id]/simulacao-actions";
+import { idsDoCenario } from "@/lib/fases-produto";
 import type { FasePlanoReceita } from "@/lib/plano-receita";
 
 export type PayloadPlanoReceita = {
@@ -106,11 +107,31 @@ export async function previaPlanoReceita(
 export async function salvarPlanoReceita(
   cenarioId: string,
   payload: PayloadPlanoReceita,
-): Promise<{ error: string | null; success?: boolean }> {
+): Promise<{ error: string | null; success?: boolean; outrosRecalculados?: string[] }> {
   const erro = validar(payload);
   if (erro) return { error: erro };
   const supabase = await createClient();
   const falhas: string[] = [];
+
+  // Sazonalidade é do produto: se mudou, os outros cenários pela receita com esse produto também
+  // precisam ser recalculados — senão cada um mostraria uma curva de venda diferente.
+  const { data: sazAtual } = await supabase
+    .from("produtos")
+    .select("id, sazonalidade_vendas")
+    .in(
+      "id",
+      payload.produtos.map((p) => p.id),
+    );
+  const igual = (a: unknown, b: number[] | null) => {
+    const x = Array.isArray(a) ? (a as unknown[]).map(Number) : null;
+    if (!x || !b) return !x && !b;
+    return x.length === b.length && x.every((v, i) => Math.abs(v - b[i]) < 1e-9);
+  };
+  const sazMudou = new Set(
+    payload.produtos
+      .filter((p) => !igual((sazAtual ?? []).find((x) => x.id === p.id)?.sazonalidade_vendas, p.sazonalidade))
+      .map((p) => p.id),
+  );
 
   for (const prod of payload.produtos) {
     for (const f of prod.fases) {
@@ -156,8 +177,29 @@ export async function salvarPlanoReceita(
   const { falhas: falhasCalculo } = await recalcularTodosProdutos(cenarioId);
   falhas.push(...falhasCalculo);
 
+  // Os outros cenários pela receita que vendem um produto cuja sazonalidade mudou. Cenário no
+  // modelo anterior (FUNSES 1) não usa sazonalidade — fica como está.
+  const outrosRecalculados: string[] = [];
+  if (sazMudou.size > 0) {
+    const { data: outros } = await supabase
+      .from("cenarios")
+      .select("id, nome")
+      .eq("modelo_plano", "receita")
+      .neq("id", cenarioId);
+    for (const c of outros ?? []) {
+      const ids = await idsDoCenario(supabase, c.id);
+      if (!ids.some((id) => sazMudou.has(id))) continue;
+      const { falhas: f } = await recalcularTodosProdutos(c.id);
+      falhas.push(...f.map((x) => `${c.nome}: ${x}`));
+      outrosRecalculados.push(c.nome);
+      revalidatePath(`/plano/${c.id}`, "layout");
+    }
+  }
+
   revalidatePath(`/plano/${cenarioId}`, "layout");
   revalidatePath("/relatorios");
   revalidatePath("/indicadores");
-  return falhas.length > 0 ? { error: `Salvo, mas houve falha em: ${[...new Set(falhas)].join("; ")}` } : { error: null, success: true };
+  return falhas.length > 0
+    ? { error: `Salvo, mas houve falha em: ${[...new Set(falhas)].join("; ")}`, outrosRecalculados }
+    : { error: null, success: true, outrosRecalculados };
 }

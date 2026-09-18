@@ -102,6 +102,7 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
   const [sujo, setSujo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
+  const [outrosRecalculados, setOutrosRecalculados] = useState<string[]>([]);
   const [previa, setPrevia] = useState<LinhaPrevia[] | null>(null);
   const [pendente, startTransition] = useTransition();
 
@@ -243,6 +244,7 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
     startTransition(async () => {
       setErro(null);
       const r = await salvarPlanoReceita(cenarioId, payload());
+      setOutrosRecalculados(r.outrosRecalculados ?? []);
       if (r.error) setErro(r.error);
       else {
         setOk(true);
@@ -493,8 +495,9 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
       <section className="rounded-xl border border-border-soft bg-surface p-4">
         <h3 className="text-[13px] font-semibold">3 · Sazonalidade das vendas</h3>
         <p className="mb-3 text-[11px] text-text-muted">
-          1,00 = mês médio. O total do ano não muda, só a distribuição entre os meses. É a curva de venda do produto: vale
-          para todos os cenários planejados pela receita.
+          1,00 = mês médio. O total do ano não muda, só a distribuição entre os meses. É estimativa: ajuste à medida que as
+          vendas reais mostrarem a curva de cada produto. É do produto — ao salvar, os outros cenários planejados pela
+          receita são recalculados junto; mês já fechado não muda.
         </p>
         <div className="flex flex-col gap-3">
           {dados.produtos.map((p) => {
@@ -571,7 +574,12 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
 
       <div className="flex flex-wrap items-center justify-end gap-3">
         {erro && <span className="text-[11px] text-danger">{erro}</span>}
-        {ok && !sujo && <span className="text-[11px] text-success">Salvo e recalculado.</span>}
+        {ok && !sujo && (
+          <span className="text-[11px] text-success">
+            Salvo e recalculado.
+            {outrosRecalculados.length > 0 && ` A sazonalidade nova também recalculou: ${outrosRecalculados.join(", ")}.`}
+          </span>
+        )}
         <button
           type="button"
           onClick={verPrevia}
