@@ -363,12 +363,22 @@ function TipoReuniaoRow({ tipo, regras }: { tipo: TipoReuniao; regras: RegraDisp
             <span className="text-[12.5px] font-semibold">{tipo.nome}</span>
             <span className="rounded bg-bg px-1.5 py-0.5 text-[9.5px] text-text-faint">{tipo.duracao_minutos} min</span>
             {!tipo.ativo && <span className="rounded bg-danger-soft px-1.5 py-0.5 text-[9.5px] text-danger">Inativo</span>}
+            {!tipo.mensagem_convite && (
+              <button
+                type="button"
+                onClick={() => setExpandido(true)}
+                className="rounded bg-warning-soft px-1.5 py-0.5 text-[9.5px] font-medium text-warning"
+                title="O convite do Google sai sem texto de boas-vindas. Clique pra preencher."
+              >
+                sem texto do convite
+              </button>
+            )}
           </div>
           {tipo.descricao && <p className="mt-0.5 text-[11px] text-text-faint">{tipo.descricao}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
           <button type="button" onClick={() => setExpandido((v) => !v)} className="text-[11.5px] font-medium text-primary-deep">
-            {expandido ? "Fechar" : "Horários"}
+            {expandido ? "Fechar" : "Horários e textos"}
           </button>
           <button
             type="button"
