@@ -18,7 +18,9 @@ import { ReceitasHistoricas } from "./receitas-historicas-card";
 import type { ReceitaHistorica } from "@/lib/receitas-historicas";
 import {
   carregarOrcamentoProgramas,
+  LABEL_CATEGORIA_USO,
   somaPorCategoria,
+  type LinhaOrcamento,
 } from "@/lib/orcamento-programa";
 import type { FocoInvestimento } from "@/lib/indicadores-investidor";
 import {
@@ -839,6 +841,61 @@ export async function RelatorioPlanos({
             inicio={inicioSel}
             fim={fimSel}
           />
+          <ReceitasHistoricas
+            cenarioId={cenarioId}
+            itens={(receitasHistoricas ?? []) as ReceitaHistorica[]}
+            periodo={resumo.periodo}
+            somenteLeitura
+            linkEditar={`/plano/${cenarioId}/vendas#tracao`}
+          />
+          <InvestimentoERetorno
+            nome={nome}
+            meses={linhasPeriodo.map((l) => ({
+              mes: l.mes_referencia,
+              ebitda: l.ebitda,
+              aportes: investimentoPorMes.get(l.mes_referencia) ?? 0,
+            }))}
+            marcos={marcosAporte}
+            breakEvenMes={metricas.breakEvenMes}
+            programas={programasResumo}
+            notas={resumo.aportes.foraDoCaixa ?? []}
+            retorno={
+              temInvestidor
+                ? {
+                    capitalPadrao,
+                    equityPadrao,
+                    mesAportePadrao,
+                    mesSaida,
+                    arrNaSaida,
+                    ebitdaNaSaida,
+                    paybackMes: metricas.paybackMes,
+                    paybackMeses: metricas.paybackMeses,
+                    capitalRecuperadoPct: metricas.roiPct,
+                    tirProjetoPct: metricas.tirAnualPct,
+                    nomeRodada: resumo.aportes.programas.find((p) => p.entraNoRetorno)?.nome ?? null,
+                    valuation: retornoInvestidor.temValuation
+                      ? { moic: retornoInvestidor.moic ?? null, tirPct: retornoInvestidor.tirPct ?? null }
+                      : null,
+                  }
+                : null
+            }
+          />
+          <UsoDoRecurso
+            programas={resumo.aportes.programas}
+            orcamento={orcamento}
+          />
+          <DestinacaoPorConta programas={execucoes} />
+          {/* Destinação manual (%) só quando nenhum programa tem orçamento proposto por conta. */}
+          {!temOrcamento && (
+            <AlocacaoInvestimento
+              cenarioId={cenarioId}
+              itens={alocacoes ?? []}
+              nomeCenario={nome}
+              totalCaptado={capitalPadrao}
+              somenteLeitura
+              linkEditar={`/plano/${cenarioId}#destinacao`}
+            />
+          )}
           <DistribuicaoCustos
             linhas={[
               ...colunasTodosAnos.map(
@@ -876,57 +933,6 @@ export async function RelatorioPlanos({
             inicio={inicioSel}
             fim={fimSel}
           />
-          <InvestimentoERetorno
-            nome={nome}
-            meses={linhasPeriodo.map((l) => ({
-              mes: l.mes_referencia,
-              ebitda: l.ebitda,
-              aportes: investimentoPorMes.get(l.mes_referencia) ?? 0,
-            }))}
-            marcos={marcosAporte}
-            breakEvenMes={metricas.breakEvenMes}
-            programas={programasResumo}
-            notas={resumo.aportes.foraDoCaixa ?? []}
-            retorno={
-              temInvestidor
-                ? {
-                    capitalPadrao,
-                    equityPadrao,
-                    mesAportePadrao,
-                    mesSaida,
-                    arrNaSaida,
-                    ebitdaNaSaida,
-                    paybackMes: metricas.paybackMes,
-                    paybackMeses: metricas.paybackMeses,
-                    capitalRecuperadoPct: metricas.roiPct,
-                    tirProjetoPct: metricas.tirAnualPct,
-                    nomeRodada: resumo.aportes.programas.find((p) => p.entraNoRetorno)?.nome ?? null,
-                    valuation: retornoInvestidor.temValuation
-                      ? { moic: retornoInvestidor.moic ?? null, tirPct: retornoInvestidor.tirPct ?? null }
-                      : null,
-                  }
-                : null
-            }
-          />
-          <DestinacaoPorConta programas={execucoes} />
-          <ReceitasHistoricas
-            cenarioId={cenarioId}
-            itens={(receitasHistoricas ?? []) as ReceitaHistorica[]}
-            periodo={resumo.periodo}
-            somenteLeitura
-            linkEditar={`/plano/${cenarioId}/vendas#tracao`}
-          />
-          {/* Destinação manual (%) só quando nenhum programa tem orçamento proposto por conta. */}
-          {!temOrcamento && (
-            <AlocacaoInvestimento
-              cenarioId={cenarioId}
-              itens={alocacoes ?? []}
-              nomeCenario={nome}
-              totalCaptado={capitalPadrao}
-              somenteLeitura
-              linkEditar={`/plano/${cenarioId}#destinacao`}
-            />
-          )}
         </>
       )}
     </>
@@ -1104,6 +1110,88 @@ function MetricasInvestidor({
               : "o fluxo não tem saída e retorno no período"
           }
         />
+      </div>
+    </div>
+  );
+}
+
+/** Como o recurso de cada programa vinculado vai ser usado — lido do Orçamento proposto. */
+function UsoDoRecurso({
+  programas,
+  orcamento,
+}: {
+  programas: ProgramaAporte[];
+  orcamento: LinhaOrcamento[];
+}) {
+  if (programas.length === 0) return null;
+  return (
+    <div className="mb-5 rounded-xl border border-border bg-surface p-5">
+      <h2 className="mb-1 flex items-center font-heading text-[13px] font-semibold">
+        Uso do recurso — orçamento proposto
+        <InfoTooltip texto="Vem da tela Fomento & Investimento → programa → Orçamento proposto (atividade, período, rubrica, conta do plano de contas e valor). A conta define a frente: marketing, vendas, produto (P&D), operação (COGS) ou estrutura (G&A). Também é a base do 'foco do investimento' da planilha." />
+      </h2>
+      <p className="mb-3 text-[11px] text-text-muted">
+        Onde cada programa vinculado ao cenário aplica o dinheiro
+      </p>
+      <div className="flex flex-col gap-2.5">
+        {programas.map((p) => {
+          const linhas = orcamento.filter((l) => l.programa_id === p.id);
+          const total = linhas.reduce((s, l) => s + l.valor, 0);
+          const porCategoria = [...somaPorCategoria(linhas).entries()].sort(
+            (a, b) => b[1] - a[1],
+          );
+          return (
+            <div
+              key={p.id}
+              className="rounded-lg border border-border-soft px-3 py-2.5"
+            >
+              <div className="flex items-center justify-between gap-3 text-[12px]">
+                <span className="font-medium">
+                  {p.nome}{" "}
+                  <span className="text-[10.5px] font-normal text-text-faint">
+                    {p.entraNoRetorno
+                      ? "investimento novo"
+                      : p.tipo === "fomento"
+                        ? "fomento"
+                        : "já aplicado"}
+                  </span>
+                </span>
+                <Link
+                  href={`/fomento/${p.id}/orcamento`}
+                  className="text-[11px] text-primary-deep underline"
+                >
+                  {linhas.length > 0
+                    ? "Editar orçamento →"
+                    : "Cadastrar orçamento →"}
+                </Link>
+              </div>
+              {linhas.length === 0 ? (
+                <p className="mt-1 text-[11px] text-text-faint">
+                  Sem orçamento proposto cadastrado.
+                </p>
+              ) : (
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-text-muted">
+                  {porCategoria.map(([cat, v]) => (
+                    <span key={cat}>
+                      {LABEL_CATEGORIA_USO[cat]}:{" "}
+                      <span className="font-mono text-text">
+                        {formatBRL(v)}
+                      </span>{" "}
+                      <span className="text-text-faint">
+                        ({total > 0 ? ((v / total) * 100).toFixed(0) : 0}%)
+                      </span>
+                    </span>
+                  ))}
+                  <span className="text-text-faint">
+                    · total {formatBRL(total)}
+                    {Math.abs(total - p.valorTotal) > 1 &&
+                      ` de ${formatBRL(p.valorTotal)} do programa`}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
