@@ -5,6 +5,12 @@ import {
 } from "@/lib/cogs";
 import { FASES, type FaseValue } from "@/lib/fases";
 import { subgrupoDeCargo, type SubgrupoConta } from "@/lib/subgrupo-conta";
+import {
+  curvasDoPlano,
+  indiceSazonal,
+  type FasePlanoReceita,
+  type TaxasDoMes,
+} from "@/lib/plano-receita";
 
 export type TrimestreFaseInput = {
   /** 0 = primeiros 3 meses da fase, 1 = meses 4–6, ... */
@@ -270,6 +276,18 @@ export type SimulacaoInput = {
   pontoPartida?: { mes: string; clientes_ativos: number } | null;
   /** Vendas fechadas em feiras e eventos (já distribuídas por mês) — entram no canal direto. */
   vendasAcoes?: VendaAcaoInput[];
+  /**
+   * Plano pela receita (lib/plano-receita). Presente = o cenário planeja pela receita: crescimento
+   * da receita e churn por fase, em curva, com sazonalidade; os clientes novos saem da receita ÷
+   * preço. Ausente = modelo trimestral (crescimento % da base), exatamente como antes.
+   */
+  planoReceita?: PlanoReceitaInput | null;
+};
+
+export type PlanoReceitaInput = {
+  fases: FasePlanoReceita[];
+  /** Índice de vendas jan..dez do produto (1 = mês médio). Nulo = sem sazonalidade. */
+  sazonalidade: number[] | null;
 };
 
 export type VendaAcaoInput = {
@@ -341,7 +359,7 @@ function isoMonth(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
-function faseParaMes(fases: FaseInput[], mes: Date): FaseInput | null {
+export function faseParaMes(fases: FaseInput[], mes: Date): FaseInput | null {
   // Quando duas fases têm limite no mesmo mês civil (ex: validação termina dia 1 e PMF começa
   // dia 2), a comparação abaixo trunca o início pro dia 1 do mês — as duas passam a "bater" com
   // esse mês. Preferimos sempre a que começou por último, já que ela rege a maior parte do mês.
@@ -592,6 +610,46 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
 
   // Índice do mês em que cada módulo entrou — base do reajuste "N meses depois do lançamento".
   const mesLancamentoModulo = new Map<number, number>();
+
+  // Plano pela receita: crescimento e churn de cada mês, em curva por fase. A curva depende do
+  // comprimento inteiro de cada fase, então os meses vão até o fim da última fase fechada mesmo
+  // quando o cenário termina antes.
+  let curvasReceita: Map<string, TaxasDoMes> | null = null;
+  if (input.planoReceita) {
+    const fimFases = input.fases
+      .map((f) => f.data_fim)
+      .filter((d): d is string => !!d)
+      .sort()
+      .at(-1);
+    let total = totalMeses;
+    if (fimFases) {
+      const ini = new Date(dataBase + "T00:00:00");
+      const fim = new Date(fimFases + "T00:00:00");
+      total = Math.max(
+        total,
+        (fim.getFullYear() - ini.getFullYear()) * 12 +
+          (fim.getMonth() - ini.getMonth()) +
+          1,
+      );
+    }
+    const mesesComFase: { mes: string; fase: FaseValue }[] = [];
+    for (let i = 0; i < total; i++) {
+      const m = addMonths(dataBase, i);
+      const f = faseParaMes(input.fases, m);
+      if (f) mesesComFase.push({ mes: isoMonth(m), fase: f.fase });
+    }
+    curvasReceita = curvasDoPlano(mesesComFase, input.planoReceita.fases);
+  }
+  // Tendência do plano pela receita: a receita planejada (sem sazonalidade), os clientes que ela
+  // pede e a "onda" que a sazonalidade soma por cima. Nula até o produto ter o primeiro cliente —
+  // crescimento percentual precisa de uma base pra crescer.
+  let clientesTendencia: number | null = null;
+  let mrrTendencia = 0;
+  let ticketTendencia = 0;
+  let ondaSazonal = 0;
+  // Clientes de feiras/eventos marcados "somar à meta" ficam por cima do plano, não o substituem.
+  let extraAcoes = 0;
+
   for (let i = 0; i < totalMeses; i++) {
     const mes = addMonths(dataBase, i);
     const fase = faseParaMes(input.fases, mes);
@@ -602,6 +660,8 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
         0,
         Math.round(input.pontoPartida!.clientes_ativos),
       );
+      // Plano pela receita: a tendência recomeça da base de abertura.
+      clientesTendencia = null;
     }
 
     if (!fase) {
@@ -645,11 +705,15 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
       continue;
     }
 
-    // Taxa do trimestre da fase em que o mês cai (ou a da fase, se não houver bloco).
-    const { crescimento: taxaCrescimento, churn: taxaChurn } = taxasDoMes(
-      fase,
-      mes,
-    );
+    // Taxa do trimestre da fase em que o mês cai (ou a da fase, se não houver bloco). No plano pela
+    // receita, a da curva da fase — e o crescimento é da receita, não da base de clientes.
+    const curvaDoMes = curvasReceita?.get(isoMonth(mes)) ?? null;
+    const { crescimento: taxaCrescimento, churn: taxaChurn } = curvasReceita
+      ? {
+          crescimento: curvaDoMes?.crescimento ?? 0,
+          churn: curvaDoMes?.churn ?? 0,
+        }
+      : taxasDoMes(fase, mes);
 
     // Pró-rata no mês exato do lançamento comercial (meio do mês civil).
     let fatorProRata = 1;
@@ -819,7 +883,91 @@ export function calcularSimulacao(input: SimulacaoInput): MesResultado[] {
     }
     const novosAcoes = inteiroComResiduo(clientesAcoes, "acoes");
 
-    const novosOrganicos = clientesAtivos * taxaCrescimento * fatorProRata;
+    // Plano pela receita: preço de um cliente neste mês — planos pelo mix + níveis/módulos pela
+    // adesão que o mês vai ter, menos o desconto de combo. É por ele que a receita vira cliente.
+    const ticketPrevisto = () => {
+      const faseIdx = FASE_ORDEM.indexOf(fase.fase);
+      const adocoes: [number, number][] = [];
+      input.modulos.forEach((modulo, mi) => {
+        const lancado =
+          modulo.data_disponibilidade != null
+            ? isoMonth(mes).slice(0, 7) >= modulo.data_disponibilidade.slice(0, 7)
+            : modulo.meses_apos_lancamento != null
+              ? mesesDesdeLancamentoProduto != null &&
+                mesesDesdeLancamentoProduto >= modulo.meses_apos_lancamento
+              : modulo.fase_lancamento != null &&
+                faseIdx >= FASE_ORDEM.indexOf(modulo.fase_lancamento);
+        if (!lancado) return;
+        const teto = modulo.percentual_permanencia_estimado ?? 1;
+        const anterior = adocaoModulos.get(mi);
+        adocoes.push([
+          mi,
+          anterior === undefined
+            ? Math.min(teto, modulo.adesao_inicial_pct)
+            : Math.min(teto, anterior * (1 + modulo.crescimento_adesao_mensal_pct)),
+        ]);
+      });
+      const somaAdocao = adocoes.reduce((s, [, a]) => s + a, 0);
+      const fatorNivel =
+        input.modulosExclusivos && somaAdocao > 1 ? 1 / somaAdocao : 1;
+      const modulos = adocoes.reduce((s, [mi, a]) => {
+        const m = input.modulos[mi];
+        const desde = mesLancamentoModulo.get(mi) ?? i;
+        const preco =
+          m.reajuste_pct && m.reajuste_apos_meses != null && i - desde >= m.reajuste_apos_meses
+            ? m.preco * (1 + m.reajuste_pct)
+            : m.preco;
+        return s + a * fatorNivel * preco;
+      }, 0);
+      const combo = input.combos.reduce(
+        (s, c) =>
+          c.ativo_a_partir_de && isoMonth(mes).slice(0, 7) < c.ativo_a_partir_de.slice(0, 7)
+            ? s
+            : s + c.percentual_clientes_combo * c.desconto_pct,
+        0,
+      );
+      return (
+        (calcularArpu(input.planos, fase.fase, mes, input.dataLancamentoEstimada) + modulos) *
+        Math.max(0, 1 - combo)
+      );
+    };
+
+    // Plano pela receita: a receita planejada cresce pela curva da fase; os clientes que ela pede
+    // são receita ÷ preço; a venda do mês é o que falta pra chegar lá (a sazonalidade mexe na
+    // distribuição ao longo do ano, não no total). Parceiros, beta e feiras entram na conta — o
+    // canal direto completa. Se a receita já passou do plano (parceiro trouxe mais), o direto
+    // espera até a curva alcançar. Reajuste e nível novo somam receita por cima do plano — a venda
+    // não para porque o preço subiu.
+    const novosPeloPlanoDeReceita = () => {
+      extraAcoes = extraAcoes * (1 - taxaChurn) + novosAcoes;
+      if (!produtoJaLancado) return 0;
+      const retidos = clientesAtivos * (1 - taxaChurn);
+      const outros = conversaoBeta + novosClientesCanais;
+      const ticket = ticketPrevisto();
+      if (clientesTendencia === null) {
+        const base = retidos + outros;
+        if (base <= 0 || ticket <= 0) return 0;
+        clientesTendencia = base;
+        mrrTendencia = base * ticket;
+        ticketTendencia = ticket;
+        ondaSazonal = 0;
+        return 0;
+      }
+      const antes: number = clientesTendencia;
+      if (ticketTendencia > 0 && ticket > 0) mrrTendencia *= ticket / ticketTendencia;
+      ticketTendencia = ticket;
+      mrrTendencia *= 1 + taxaCrescimento;
+      clientesTendencia = ticket > 0 ? mrrTendencia / ticket : antes;
+      const vendasTendencia = Math.max(0, clientesTendencia - antes * (1 - taxaChurn));
+      const indice = indiceSazonal(input.planoReceita?.sazonalidade, mes.getMonth());
+      ondaSazonal = ondaSazonal * (1 - taxaChurn) + vendasTendencia * (indice - 1);
+      const alvo = clientesTendencia + ondaSazonal + extraAcoes;
+      return Math.max(0, alvo - retidos - outros - novosAcoes);
+    };
+
+    const novosOrganicos = curvasReceita
+      ? novosPeloPlanoDeReceita()
+      : clientesAtivos * taxaCrescimento * fatorProRata;
     const novosDireto =
       inteiroComResiduo(novosOrganicos + conversaoBeta, "direto") + novosAcoes;
     const novosClientes = novosDireto + novosClientesCanais;

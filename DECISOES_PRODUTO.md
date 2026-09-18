@@ -369,3 +369,13 @@ Regra nos três cenários: faixas por clientes só em 2028 (R$ 30 mil até 800, 
   Prestação de Contas (visão da sócia) compara com qualquer cenário. Indicadores abrem no mês seguinte
   ao último fechado, até o fim do cenário; escolhendo outro "De", mostram o plano dos meses passados.
   O realizado é classificado como o plano (subgrupoDeConta) — Marca (2.4) entra em G&A dos dois lados.
+
+## Plano pela receita (18/09/2026)
+
+- **Modelo novo de planejamento** (`cenarios.modelo_plano = 'receita'`): por fase de vida do produto, o cenário define o **crescimento da receita** e o **churn** como curva — cada fase começa mais alta e cai até o alvo no último mês dela (curva de aprendizado). Na maturidade, taxas anuais; o churn oscila ±5% ao longo do ano (pico em janeiro).
+- **Clientes = receita ÷ preço**, em número inteiro; a receita planejada fecha com eles. Parceiros, beta e feiras entram na conta; o canal direto completa. **Reajuste e nível novo somam receita por cima** do plano (a venda não para porque o preço subiu).
+- **Sazonalidade de vendas** é do produto (vale em todos os cenários pela receita), normalizada pra média 1. Mind: pico fev–abr, queda jul–out, volta dez/jan. Price e Skills: pico abr–jun, leve queda jul–ago, 4º trimestre o mais baixo.
+- **Combo**: o desconto (20%) continua no cadastro do combo; o **% de vendas em combo é do cenário** (25% no Base, Otimista e Pessimista). Não preencher o % no cadastro — ele vale pra todos os cenários, inclusive o FUNSES 1.
+- **Meta de receita do cenário**: crescimento do MRR total dez×dez, distribuído pelos produtos por peso (Mind 77%, Price 13%, Skills 10%) × fator da fase (validação 2 · PMF 1,6 · tração 1,3 · escala 1 · maturidade 0,5).
+- **FUNSES 1 não mudou**: continua no modelo trimestral ("importado"). A tela mostra o plano dele convertido só pra leitura; ao salvar, a prévia vem antes e só então ele passa ao modelo novo. Provado: com o cenário no modelo trimestral o motor novo dá o mesmo resultado do antigo em todos os meses e colunas.
+- **Conversão** (Base, Otimista, Pessimista): churn das próprias taxas de hoje; crescimento calibrado rodando o motor, pra receita do fim de cada fase (e do dezembro no meio das fases longas) bater com o plano anterior.

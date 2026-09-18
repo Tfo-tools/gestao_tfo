@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { FASES } from "@/lib/fases";
 import { agregarPorCenario, computeMetricas } from "@/lib/relatorios-cenario";
-import { CurvaMatriz, type ProdutoCurva } from "./curva-matriz";
+import { PlanoReceitaPainel } from "./plano-receita-painel";
+import { carregarPlanoReceita } from "@/lib/plano-receita-cenario";
 import { VendasKpiBar } from "./vendas-kpi-bar";
 import { RecalcularTodos } from "./recalcular-todos";
 import { AvisoTelaGrande } from "@/components/aviso-tela-grande";
@@ -108,83 +109,9 @@ export default async function PlanoVendasPage({
     produtos: produtosPorCanalId.get(c.id) ?? [],
   }));
 
-  const produtosData: ProdutoCurva[] = await Promise.all(
-    (produtos ?? []).map(async (produto) => {
-      const { data: fasesRaw } = await supabase
-        .from("fases_produto")
-        .select(
-          "id, fase, taxa_crescimento_mensal, taxa_churn_mensal, data_inicio, data_fim",
-        )
-        .eq("produto_id", produto.id)
-        .eq("cenario_id", cenarioId);
-
-      const faseByValue = new Map((fasesRaw ?? []).map((f) => [f.fase, f]));
-      const faseIds = (fasesRaw ?? []).map((f) => f.id);
-      const { data: funis } =
-        faseIds.length > 0
-          ? await supabase
-              .from("premissas_funil")
-              .select(
-                "fase_produto_id, capacidade_vendedor_mes, reunioes_por_oportunidade, span_of_control, horas_suporte_por_cliente_mes",
-              )
-              .in("fase_produto_id", faseIds)
-          : { data: [] };
-      const funilByFaseId = new Map(
-        (funis ?? []).map((f) => [f.fase_produto_id, f]),
-      );
-      const { data: trimestresRaw } =
-        faseIds.length > 0
-          ? await supabase
-              .from("fases_trimestres")
-              .select(
-                "fase_produto_id, indice, taxa_crescimento_mensal, taxa_churn_mensal",
-              )
-              .in("fase_produto_id", faseIds)
-          : { data: [] };
-
-      return {
-        id: produto.id,
-        nome: produto.nome,
-        fases: FASES.map((f, i) => {
-          const fase = faseByValue.get(f.value);
-          const funil = fase ? (funilByFaseId.get(fase.id) ?? null) : null;
-          return {
-            fase: f.value,
-            label: f.label,
-            ordem: i + 1,
-            dados: fase
-              ? {
-                  taxa_crescimento_mensal: fase.taxa_crescimento_mensal,
-                  taxa_churn_mensal: fase.taxa_churn_mensal,
-                  capacidade_vendedor_mes:
-                    funil?.capacidade_vendedor_mes ?? null,
-                  reunioes_por_oportunidade:
-                    funil?.reunioes_por_oportunidade ?? null,
-                  span_of_control: funil?.span_of_control ?? null,
-                  horas_suporte_por_cliente_mes:
-                    funil?.horas_suporte_por_cliente_mes ?? null,
-                  data_inicio: fase.data_inicio,
-                  data_fim: fase.data_fim,
-                  trimestres: (trimestresRaw ?? [])
-                    .filter((t) => t.fase_produto_id === fase.id)
-                    .map((t) => ({
-                      indice: Number(t.indice),
-                      taxa_crescimento_mensal:
-                        t.taxa_crescimento_mensal != null
-                          ? Number(t.taxa_crescimento_mensal)
-                          : null,
-                      taxa_churn_mensal:
-                        t.taxa_churn_mensal != null
-                          ? Number(t.taxa_churn_mensal)
-                          : null,
-                    })),
-                }
-              : null,
-          };
-        }),
-      };
-    }),
-  );
+  // Plano de crescimento e churn (pela receita). Cenário ainda no modelo trimestral vem com o
+  // plano atual convertido, só pra mostrar.
+  const planoReceita = await carregarPlanoReceita(supabase, cenarioId);
 
   // Projeção já calculada, pra tabela de resultado no rodapé da tela.
   const { data: projecaoRaw } = await supabase
@@ -334,17 +261,21 @@ export default async function PlanoVendasPage({
             <span className="text-[10px] text-text-faint transition-transform group-open:rotate-90">
               ▶
             </span>
-            Crescimento &amp; churn por fase
+            Plano de crescimento e churn
             <span className="ml-2 text-[11px] font-normal text-text-muted">
-              {(produtos ?? []).length} produto(s) · {FASES.length} fases
+              {planoReceita?.modelo === "receita"
+                ? "plano pela receita · por fase de vida do produto"
+                : "importado do modelo anterior"}
             </span>
           </summary>
           <div className="border-t border-border-soft">
-            <CurvaMatriz
-              cenarioId={cenarioId}
-              produtos={produtosData}
-              fimCenario={cenario.data_fim ?? null}
-            />
+            {planoReceita && (
+              <PlanoReceitaPainel
+                key={JSON.stringify(planoReceita.anos) + planoReceita.modelo}
+                cenarioId={cenarioId}
+                dados={planoReceita}
+              />
+            )}
           </div>
         </details>
 

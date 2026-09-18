@@ -167,7 +167,7 @@ export async function criarCenario(
     ? await supabase
         .from("cenarios")
         .select(
-          "meta_receita_mensal, meta_cac, meta_ltv, meta_margem_bruta_pct, meta_tir_pct",
+          "meta_receita_mensal, meta_cac, meta_ltv, meta_margem_bruta_pct, meta_tir_pct, modelo_plano, pct_vendas_combo, pesos_receita",
         )
         .eq("id", duplicarDe)
         .single()
@@ -189,6 +189,9 @@ export async function criarCenario(
       meta_ltv: origem?.meta_ltv ?? null,
       meta_margem_bruta_pct: origem?.meta_margem_bruta_pct ?? null,
       meta_tir_pct: origem?.meta_tir_pct ?? null,
+      // Modelo de planejamento vem junto: espelho de um cenário pela receita também é pela receita.
+      modelo_plano: origem?.modelo_plano ?? "trimestral",
+      pct_vendas_combo: origem?.pct_vendas_combo ?? null,
     })
     .select("id")
     .single();
@@ -222,6 +225,35 @@ export async function criarCenario(
       novoCenario.id,
       mapProdutoId,
     );
+
+    // Plano pela receita: pesos por produto e metas de receita por ano.
+    const trocarIds = (obj: unknown) =>
+      obj && typeof obj === "object"
+        ? Object.fromEntries(
+            Object.entries(obj as Record<string, number>).map(([k, v]) => [
+              mapProdutoId(k) ?? k,
+              v,
+            ]),
+          )
+        : null;
+    if (origem?.pesos_receita)
+      await supabase
+        .from("cenarios")
+        .update({ pesos_receita: trocarIds(origem.pesos_receita) })
+        .eq("id", novoCenario.id);
+    const { data: metasOrigem } = await supabase
+      .from("cenario_meta_receita")
+      .select("ano, crescimento_pct, metas_produto")
+      .eq("cenario_id", duplicarDe);
+    if (metasOrigem && metasOrigem.length > 0)
+      await supabase.from("cenario_meta_receita").insert(
+        metasOrigem.map((m) => ({
+          cenario_id: novoCenario.id,
+          ano: m.ano,
+          crescimento_pct: m.crescimento_pct,
+          metas_produto: trocarIds(m.metas_produto),
+        })),
+      );
 
     // Abertura do cenário = base de clientes que a origem tinha no mês anterior ao início escolhido.
     const ponto = await capturarPontoPartida(
