@@ -11,7 +11,7 @@ const DIAS_SEMANA_CURTO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 type ItemDia =
   | { tipo: "reuniao"; hora: string; titulo: string }
-  | { tipo: "tarefa"; titulo: string; responsavelIniciais: string | null; feita: boolean }
+  | { tipo: "tarefa"; titulo: string; letra: string | null; cor: string; responsavelNome: string | null; feita: boolean }
   | { tipo: "google"; hora: string | null; titulo: string };
 
 function inicioDaSemana(referencia: Date): Date {
@@ -27,6 +27,23 @@ function chaveLocal(d: Date): string {
 
 function formatHora(iso: string): string {
   return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * Cor e letra de cada pessoa nas tarefas do calendário: "Tarefa V", "Tarefa E". A letra é a inicial
+ * do primeiro nome; se duas pessoas começarem igual, usa as iniciais do nome completo. A cor segue a
+ * pessoa pela ordem do cadastro — não muda de uma semana pra outra.
+ */
+const CORES_PESSOA = ["#b0781a", "#1f7f73", "#6a52b0", "#b8456f"];
+
+export function marcaDaPessoa(pessoas: { id: string; nome: string }[]) {
+  const primeira = (n: string) => (n.trim()[0] ?? "?").toUpperCase();
+  return new Map(
+    pessoas.map((p, i) => {
+      const repetida = pessoas.some((o) => o.id !== p.id && primeira(o.nome) === primeira(p.nome));
+      return [p.id, { letra: repetida ? iniciais(p.nome) : primeira(p.nome), cor: CORES_PESSOA[i % CORES_PESSOA.length], nome: p.nome }];
+    }),
+  );
 }
 
 function iniciais(nome: string): string {
@@ -86,12 +103,15 @@ export function CalendarioSemana({
       });
     }
 
+    const marcas = marcaDaPessoa(pessoas);
     for (const t of tarefas) {
-      const responsavel = pessoas.find((p) => p.id === t.responsavel_id);
+      const marca = t.responsavel_id ? marcas.get(t.responsavel_id) : undefined;
       add(t.prazo, {
         tipo: "tarefa",
         titulo: t.titulo,
-        responsavelIniciais: responsavel ? iniciais(responsavel.nome) : null,
+        letra: marca?.letra ?? null,
+        cor: marca?.cor ?? "#8a6519",
+        responsavelNome: marca?.nome ?? null,
         feita: t.status === "feito",
       });
     }
@@ -153,9 +173,11 @@ export function CalendarioSemana({
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-wine-deep" /> Reunião
         </span>
-        <span className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-[#c9962c]" /> Tarefa
-        </span>
+        {[...marcaDaPessoa(pessoas).values()].map((m) => (
+          <span key={m.letra} className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ background: m.cor }} /> Tarefa {m.letra} ({m.nome.split(" ")[0]})
+          </span>
+        ))}
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-primary-fill" /> Google Calendar
         </span>
@@ -173,10 +195,20 @@ function ItemChip({ item }: { item: ItemDia }) {
     );
   }
   if (item.tipo === "tarefa") {
+    // Compacto de propósito: no calendário a tarefa só marca presença ("Tarefa V"); o nome aparece ao
+    // passar o mouse. Reunião segue com hora e título, que é o que importa ver de relance.
     return (
-      <div className={`flex items-center gap-1 rounded bg-[#c9962c]/12 px-1.5 py-1 text-[10.5px] leading-tight text-[#8a6519] ${item.feita ? "opacity-50 line-through" : ""}`}>
-        <span className="flex-1">{item.titulo}</span>
-        {item.responsavelIniciais && <span className="shrink-0 font-medium">{item.responsavelIniciais}</span>}
+      <div
+        tabIndex={0}
+        title={`${item.titulo}${item.responsavelNome ? ` — ${item.responsavelNome}` : ""}`}
+        className={`group relative w-fit rounded px-1.5 py-0.5 text-[10.5px] font-semibold leading-tight text-white outline-none ${item.feita ? "opacity-45 line-through" : ""}`}
+        style={{ background: item.cor }}
+      >
+        Tarefa{item.letra ? ` ${item.letra}` : ""}
+        <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-1 hidden w-max max-w-[220px] rounded-md border border-border bg-surface px-2 py-1 text-[11px] font-normal leading-snug text-text shadow-sm group-hover:block group-focus:block">
+          {item.titulo}
+          {item.responsavelNome && <span className="block text-[10px] text-text-faint">{item.responsavelNome}</span>}
+        </span>
       </div>
     );
   }

@@ -34,7 +34,7 @@ export default async function AgendaPage() {
     { data: tarefasComPrazo },
     { data: perfilAtual },
   ] = await Promise.all([
-    supabase.from("tipos_reuniao").select("id, nome, slug, duracao_minutos, descricao, ativo").order("nome"),
+    supabase.from("tipos_reuniao").select("id, nome, slug, duracao_minutos, descricao, ativo, mensagem_convite").order("nome"),
     supabase.from("disponibilidade_regras").select("id, tipo_reuniao_id, dia_semana, hora_inicio, hora_fim"),
     supabase
       .from("reunioes_agendadas")

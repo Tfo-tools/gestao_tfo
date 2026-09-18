@@ -3,8 +3,9 @@
 import { useActionState, useMemo, useState } from "react";
 import { criarAgendamento, type AgendamentoState } from "./actions";
 import { calcularSlotsDisponiveis, type ReuniaoExistente, type SlotDisponivel } from "@/lib/agenda-slots";
+import { gerarIcs, montarDescricaoConvite } from "@/lib/convite-agenda";
 
-type TipoReuniao = { id: string; nome: string; slug: string; duracao_minutos: number; descricao: string | null };
+type TipoReuniao = { id: string; nome: string; slug: string; duracao_minutos: number; descricao: string | null; mensagem_convite?: string | null };
 type RegraDB = { tipo_reuniao_id: string; dia_semana: number; hora_inicio: string; hora_fim: string };
 
 const initialState: AgendamentoState = { error: null };
@@ -20,12 +21,18 @@ export function AgendarForm({
   tipos,
   regras,
   reunioes,
+  tipoInicial = null,
 }: {
   tipos: TipoReuniao[];
   regras: RegraDB[];
   reunioes: ReuniaoExistente[];
+  /** Slug vindo do link do tipo (/agendar?tipo=slug). */
+  tipoInicial?: string | null;
 }) {
-  const [tipoSelecionado, setTipoSelecionado] = useState<TipoReuniao | null>(tipos.length === 1 ? tipos[0] : null);
+  // Com link de um tipo, ou com um tipo só, a página pula a escolha e vai direto aos horários.
+  const [tipoSelecionado, setTipoSelecionado] = useState<TipoReuniao | null>(
+    tipos.find((t) => t.slug === tipoInicial) ?? (tipos.length === 1 ? tipos[0] : null),
+  );
   const [slotSelecionado, setSlotSelecionado] = useState<SlotDisponivel | null>(null);
   const [state, formAction, pending] = useActionState(criarAgendamento, initialState);
 
@@ -47,13 +54,41 @@ export function AgendarForm({
   }, [slots]);
 
   if (state.sucesso) {
+    const ok = state.sucesso;
+    const baixarIcs = () => {
+      const ics = gerarIcs({
+        uid: `${ok.id}@thefashionoffice`,
+        titulo: ok.titulo,
+        inicioIso: ok.dataHora,
+        fimIso: ok.fimIso,
+        descricao: montarDescricaoConvite({ mensagem: ok.mensagem, empresa: null, observacoes: null }),
+        local: ok.meetLink,
+      });
+      const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "reuniao-the-fashion-office.ics";
+      a.click();
+      URL.revokeObjectURL(url);
+    };
     return (
       <div className="rounded-xl border border-border bg-surface p-7 text-center">
         <p className="text-[15px] font-semibold text-success">Reunião confirmada!</p>
-        <p className="mt-2 text-[13px] text-text-muted">
-          {formatDia(state.sucesso.dataHora)}, às {formatHora(state.sucesso.dataHora)}. Você recebe um convite por e-mail com os
-          detalhes{state.sucesso.meetLink ? " e o link da videochamada" : ""}.
+        {ok.mensagem && <p className="mx-auto mt-3 max-w-[440px] text-[13px] leading-relaxed text-text">{ok.mensagem}</p>}
+        <p className="mt-3 text-[13px] text-text-muted">
+          <span className="capitalize">{formatDia(ok.dataHora)}</span>, às {formatHora(ok.dataHora)}. Você recebe um convite por e-mail com os
+          detalhes{ok.meetLink ? " e o link da videochamada" : ""}.
         </p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={baixarIcs}
+            className="rounded-lg border border-border px-4 py-2 text-[12.5px] font-medium text-primary-deep hover:bg-bg"
+          >
+            Adicionar ao calendário (.ics)
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-text-faint">Usa Google Agenda? O convite já chegou por e-mail e entra sozinho na sua agenda.</p>
         {state.sucesso.meetLink && (
           <a
             href={state.sucesso.meetLink}
@@ -101,9 +136,13 @@ export function AgendarForm({
               ← Trocar tipo de reunião
             </button>
           )}
-          <p className="mb-3 text-[12.5px] font-medium text-text-muted">
-            {tipoSelecionado.nome} — {tipoSelecionado.duracao_minutos} min. Escolha um horário:
+          <p className="text-[12.5px] font-medium text-text">
+            {tipoSelecionado.nome} <span className="font-normal text-text-faint">· {tipoSelecionado.duracao_minutos} min</span>
           </p>
+          {/* A descrição aparece aqui também: quando a página pula a escolha, é o único lugar em que o
+              cliente entende do que se trata. */}
+          {tipoSelecionado.descricao && <p className="mt-0.5 text-[12px] text-text-muted">{tipoSelecionado.descricao}</p>}
+          <p className="mb-3 mt-3 text-[12px] font-medium text-text-muted">Escolha um horário:</p>
           {slotsPorDia.size === 0 ? (
             <p className="text-[12.5px] text-text-muted">Nenhum horário livre nos próximos dias — tente mais tarde.</p>
           ) : (

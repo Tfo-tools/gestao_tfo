@@ -8,11 +8,13 @@ import { AgendarForm } from "./agendar-form";
 // hora do último deploy em vez de refletir agendamentos em tempo real.
 export const dynamic = "force-dynamic";
 
-export default async function AgendarPage() {
+export default async function AgendarPage({ searchParams }: { searchParams: Promise<{ tipo?: string }> }) {
+  // Link próprio de cada tipo (/agendar?tipo=slug): a página já abre com ele escolhido.
+  const { tipo: tipoInicial } = await searchParams;
   const admin = createAdminClient();
 
   const [{ data: tipos }, { data: regras }, { data: reunioesInternas }, ocupadosGoogle] = await Promise.all([
-    admin.from("tipos_reuniao").select("id, nome, slug, duracao_minutos, descricao").eq("ativo", true).order("nome"),
+    admin.from("tipos_reuniao").select("id, nome, slug, duracao_minutos, descricao, mensagem_convite").eq("ativo", true).order("nome"),
     admin.from("disponibilidade_regras").select("id, tipo_reuniao_id, dia_semana, hora_inicio, hora_fim"),
     admin.from("reunioes_agendadas").select("data_hora_inicio, data_hora_fim").eq("status", "confirmada"),
     // Cruza com o que já está ocupado no Google (inclusive compromissos que não nasceram por
@@ -28,7 +30,7 @@ export default async function AgendarPage() {
           <div className="text-[10.5px] tracking-[0.14em] text-text-faint uppercase">The Fashion Office</div>
           <h1 className="mt-1.5 font-heading text-[22px] font-semibold">Agendar uma conversa</h1>
         </div>
-        <AgendarForm tipos={tipos ?? []} regras={regras ?? []} reunioes={reunioes ?? []} />
+        <AgendarForm tipos={tipos ?? []} regras={regras ?? []} reunioes={reunioes ?? []} tipoInicial={tipoInicial ?? null} />
       </div>
     </div>
   );

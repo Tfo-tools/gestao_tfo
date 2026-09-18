@@ -19,6 +19,7 @@ export async function criarTipoReuniao(_prevState: ActionState, formData: FormDa
   const nome = String(formData.get("nome") || "").trim();
   const duracao_minutos = Number(formData.get("duracao_minutos") || 0);
   const descricao = String(formData.get("descricao") || "").trim() || null;
+  const mensagem_convite = String(formData.get("mensagem_convite") || "").trim() || null;
 
   if (!nome || !duracao_minutos || duracao_minutos <= 0) {
     return { error: "Preencha o nome e a duração." };
@@ -29,11 +30,26 @@ export async function criarTipoReuniao(_prevState: ActionState, formData: FormDa
   const { data: existente } = await supabase.from("tipos_reuniao").select("slug").eq("slug", slug).maybeSingle();
   if (existente) slug = `${slug}-${Date.now().toString(36)}`;
 
-  const { error } = await supabase.from("tipos_reuniao").insert({ nome, slug, duracao_minutos, descricao });
+  const { error } = await supabase.from("tipos_reuniao").insert({ nome, slug, duracao_minutos, descricao, mensagem_convite });
   if (error) return { error: "Não foi possível criar o tipo de reunião." };
 
   revalidatePath("/agenda");
   return { error: null, success: true };
+}
+
+/** Texto e descrição que o cliente vê: a descrição na página de agendamento, o texto no convite. */
+export async function atualizarTextosTipoReuniao(
+  id: string,
+  campos: { descricao: string | null; mensagem_convite: string | null },
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tipos_reuniao")
+    .update({ descricao: campos.descricao?.trim() || null, mensagem_convite: campos.mensagem_convite?.trim() || null })
+    .eq("id", id);
+  if (error) return { error: "Não foi possível salvar os textos." };
+  revalidatePath("/agenda");
+  return { error: null };
 }
 
 export async function alternarAtivoTipoReuniao(id: string, ativo: boolean) {

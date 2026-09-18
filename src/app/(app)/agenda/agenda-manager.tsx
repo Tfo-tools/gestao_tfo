@@ -6,17 +6,27 @@ import {
   alternarAtivoTipoReuniao,
   excluirTipoReuniao,
   criarRegraDisponibilidade,
+  atualizarTextosTipoReuniao,
   excluirRegraDisponibilidade,
   cancelarReuniao,
   salvarIcsPessoal,
   type ActionState,
 } from "./actions";
+import { TEXTO_PADRAO_CONVITE } from "@/lib/convite-agenda";
 import type { EventoGoogle } from "@/lib/google-calendar";
 import { ConexaoGoogleCard } from "@/components/conexao-google-card";
 import { AtaInline, type Ata } from "./atas-manager";
 import { CalendarioSemana, type TarefaComPrazo } from "./calendario-semana";
 
-export type TipoReuniao = { id: string; nome: string; slug: string; duracao_minutos: number; descricao: string | null; ativo: boolean };
+export type TipoReuniao = {
+  id: string;
+  nome: string;
+  slug: string;
+  duracao_minutos: number;
+  descricao: string | null;
+  ativo: boolean;
+  mensagem_convite: string | null;
+};
 export type RegraDisponibilidade = { id: string; tipo_reuniao_id: string; dia_semana: number; hora_inicio: string; hora_fim: string };
 export type ReuniaoAgendada = {
   id: string;
@@ -140,7 +150,7 @@ function ConexaoPessoalColapsavel({ contaPessoalConectada, icsPessoalUrl }: { co
             <p className="mt-1 mb-3 text-[11.5px] text-text-muted">
               Pra compromissos que não estão no Google (convites que chegam no seu iCloud, por exemplo). No iPhone: Calendário →
               Calendários → ⓘ ao lado do seu calendário pessoal → ligue <b>Calendário Público</b> → Compartilhar Link → cole aqui.
-              O app mostra só <b>"Compromisso pessoal"</b> com o horário — o nome real do compromisso nunca sai do seu iPhone. Bloqueia o link de agendamento e entra no resumo e nos avisos.
+              O app mostra só <b>“Compromisso pessoal”</b> com o horário — o nome real do compromisso nunca sai do seu iPhone. Bloqueia o link de agendamento e entra no resumo e nos avisos.
             </p>
             <form action={formAction} className="flex flex-wrap items-end gap-2">
               <div className="min-w-[280px] flex-1">
@@ -300,9 +310,14 @@ function TiposReuniaoCard({ tipos, regras }: { tipos: TipoReuniao[]; regras: Reg
             <input name="duracao_minutos" type="number" min="5" step="5" defaultValue={30} required className="input w-[100px]" />
           </div>
           <div className="min-w-[200px] flex-1">
-            <label className="mb-1 block text-[10.5px] text-text-faint">Descrição (opcional)</label>
-            <input name="descricao" type="text" className="input w-full" />
+            <label className="mb-1 block text-[10.5px] text-text-faint">Descrição (aparece pro cliente ao escolher o horário)</label>
+            <input name="descricao" type="text" placeholder="Ex: 30 min pra entender seus desafios de gestão" className="input w-full" />
           </div>
+          <div className="w-full">
+            <label className="mb-1 block text-[10.5px] text-text-faint">Texto do convite (abre o e-mail do Google e a tela de confirmação)</label>
+            <textarea name="mensagem_convite" rows={2} defaultValue={TEXTO_PADRAO_CONVITE} className="input w-full" />
+          </div>
+          <p className="w-full text-[10.5px] text-text-faint">Depois de salvar, o tipo abre em Horários pra você definir os dias e horários disponíveis.</p>
           <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white disabled:opacity-60">
             {pending ? "…" : "Salvar"}
           </button>
@@ -327,11 +342,18 @@ function TiposReuniaoCard({ tipos, regras }: { tipos: TipoReuniao[]; regras: Reg
 }
 
 function TipoReuniaoRow({ tipo, regras }: { tipo: TipoReuniao; regras: RegraDisponibilidade[] }) {
-  const [expandido, setExpandido] = useState(false);
+  // Tipo ainda sem horário já nasce aberto: é o próximo passo obrigatório pra ele aparecer no link.
+  const [expandido, setExpandido] = useState(regras.length === 0);
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
+  const [descricao, setDescricao] = useState(tipo.descricao ?? "");
+  const [mensagem, setMensagem] = useState(tipo.mensagem_convite ?? "");
+  const [salvandoTextos, startSalvarTextos] = useTransition();
+  const [textosSalvos, setTextosSalvos] = useState(false);
 
-  const link = typeof window !== "undefined" ? `${window.location.origin}/agendar` : "/agendar";
+  // Link próprio do tipo: abre a página já com ele escolhido.
+  const link = `${typeof window !== "undefined" ? window.location.origin : ""}/agendar?tipo=${tipo.slug}`;
 
   return (
     <div className="rounded-lg border border-border-soft">
@@ -377,10 +399,53 @@ function TipoReuniaoRow({ tipo, regras }: { tipo: TipoReuniao; regras: RegraDisp
 
       {expandido && (
         <div className="border-t border-border-soft bg-bg p-4">
-          <p className="mb-2.5 text-[11px] text-text-muted">
-            Link público pra esse agendamento: <span className="font-mono text-text">{link}</span>
-          </p>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+            Link desse tipo: <span className="font-mono text-text">{link}</span>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(link);
+                setCopiado(true);
+                setTimeout(() => setCopiado(false), 2000);
+              }}
+              className="rounded border border-border px-2 py-0.5 font-medium text-primary-deep"
+            >
+              {copiado ? "Copiado ✓" : "Copiar link"}
+            </button>
+          </div>
           <RegrasDisponibilidade tipoReuniaoId={tipo.id} regras={regras} />
+          <div className="mt-3 flex flex-col gap-2 border-t border-border-soft pt-3">
+            <div>
+              <label className="mb-1 block text-[10px] text-text-faint">Descrição (aparece pro cliente ao escolher o horário)</label>
+              <input value={descricao} onChange={(e) => setDescricao(e.target.value)} className="input w-full" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] text-text-faint">Texto do convite (abre o e-mail do Google e a tela de confirmação)</label>
+              <textarea value={mensagem} onChange={(e) => setMensagem(e.target.value)} rows={2} className="input w-full" />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={salvandoTextos}
+                onClick={() =>
+                  startSalvarTextos(async () => {
+                    const r = await atualizarTextosTipoReuniao(tipo.id, { descricao, mensagem_convite: mensagem });
+                    setErro(r.error);
+                    setTextosSalvos(!r.error);
+                  })
+                }
+                className="rounded-lg border border-border px-3 py-1.5 text-[11.5px] font-medium text-primary-deep disabled:opacity-60"
+              >
+                {salvandoTextos ? "…" : "Salvar textos"}
+              </button>
+              {!mensagem && (
+                <button type="button" onClick={() => setMensagem(TEXTO_PADRAO_CONVITE)} className="text-[11px] text-text-muted underline">
+                  Usar texto padrão
+                </button>
+              )}
+              {textosSalvos && <span className="text-[11px] text-success">Salvo</span>}
+            </div>
+          </div>
         </div>
       )}
     </div>

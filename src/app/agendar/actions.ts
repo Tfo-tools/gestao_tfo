@@ -3,8 +3,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { criarEventoReuniao, periodosOcupadosGoogle } from "@/lib/google-calendar";
 import { calcularSlotsDisponiveis, TIMEZONE_AGENDA, DIAS_A_FRENTE } from "@/lib/agenda-slots";
+import { montarDescricaoConvite } from "@/lib/convite-agenda";
 
-export type AgendamentoState = { error: string | null; sucesso?: { dataHora: string; meetLink: string | null } };
+export type AgendamentoState = {
+  error: string | null;
+  sucesso?: { id: string; dataHora: string; fimIso: string; titulo: string; meetLink: string | null; mensagem: string | null };
+};
 
 /** Roda com a service role porque quem chama aqui é um visitante sem login — a validação de
  * autorização de quem PODE mexer nas tabelas de agenda é feita nas telas internas (/agenda),
@@ -29,7 +33,7 @@ export async function criarAgendamento(_prevState: AgendamentoState, formData: F
 
   const { data: tipo } = await admin
     .from("tipos_reuniao")
-    .select("id, nome, duracao_minutos, ativo")
+    .select("id, nome, duracao_minutos, ativo, mensagem_convite")
     .eq("id", tipo_reuniao_id)
     .single();
   if (!tipo || !tipo.ativo) return { error: "Esse tipo de reunião não está mais disponível." };
@@ -82,11 +86,11 @@ export async function criarAgendamento(_prevState: AgendamentoState, formData: F
     .map((u) => u.email)
     .filter((e): e is string => !!e);
 
+  const titulo = `${tipo.nome} — TFO com ${nome}`;
   const eventoGoogle = await criarEventoReuniao({
-    titulo: `${tipo.nome} — TFO com ${nome}`,
-    descricao: [`Agendado via TFO-Gestão.`, empresa ? `Empresa: ${empresa}` : null, observacoes ? `Observações: ${observacoes}` : null]
-      .filter(Boolean)
-      .join("\n"),
+    titulo,
+    // O texto de boas-vindas abre o convite — sem ele o e-mail do Google chegava seco.
+    descricao: montarDescricaoConvite({ mensagem: tipo.mensagem_convite, empresa, observacoes }),
     inicioIso,
     fimIso,
     timeZone: TIMEZONE_AGENDA,
@@ -100,5 +104,15 @@ export async function criarAgendamento(_prevState: AgendamentoState, formData: F
       .eq("id", reuniao.id);
   }
 
-  return { error: null, sucesso: { dataHora: inicioIso, meetLink: eventoGoogle?.meetLink ?? null } };
+  return {
+    error: null,
+    sucesso: {
+      id: reuniao.id,
+      dataHora: inicioIso,
+      fimIso,
+      titulo,
+      meetLink: eventoGoogle?.meetLink ?? null,
+      mensagem: tipo.mensagem_convite ?? null,
+    },
+  };
 }
