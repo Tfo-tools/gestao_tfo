@@ -113,11 +113,12 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
   const amanha = dataLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
   const dias = [hoje, amanha];
 
-  const [{ data: despesas }, { data: parcelas }, { data: parcelasAtivo }, { data: tarefas }] = await Promise.all([
+  const [{ data: despesas }, { data: parcelas }, { data: parcelasAtivo }, { data: tarefas }, { data: perfis }] = await Promise.all([
     supabase.from("despesas").select("descricao, valor_total, data_gasto").eq("comprovado", false).in("data_gasto", dias),
     supabase.from("despesa_parcelas").select("valor, data_prevista, despesas(descricao)").eq("status", "prevista").in("data_prevista", dias),
     supabase.from("ativo_parcelas").select("valor, data_prevista, ativos(descricao)").eq("status", "prevista").in("data_prevista", dias),
-    supabase.from("tarefas").select("titulo, prazo").neq("status", "feito").in("prazo", dias),
+    supabase.from("tarefas").select("titulo, prazo, responsavel_id, participantes").neq("status", "feito").in("prazo", dias),
+    supabase.from("profiles").select("id, nome"),
   ]);
 
   const nome = (rel: unknown): string | null => {
@@ -135,8 +136,12 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
   for (const p of parcelasAtivo ?? []) {
     itens.push({ texto: `💳 ${nome(p.ativos) ?? "Ativo no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje });
   }
+  // Tarefa vem com quem faz: responsável primeiro, depois quem participa — "Emyli + Vanessa".
+  const primeiroNome = new Map((perfis ?? []).map((p) => [p.id, String(p.nome ?? "").split(" ")[0]]));
   for (const t of tarefas ?? []) {
-    itens.push({ texto: `✅ ${t.titulo}`, venceHoje: t.prazo === hoje });
+    const ids = [t.responsavel_id, ...((t.participantes as string[] | null) ?? [])].filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
+    const quem = ids.map((id) => primeiroNome.get(id)).filter(Boolean).join(" + ");
+    itens.push({ texto: `✅ ${t.titulo}${quem ? ` — ${quem}` : ""}`, venceHoje: t.prazo === hoje });
   }
   return itens;
 }
