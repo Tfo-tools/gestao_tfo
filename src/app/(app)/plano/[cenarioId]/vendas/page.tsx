@@ -54,10 +54,10 @@ export default async function PlanoVendasPage({
   const { data: modelosContratacao } = await supabase
     .from("modelos_contratacao")
     .select("id, cargo, nome, parametros");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const capacidadePorModelo = new Map(
     (modelosContratacao ?? []).map((m) => [
       m.id,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (m.parametros as any)?.capacidade_unidade_mes ?? 0,
     ]),
   );
@@ -348,11 +348,14 @@ export default async function PlanoVendasPage({
           </div>
         </details>
 
-        <TabelaProjecao
-          linhas={linhasProjecao}
-          produtos={produtos ?? []}
-          cenarioId={cenarioId}
-        />
+        {/* Âncora da receita detalhada: a Receita Operacional Bruta da DRE (Indicadores) aponta pra cá. */}
+        <div id="receita" className="scroll-mt-24">
+          <TabelaProjecao
+            linhas={linhasProjecao}
+            produtos={produtos ?? []}
+            cenarioId={cenarioId}
+          />
+        </div>
       </div>
     </div>
   );

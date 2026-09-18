@@ -12,6 +12,7 @@ import {
 } from "@/lib/relatorios-cenario";
 import { ExportarInvestidor } from "./exportar-investidor";
 import { SimuladorRetorno } from "./simulador-retorno";
+import { DistribuicaoCustos, type LinhaDistribuicao } from "./distribuicao-custos";
 import { ReceitasHistoricas } from "./receitas-historicas-card";
 import type { ReceitaHistorica } from "@/lib/receitas-historicas";
 import {
@@ -851,6 +852,34 @@ export async function RelatorioPlanos({
               }
             />
           )}
+          <DistribuicaoCustos
+            linhas={[
+              ...colunasAno.map(
+                (c): LinhaDistribuicao => ({
+                  rotulo: c.ano,
+                  sub: c.meses !== 12 ? `${c.meses}m` : undefined,
+                  receita: c.metricas.receitaAcumulada,
+                  impostos: c.metricas.impostosAcumulados,
+                  cogs: c.metricas.cogsAcumulado,
+                  sm: c.metricas.smAcumulado,
+                  pd: c.metricas.pdAcumulado,
+                  ga: c.metricas.gaAcumulado,
+                  ebitda: c.metricas.ebitdaAcumulado,
+                }),
+              ),
+              {
+                rotulo: "Total",
+                receita: metricas.receitaAcumulada,
+                impostos: metricas.impostosAcumulados,
+                cogs: metricas.cogsAcumulado,
+                sm: metricas.smAcumulado,
+                pd: metricas.pdAcumulado,
+                ga: metricas.gaAcumulado,
+                ebitda: metricas.ebitdaAcumulado,
+                total: true,
+              },
+            ]}
+          />
           <IndicadoresPeriodo
             metricas={metricas}
             colunasAno={colunasAno}
@@ -1285,6 +1314,7 @@ function IndicadoresPeriodo({
                   label="Receita Operacional Bruta"
                   cols={cols}
                   valor={(m) => m.receitaAcumulada}
+                  href={`/plano/${cenarioId}/vendas#receita`}
                 />
                 <DreLinha
                   label="(–) Impostos sobre a receita"
