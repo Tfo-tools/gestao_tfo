@@ -20,6 +20,7 @@ import {
   IconSettings,
   IconCalendar,
   IconGauge,
+  IconCompare,
   IconPlus,
   IconMinus,
 } from "./nav-icons";
@@ -126,6 +127,8 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
             detalhe: c.is_base ? "base" : undefined,
           })),
         },
+        // Rota própria (não /cenarios/comparar): o menu acende tudo que começa com /cenarios.
+        { kind: "link", href: "/comparar-cenarios", label: "Comparar cenários", icon: IconCompare },
         { kind: "link", href: "/produtos", label: "Produtos", icon: IconBox },
       ],
     },

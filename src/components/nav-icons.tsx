@@ -187,3 +187,11 @@ export function IconMinus(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function IconCompare(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M4 20V10M9.5 20V4M14.5 20v-7M20 20V8" />
+    </svg>
+  );
+}
