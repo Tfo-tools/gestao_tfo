@@ -339,8 +339,10 @@ async function clonarCenario(
     }
   }
 
-  // Tabelas presas direto ao cenário, sem filhas.
+  // Tabelas presas direto ao cenário, sem filhas. `produto_cenario` é a seleção de quais produtos
+  // o cenário simula — sem ela o clone nasce vazio (aconteceu com o FUNSES - Pessimista).
   for (const tabela of [
+    "produto_cenario",
     "contratacoes",
     "beta_testers_config",
     "alocacao_modelo_contratacao",
