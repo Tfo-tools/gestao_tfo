@@ -379,6 +379,26 @@ function TipoReuniaoRow({ tipo, regras }: { tipo: TipoReuniao; regras: RegraDisp
           {tipo.descricao && <p className="mt-0.5 text-[11px] text-text-faint">{tipo.descricao}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard?.writeText(link);
+              setCopiado(true);
+              setTimeout(() => setCopiado(false), 2000);
+            }}
+            title={
+              !tipo.ativo
+                ? "Tipo inativo: o link ainda não oferece horários. Ative antes de enviar."
+                : regras.length === 0
+                  ? "Sem horários definidos: o link ainda não oferece horários."
+                  : link
+            }
+            className={`rounded border px-2 py-0.5 text-[11px] font-medium ${
+              !tipo.ativo || regras.length === 0 ? "border-warning/40 text-warning" : "border-border text-primary-deep"
+            }`}
+          >
+            {copiado ? "Copiado ✓" : "Copiar link"}
+          </button>
           <button type="button" onClick={() => setExpandido((v) => !v)} className="text-[11.5px] font-medium text-primary-deep">
             {expandido ? "Fechar" : "Horários e textos"}
           </button>
@@ -411,20 +431,9 @@ function TipoReuniaoRow({ tipo, regras }: { tipo: TipoReuniao; regras: RegraDisp
 
       {expandido && (
         <div className="border-t border-border-soft bg-bg p-4">
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+          <p className="mb-3 text-[11px] text-text-muted">
             Link desse tipo: <span className="font-mono text-text">{link}</span>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText(link);
-                setCopiado(true);
-                setTimeout(() => setCopiado(false), 2000);
-              }}
-              className="rounded border border-border px-2 py-0.5 font-medium text-primary-deep"
-            >
-              {copiado ? "Copiado ✓" : "Copiar link"}
-            </button>
-          </div>
+          </p>
           <RegrasDisponibilidade tipoReuniaoId={tipo.id} regras={regras} />
           <div className="mt-3 flex flex-col gap-2 border-t border-border-soft pt-3">
             <div className="flex flex-wrap gap-2">
