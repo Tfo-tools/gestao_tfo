@@ -37,17 +37,38 @@ export async function criarTipoReuniao(_prevState: ActionState, formData: FormDa
   return { error: null, success: true };
 }
 
-/** Texto e descrição que o cliente vê: a descrição na página de agendamento, o texto no convite. */
-export async function atualizarTextosTipoReuniao(
+/**
+ * Edita o tipo: nome, duração, descrição (aparece pro cliente ao escolher o horário) e texto do
+ * convite. Se o nome muda, o link acompanha (o slug é refeito) — quem abrir o link antigo não vê
+ * erro: a página mostra a escolha de tipo, ou vai direto quando há um tipo só.
+ */
+export async function atualizarTipoReuniao(
   id: string,
-  campos: { descricao: string | null; mensagem_convite: string | null },
+  campos: { nome: string; duracao_minutos: number; descricao: string | null; mensagem_convite: string | null },
 ): Promise<{ error: string | null }> {
+  const nome = campos.nome.trim();
+  if (!nome) return { error: "Dê um nome pro tipo de reunião." };
+  if (!campos.duracao_minutos || campos.duracao_minutos <= 0) return { error: "Informe a duração." };
+
   const supabase = await createClient();
+  const { data: atual } = await supabase.from("tipos_reuniao").select("nome, slug").eq("id", id).single();
+  let slug = atual?.slug as string | undefined;
+  if (atual && atual.nome !== nome) {
+    slug = slugify(nome);
+    const { data: outro } = await supabase.from("tipos_reuniao").select("id").eq("slug", slug).neq("id", id).maybeSingle();
+    if (outro) slug = `${slug}-${Date.now().toString(36)}`;
+  }
   const { error } = await supabase
     .from("tipos_reuniao")
-    .update({ descricao: campos.descricao?.trim() || null, mensagem_convite: campos.mensagem_convite?.trim() || null })
+    .update({
+      nome,
+      slug,
+      duracao_minutos: campos.duracao_minutos,
+      descricao: campos.descricao?.trim() || null,
+      mensagem_convite: campos.mensagem_convite?.trim() || null,
+    })
     .eq("id", id);
-  if (error) return { error: "Não foi possível salvar os textos." };
+  if (error) return { error: "Não foi possível salvar." };
   revalidatePath("/agenda");
   return { error: null };
 }
@@ -58,13 +79,23 @@ export async function alternarAtivoTipoReuniao(id: string, ativo: boolean) {
   revalidatePath("/agenda");
 }
 
+/**
+ * Exclui o tipo. Só reunião ATIVA impede — cancelada não: ela sai junto (a ata, se houver, continua
+ * existindo; o banco só desfaz o vínculo com a reunião).
+ */
 export async function excluirTipoReuniao(id: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase.from("tipos_reuniao").delete().eq("id", id);
-  if (error) {
-    if (error.code === "23503") return { error: "Esse tipo tem reuniões já agendadas — desative em vez de excluir." };
-    return { error: "Não foi possível excluir." };
+  const { count: ativas } = await supabase
+    .from("reunioes_agendadas")
+    .select("id", { count: "exact", head: true })
+    .eq("tipo_reuniao_id", id)
+    .neq("status", "cancelada");
+  if ((ativas ?? 0) > 0) {
+    return { error: "Esse tipo tem reunião marcada — cancele a reunião ou desative o tipo em vez de excluir." };
   }
+  await supabase.from("reunioes_agendadas").delete().eq("tipo_reuniao_id", id).eq("status", "cancelada");
+  const { error } = await supabase.from("tipos_reuniao").delete().eq("id", id);
+  if (error) return { error: "Não foi possível excluir." };
   revalidatePath("/agenda");
   return { error: null };
 }

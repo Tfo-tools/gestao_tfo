@@ -6,7 +6,7 @@ import {
   alternarAtivoTipoReuniao,
   excluirTipoReuniao,
   criarRegraDisponibilidade,
-  atualizarTextosTipoReuniao,
+  atualizarTipoReuniao,
   excluirRegraDisponibilidade,
   cancelarReuniao,
   salvarIcsPessoal,
@@ -347,6 +347,8 @@ function TipoReuniaoRow({ tipo, regras }: { tipo: TipoReuniao; regras: RegraDisp
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [nome, setNome] = useState(tipo.nome);
+  const [duracao, setDuracao] = useState(String(tipo.duracao_minutos));
   const [descricao, setDescricao] = useState(tipo.descricao ?? "");
   const [mensagem, setMensagem] = useState(tipo.mensagem_convite ?? "");
   const [salvandoTextos, startSalvarTextos] = useTransition();
@@ -425,6 +427,16 @@ function TipoReuniaoRow({ tipo, regras }: { tipo: TipoReuniao; regras: RegraDisp
           </div>
           <RegrasDisponibilidade tipoReuniaoId={tipo.id} regras={regras} />
           <div className="mt-3 flex flex-col gap-2 border-t border-border-soft pt-3">
+            <div className="flex flex-wrap gap-2">
+              <div className="min-w-[220px] flex-1">
+                <label className="mb-1 block text-[10px] text-text-faint">Nome (o link acompanha)</label>
+                <input value={nome} onChange={(e) => setNome(e.target.value)} className="input w-full" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] text-text-faint">Duração (min)</label>
+                <input type="number" min={5} step={5} value={duracao} onChange={(e) => setDuracao(e.target.value)} className="input w-[100px]" />
+              </div>
+            </div>
             <div>
               <label className="mb-1 block text-[10px] text-text-faint">Descrição (aparece pro cliente ao escolher o horário)</label>
               <input value={descricao} onChange={(e) => setDescricao(e.target.value)} className="input w-full" />
@@ -439,14 +451,19 @@ function TipoReuniaoRow({ tipo, regras }: { tipo: TipoReuniao; regras: RegraDisp
                 disabled={salvandoTextos}
                 onClick={() =>
                   startSalvarTextos(async () => {
-                    const r = await atualizarTextosTipoReuniao(tipo.id, { descricao, mensagem_convite: mensagem });
+                    const r = await atualizarTipoReuniao(tipo.id, {
+                      nome,
+                      duracao_minutos: Number(duracao),
+                      descricao,
+                      mensagem_convite: mensagem,
+                    });
                     setErro(r.error);
                     setTextosSalvos(!r.error);
                   })
                 }
                 className="rounded-lg border border-border px-3 py-1.5 text-[11.5px] font-medium text-primary-deep disabled:opacity-60"
               >
-                {salvandoTextos ? "…" : "Salvar textos"}
+                {salvandoTextos ? "…" : "Salvar alterações"}
               </button>
               {!mensagem && (
                 <button type="button" onClick={() => setMensagem(TEXTO_PADRAO_CONVITE)} className="text-[11px] text-text-muted underline">
