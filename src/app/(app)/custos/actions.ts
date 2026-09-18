@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { congelarPlanoDoMes } from "@/lib/acompanhamento-plano";
 import { cicloValido, datasDasParcelas } from "@/lib/fatura-cartao";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 
@@ -453,7 +454,17 @@ export async function fecharMes(mes: string): Promise<{ error: string | null }> 
   const { error } = await supabase.from("meses_fechados").insert({ mes: `${mes}-01`, fechado_por: user?.id ?? null });
   if (error) return { error: "Não foi possível fechar o mês." };
 
+  // O mês fechado vira realizado no plano oficial: guarda o plano dele como estava hoje, pra o
+  // comparativo não mudar quando o plano for revisado. Falha aqui não impede o fechamento.
+  try {
+    await congelarPlanoDoMes(supabase, `${mes}-01`, user?.id ?? null);
+  } catch (e) {
+    console.error("Plano do mês não guardado", e);
+  }
+
   revalidatePath("/custos/extrato");
+  revalidatePath("/relatorios");
+  revalidatePath("/indicadores");
   return { error: null };
 }
 

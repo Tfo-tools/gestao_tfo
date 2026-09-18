@@ -356,3 +356,16 @@ Regra nos três cenários: faixas por clientes só em 2028 (R$ 30 mil até 800, 
   (o FUNSES pode ou não exigir conta própria). Vale para a Destinação, a Prestação de Contas (visão do
   avaliador e da sócia) e o .zip de comprovantes. Despesa vinculada numa conta não orçada aparece como
   "fora do orçamento". Editar a despesa numa tela sem o campo não apaga o vínculo.
+- **Base = plano oficial "rolante"** (set/2026). O Base é o FUNSES - Pessimista SEM o aporte do FUNSES
+  (Batch 13), de out/2025 (abertura da empresa) a dez/2032 — o cenário mais desafiador: se o plano sai
+  bem dele sem o FUNSES, a empresa cresce com ou sem o investimento. Se o FUNSES for aprovado nos
+  moldes atuais, o FUNSES 1 passa a ser o plano oficial; Otimista e Pessimista ficam como alternativas
+  pra aplicar ao plano corrente conforme a curva real. O Base anterior (set/2026–2030) ficou guardado
+  como "Base (anterior)". Criado por cópia no banco espelhando o clone do app (20 tabelas conferidas).
+- **Realizado × plano.** Mês fechado no Extrato = realizado; daí em diante, plano. O plano é vigente
+  (revisável a qualquer momento — "adaptação é mais relevante que previsão"), mas mês passado não muda:
+  ao fechar o mês, o plano dele é guardado em `plano_mensal_congelado` e o comparativo usa esse número
+  pra sempre (reabrir e fechar de novo não troca). Relatórios → Realizado mostra sempre o Base; a
+  Prestação de Contas (visão da sócia) compara com qualquer cenário. Indicadores abrem no mês seguinte
+  ao último fechado, até o fim do cenário; escolhendo outro "De", mostram o plano dos meses passados.
+  O realizado é classificado como o plano (subgrupoDeConta) — Marca (2.4) entra em G&A dos dois lados.

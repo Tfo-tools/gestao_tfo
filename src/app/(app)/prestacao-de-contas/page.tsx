@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { carregarExecucaoPrograma, type ExecucaoPrograma } from "@/lib/execucao-programa";
+import { carregarAcompanhamento } from "@/lib/acompanhamento-plano";
+import { AcompanhamentoPlano } from "@/app/(app)/relatorios/acompanhamento-plano";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -17,7 +19,13 @@ const LABEL_STATUS: Record<string, string> = {
   encerrado: "Encerrado",
 };
 
-export default async function PrestacaoDeContasPage() {
+export default async function PrestacaoDeContasPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ cenario?: string }>;
+}) {
+  // Só a visão da sócia compara com outro cenário; investidor fica preso ao próprio escopo.
+  const { cenario: cenarioComparar } = (await searchParams) ?? {};
   const supabase = await createClient();
   const {
     data: { user },
@@ -34,7 +42,7 @@ export default async function PrestacaoDeContasPage() {
 
   if (papel === "investidor_fomento") return <VisaoFomento escopoId={perfil?.escopo_investidor_id ?? null} />;
   if (papel === "investidor") return <VisaoEquity escopoId={perfil?.escopo_investidor_id ?? null} />;
-  return <VisaoSocia />;
+  return <VisaoSocia cenarioComparar={cenarioComparar ?? null} />;
 }
 
 async function VisaoFomento({ escopoId }: { escopoId: string | null }) {
@@ -162,13 +170,17 @@ async function VisaoEquity({ escopoId }: { escopoId: string | null }) {
   );
 }
 
-async function VisaoSocia() {
+async function VisaoSocia({ cenarioComparar }: { cenarioComparar: string | null }) {
   const supabase = await createClient();
   const [{ data: investidores }, { data: programas }, { data: cenarios }] = await Promise.all([
     supabase.from("profiles").select("id, nome, papel, escopo_investidor_id").in("papel", ["investidor_fomento", "investidor"]).order("nome"),
     supabase.from("programas_investimento").select("id, nome, tipo"),
-    supabase.from("cenarios").select("id, nome"),
+    supabase.from("cenarios").select("id, nome, is_base").order("created_at"),
   ]);
+  // Realizado × plano de qualquer cenário (padrão: o Base, plano oficial). Em Relatórios é sempre o Base.
+  const escolhido = (cenarios ?? []).find((c) => c.id === cenarioComparar) ?? (cenarios ?? []).find((c) => c.is_base) ?? null;
+  const hojeIso = new Date().toISOString();
+  const acompanhamento = escolhido ? await carregarAcompanhamento(supabase, escolhido.id, hojeIso) : null;
   // O que o avaliador de cada programa vai ver: execução pelas despesas vinculadas no lançamento.
   const execucoes = await Promise.all(
     (programas ?? []).map(async (p) => ({ programa: p, execucao: await carregarExecucaoPrograma(supabase, p.id) })),
@@ -190,6 +202,33 @@ async function VisaoSocia() {
           .
         </p>
       </div>
+
+      {escolhido && acompanhamento && (
+        <AcompanhamentoPlano
+          nomeCenario={escolhido.is_base ? `${escolhido.nome} (plano oficial)` : escolhido.nome}
+          meses={acompanhamento.meses}
+          ultimoFechado={acompanhamento.ultimoFechado}
+          mesAtual={`${hojeIso.slice(0, 7)}-01`}
+          seletor={
+            <form method="get" className="flex items-center gap-2">
+              <label className="text-[11px] text-text-muted" htmlFor="cenario-comparar">
+                Comparar com
+              </label>
+              <select id="cenario-comparar" name="cenario" defaultValue={escolhido.id} className="input py-1 text-[12px]">
+                {(cenarios ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                    {c.is_base ? " (plano oficial)" : ""}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" className="rounded-lg border border-border px-2.5 py-1 text-[11.5px] font-medium text-primary-deep">
+                Ver
+              </button>
+            </form>
+          }
+        />
+      )}
 
       <div className="rounded-xl border border-border bg-surface p-6">
         {(investidores ?? []).length === 0 ? (

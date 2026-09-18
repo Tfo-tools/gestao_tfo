@@ -14,6 +14,8 @@ import { DistribuicaoCustos, type LinhaDistribuicao } from "./distribuicao-custo
 import { InvestimentoERetorno } from "./investimento-e-retorno";
 import { DestinacaoPorConta } from "./destinacao-por-conta";
 import { carregarExecucaoPrograma } from "@/lib/execucao-programa";
+import { carregarAcompanhamento, mesSeguinteAoFechado } from "@/lib/acompanhamento-plano";
+import { AcompanhamentoPlano } from "./acompanhamento-plano";
 import { ReceitasHistoricas } from "./receitas-historicas-card";
 import type { ReceitaHistorica } from "@/lib/receitas-historicas";
 import {
@@ -116,6 +118,11 @@ async function RelatorioReal() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const despesasTyped = (despesas ?? []) as any as DespesaGrupoRow[];
 
+  // Acompanhamento do plano oficial: aqui é sempre o Base (outros cenários, na Prestação de Contas).
+  const { data: base } = await supabase.from("cenarios").select("id, nome").eq("is_base", true).maybeSingle();
+  const hojeIso = new Date().toISOString();
+  const acompanhamento = base ? await carregarAcompanhamento(supabase, base.id, hojeIso) : null;
+
   const now = new Date();
   const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
@@ -180,6 +187,14 @@ async function RelatorioReal() {
 
   return (
     <>
+      {base && acompanhamento && (
+        <AcompanhamentoPlano
+          nomeCenario={`${base.nome} (plano oficial)`}
+          meses={acompanhamento.meses}
+          ultimoFechado={acompanhamento.ultimoFechado}
+          mesAtual={`${hojeIso.slice(0, 7)}-01`}
+        />
+      )}
       <div className="mb-5 rounded-xl border border-border bg-surface p-6">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="font-heading text-sm font-semibold">
@@ -616,9 +631,23 @@ export async function RelatorioPlanos({
     resumo.periodo.fim ??
     resumo.linhas[resumo.linhas.length - 1]?.mes_referencia ??
     null;
+  // Sem período na URL, os Indicadores abrem no mês seguinte ao último fechado no Extrato: o que
+  // já fechou é realizado (acompanhado em Relatórios); daqui pra frente é plano. Escolhendo outro
+  // "De", o plano dos meses passados aparece também, pra comparar.
+  const { data: fechadosRaw } = await supabase.from("meses_fechados").select("mes");
+  const seguinte = mesSeguinteAoFechado(
+    ((fechadosRaw ?? []) as { mes: string }[]).map((f) => f.mes),
+    new Date().toISOString(),
+  );
+  const inicioPadrao =
+    primeiroMes && seguinte < primeiroMes
+      ? primeiroMes
+      : ultimoMes && seguinte > ultimoMes
+        ? primeiroMes
+        : seguinte;
   const linhasPeriodo = recortarPeriodo(
     resumo.linhas,
-    inicio ?? primeiroMes,
+    inicio ?? inicioPadrao,
     fim ?? ultimoMes,
   );
 
@@ -668,7 +697,7 @@ export async function RelatorioPlanos({
       ),
     };
   });
-  const inicioSel = inicio ?? (primeiroMes ? primeiroMes.slice(0, 7) : "");
+  const inicioSel = inicio ?? (inicioPadrao ? inicioPadrao.slice(0, 7) : "");
   const fimSel = fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "");
 
   // Base do valor de saída na simulação de retorno: ARR (MRR × 12) do último mês do período e
