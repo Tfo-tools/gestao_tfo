@@ -103,10 +103,11 @@ function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export type Pendencia = { texto: string; venceHoje: boolean };
+export type Pendencia = { texto: string; venceHoje: boolean; quando: "atrasada" | "hoje" | "amanha" };
 
-/** Contas, faturas de cartão e tarefas que vencem hoje ou amanhã — mesmo recorte do cron diário de
- * lembretes, pra entrar no resumo da manhã junto com a agenda em vez de chegar em avisos soltos. */
+/** Contas e faturas de cartão que vencem hoje ou amanhã, e tarefas abertas até amanhã — inclusive as
+ * atrasadas: tarefa não some do resumo enquanto não for concluída, só muda de bloco. Mesmo recorte do
+ * cron diário de lembretes, pra entrar no resumo da manhã junto com a agenda. */
 export async function carregarPendencias(): Promise<Pendencia[]> {
   const supabase = createAdminClient();
   const hoje = dataLocal(new Date().toISOString());
@@ -117,7 +118,7 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
     supabase.from("despesas").select("descricao, valor_total, data_gasto").eq("comprovado", false).in("data_gasto", dias),
     supabase.from("despesa_parcelas").select("valor, data_prevista, despesas(descricao)").eq("status", "prevista").in("data_prevista", dias),
     supabase.from("ativo_parcelas").select("valor, data_prevista, ativos(descricao)").eq("status", "prevista").in("data_prevista", dias),
-    supabase.from("tarefas").select("titulo, prazo, responsavel_id, participantes").neq("status", "feito").in("prazo", dias),
+    supabase.from("tarefas").select("titulo, prazo, responsavel_id, participantes").neq("status", "feito").lte("prazo", amanha).order("prazo"),
     supabase.from("profiles").select("id, nome"),
   ]);
 
@@ -128,13 +129,13 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
 
   const itens: Pendencia[] = [];
   for (const d of despesas ?? []) {
-    itens.push({ texto: `💰 ${d.descricao ?? "Conta"} — ${formatBRL(Number(d.valor_total))}`, venceHoje: d.data_gasto === hoje });
+    itens.push({ texto: `💰 ${d.descricao ?? "Conta"} — ${formatBRL(Number(d.valor_total))}`, venceHoje: d.data_gasto === hoje, quando: d.data_gasto === hoje ? "hoje" : "amanha" });
   }
   for (const p of parcelas ?? []) {
-    itens.push({ texto: `💳 ${nome(p.despesas) ?? "Compra no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje });
+    itens.push({ texto: `💳 ${nome(p.despesas) ?? "Compra no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje, quando: p.data_prevista === hoje ? "hoje" : "amanha" });
   }
   for (const p of parcelasAtivo ?? []) {
-    itens.push({ texto: `💳 ${nome(p.ativos) ?? "Ativo no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje });
+    itens.push({ texto: `💳 ${nome(p.ativos) ?? "Ativo no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje, quando: p.data_prevista === hoje ? "hoje" : "amanha" });
   }
   // Tarefa vem com quem faz: responsável primeiro, depois quem participa — "Emyli + Vanessa".
   const primeiroNome = new Map(
@@ -146,7 +147,15 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
   for (const t of tarefas ?? []) {
     const ids = [t.responsavel_id, ...((t.participantes as string[] | null) ?? [])].filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
     const quem = ids.map((id) => primeiroNome.get(id)).filter(Boolean).join(" + ");
-    itens.push({ texto: `✅ ${t.titulo}${quem ? ` — ${quem}` : ""}`, venceHoje: t.prazo === hoje });
+    if (!t.prazo) continue;
+    const atrasada = t.prazo < hoje;
+    const diasAtraso = atrasada ? Math.round((new Date(`${hoje}T00:00:00Z`).getTime() - new Date(`${t.prazo}T00:00:00Z`).getTime()) / 86400000) : 0;
+    const marca = atrasada ? ` (há ${diasAtraso} ${diasAtraso === 1 ? "dia" : "dias"})` : "";
+    itens.push({
+      texto: `✅ ${t.titulo}${quem ? ` — ${quem}` : ""}${marca}`,
+      venceHoje: t.prazo === hoje,
+      quando: atrasada ? "atrasada" : t.prazo === hoje ? "hoje" : "amanha",
+    });
   }
   return itens;
 }
@@ -162,8 +171,10 @@ export function textoResumoHoje(eventos: EventoAgenda[], pendencias: Pendencia[]
     blocos.push(`☀️ Bom dia! Compromissos de hoje:\n${linhas.join("\n")}`);
   }
 
-  const vencemHoje = pendencias.filter((p) => p.venceHoje);
-  const vencemAmanha = pendencias.filter((p) => !p.venceHoje);
+  const atrasadas = pendencias.filter((p) => p.quando === "atrasada");
+  const vencemHoje = pendencias.filter((p) => p.quando === "hoje");
+  const vencemAmanha = pendencias.filter((p) => p.quando === "amanha");
+  if (atrasadas.length > 0) blocos.push(`⚠️ Atrasadas (ficam aqui até concluir):\n${atrasadas.map((p) => p.texto).join("\n")}`);
   if (vencemHoje.length > 0) blocos.push(`Vence hoje:\n${vencemHoje.map((p) => p.texto).join("\n")}`);
   if (vencemAmanha.length > 0) blocos.push(`Vence amanhã:\n${vencemAmanha.map((p) => p.texto).join("\n")}`);
 
