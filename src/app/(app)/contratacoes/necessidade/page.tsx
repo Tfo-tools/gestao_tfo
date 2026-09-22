@@ -10,7 +10,7 @@ import {
 } from "@/lib/necessidade-contratacao";
 import type { FaseValue } from "@/lib/fases";
 import { NecessidadeTabelas } from "./necessidade-tabelas";
-import { RoteiroCanalDireto, type PassoRoteiro } from "./roteiro-canal-direto";
+import type { PassoRoteiro } from "./roteiro-canal-direto";
 import { horasAtendimentoPorProduto } from "@/lib/cogs";
 import { PremissasVendas, type PremissaVendasProduto } from "./premissas-vendas";
 
@@ -134,36 +134,32 @@ export default async function NecessidadeContratacaoPage({
     };
   });
 
-  // Estado real de cada passo do caminho do canal direto, pra tela poder dizer o que falta.
-  const canalDireto = (canaisRaw ?? []).find((c) => c.tipo_canal === "direto");
+  // O que faz o SDR virar custo é a ALOCAÇÃO — o custo e as ligações saem do modelo alocado, não
+  // do vínculo em Canais de Aquisição (aquele campo só diz quem prospecta; nenhum número lê ele).
+  // Checar o vínculo aqui fazia a tela acusar "falta a taxa de qualificação" com a taxa preenchida.
+  const modelosSdr = (modelos ?? []).filter((m) => cargoChave(m.cargo) === "sdr");
+  const alocacoesSdr = (alocacoes ?? []).filter((a) => cargoChave(a.cargo) === "sdr");
+  const modelosEmUso = alocacoesSdr
+    .map((a) => modelosSdr.find((m) => m.id === a.modelo_id))
+    .filter((m): m is NonNullable<typeof m> => Boolean(m));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const modeloDoCanal = canalDireto?.modelo_contratacao_id ? (modelos ?? []).find((m) => m.id === canalDireto.modelo_contratacao_id) : null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const temQualificacao = modeloDoCanal ? (modeloDoCanal.parametros as any)?.taxa_qualificacao != null : false;
-  const cargosDoModelo = modeloDoCanal?.cargo;
-  const temAlocacao = (alocacoes ?? []).some((a) => !cargosDoModelo || cargoChave(a.cargo) === cargoChave(cargosDoModelo));
+  const temTaxa = (m: any) => m?.parametros?.taxa_qualificacao != null || m?.parametros?.taxa_qualificacao_estimada != null;
+  const temQualificacao = (modelosEmUso.length > 0 ? modelosEmUso : modelosSdr).some(temTaxa);
+  const temAlocacao = alocacoesSdr.length > 0;
 
   const passosCanalDireto: PassoRoteiro[] = [
     {
       titulo: "Cadastrar o modelo que faz a prospecção",
       explicacao:
-        "Em Modelos de Contratação, crie (ou edite) o modelo de SDR — CLT, PJ, agência ou IA — e preencha a taxa de qualificação lead → reunião. É ela que diz quantos leads são precisos pra gerar uma reunião.",
+        "Em Modelos de Contratação, crie (ou edite) o modelo de SDR — CLT, PJ, agência ou IA — e preencha a taxa de qualificação lead → reunião. É ela que diz quantas ligações custa cada reunião agendada.",
       feito: temQualificacao,
       href: "/contratacoes/modelos",
       linkLabel: "Modelos de Contratação",
     },
     {
-      titulo: "Vincular esse modelo ao canal Direto",
-      explicacao:
-        "Em Vendas → Canais de Aquisição, edite o canal Direto e escolha o modelo em \u201cModelo que executa\u201d. Isso só define quem prospecta e com que eficiência — ainda não gera custo.",
-      feito: Boolean(canalDireto?.modelo_contratacao_id),
-      href: `/plano/${cenarioAtual}/vendas`,
-      linkLabel: "Canais de Aquisição",
-    },
-    {
       titulo: "Alocar o modelo por um período",
       explicacao:
-        "Aqui embaixo, na aba SDR, use \u201c+ Alocar\u201d informando quantidade e datas. É esse lançamento que vira custo mensal e entra no CAC — os dois passos acima sozinhos não geram despesa nenhuma.",
+        "Aqui embaixo, na aba SDR, use \u201c+ Alocar\u201d informando quantidade e datas. É esse lançamento que vira custo mensal e entra no CAC — o modelo cadastrado sozinho não gera despesa nenhuma.",
       feito: temAlocacao,
       href: "/contratacoes/necessidade",
       linkLabel: "Rolar até a tabela de SDR",
@@ -231,7 +227,6 @@ export default async function NecessidadeContratacaoPage({
         produtos={(produtosRaw ?? []).filter((p) => fasesPorProduto.some((f) => f.produtoId === p.id))}
         modelos={modelos ?? []}
         alocacoes={alocacoes ?? []}
-        mesesSemQualificacao={demanda.mesesSemQualificacao}
         cargoInicial={cargoInicial}
         passosCanalDireto={passosCanalDireto}
       />

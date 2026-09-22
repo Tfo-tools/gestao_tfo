@@ -108,7 +108,6 @@ export function NecessidadeTabelas({
   passosCanalDireto = [],
   modelos,
   alocacoes,
-  mesesSemQualificacao,
   cargoInicial = "sdr",
 }: {
   cenarioId: string;
@@ -120,7 +119,6 @@ export function NecessidadeTabelas({
   passosCanalDireto?: PassoRoteiro[];
   modelos: Modelo[];
   alocacoes: Alocacao[];
-  mesesSemQualificacao: string[];
   cargoInicial?: CargoChave;
 }) {
   const [ativo, setAtivo] = useState<CargoChave>(cargoInicial);
@@ -178,17 +176,19 @@ export function NecessidadeTabelas({
     return primeiro === -1 ? [] : linhas.slice(primeiro);
   }, [linhas]);
 
+  // Mês com demanda e nenhuma alocação ativa sai com custo zero — é o único alerta que importa
+  // aqui. A taxa de qualificação vem do modelo ALOCADO, então ela nunca falta quando há alocação.
+  const mesesSemSdr = useMemo(
+    () => (ativo === "sdr" ? linhasRelevantes.filter((l) => l.demanda > 0.001 && l.itens.length === 0).map((l) => l.mes) : []),
+    [ativo, linhasRelevantes],
+  );
+
   return (
     <div className="flex flex-col gap-5">
-      {mesesSemQualificacao.length > 0 && (
-        <div className="rounded-lg border border-dashed border-danger bg-danger-soft px-4 py-3 text-[12px] text-danger">
-          <strong>Falta a taxa de qualificação (lead → oportunidade)</strong> em {mesesSemQualificacao.length} mês(es).
-          Sem ela o app assume que todo lead vira reunião, e o custo de SDR sai muito abaixo do real. A taxa é do{" "}
-          <strong>modelo de contratação</strong> vinculado ao canal direto — preencha em{" "}
-          <a href="/contratacoes/modelos" className="underline">
-            Contratações → Modelos de Contratação
-          </a>
-          .
+      {ativo === "sdr" && mesesSemSdr.length > 0 && (
+        <div className="rounded-lg border border-dashed border-border bg-surface px-3.5 py-2 text-[11.5px] text-text-muted">
+          ⚠ Em {mesesSemSdr.length} {mesesSemSdr.length === 1 ? "mês" : "meses"} há reuniões a agendar sem nenhum SDR alocado —
+          a partir de {formatMes(mesesSemSdr[0])}. Esses meses saem com custo zero: a prospecção fica como esforço próprio.
         </div>
       )}
 

@@ -3,10 +3,10 @@ import Link from "next/link";
 export type PassoRoteiro = { titulo: string; explicacao: string; feito: boolean; href: string; linkLabel: string };
 
 /**
- * O custo do canal direto nasce de três telas diferentes, e cada uma sozinha não produz nada:
- * o modelo diz quanto custa e quanto qualifica, o canal diz qual modelo prospecta, e a alocação
- * diz por quanto tempo e em que quantidade. Sem ver os três juntos, a pessoa preenche um, não vê
- * número nenhum mudar e conclui que está quebrado.
+ * O custo do canal direto nasce de duas telas, e cada uma sozinha não produz nada: o modelo diz
+ * quanto custa e quanto qualifica, e a alocação diz por quanto tempo e em que quantidade. Sem ver
+ * as duas juntas, a pessoa preenche uma, não vê número nenhum mudar e conclui que está quebrado.
+ * O vínculo do modelo em Canais de Aquisição não entra: nenhum cálculo lê aquele campo.
  */
 export function RoteiroCanalDireto({ passos }: { passos: PassoRoteiro[] }) {
   const pendentes = passos.filter((p) => !p.feito).length;
@@ -16,8 +16,8 @@ export function RoteiroCanalDireto({ passos }: { passos: PassoRoteiro[] }) {
     <div className="rounded-xl border border-border bg-surface p-4">
       <h2 className="font-heading text-[13px] font-semibold">Para o canal direto entrar no custo e no CAC</h2>
       <p className="mb-3 mt-0.5 text-[11.5px] text-text-muted">
-        São três passos em telas diferentes. Enquanto os três não estiverem completos, o canal direto aparece com custo zero e o CAC
-        fica menor do que a realidade. Faltam {pendentes} de {passos.length}.
+        São {passos.length} passos. Enquanto não estiverem completos, o canal direto aparece com custo zero e o CAC fica menor do
+        que a realidade. Faltam {pendentes} de {passos.length}.
       </p>
 
       <ol className="flex flex-col gap-2">
