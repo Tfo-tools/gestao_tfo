@@ -192,7 +192,9 @@ export function NecessidadeTabelas({
         </div>
       )}
 
-      {ativo === "sdr" && passosCanalDireto.some((p) => !p.feito) && <RoteiroCanalDireto passos={passosCanalDireto} />}
+      {ativo === "sdr" && passosCanalDireto.some((p) => !p.feito) && (
+        <AvisoCanalDireto passos={passosCanalDireto} />
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-2">
@@ -677,6 +679,26 @@ function ComparativoModelos({
           {state.error && <p className="w-full text-[11px] text-danger">{state.error}</p>}
         </form>
       )}
+    </div>
+  );
+}
+
+/** O roteiro inteiro tomava a primeira tela. Vira uma linha: o alerta que importa (custo zero e CAC
+ * abaixo do real) fica visível, e os passos só quando a pessoa pedir. */
+function AvisoCanalDireto({ passos }: { passos: PassoRoteiro[] }) {
+  const [aberto, setAberto] = useState(false);
+  const faltam = passos.filter((p) => !p.feito).length;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border bg-surface px-3 py-2 text-[11.5px] text-text-muted">
+        <span>
+          ⚠ O canal direto ainda aparece com <strong>custo zero</strong> e o CAC menor do que a realidade — faltam {faltam} de {passos.length} passos.
+        </span>
+        <button type="button" onClick={() => setAberto((v) => !v)} className="text-primary-deep underline">
+          {aberto ? "ocultar" : "ver o que falta"}
+        </button>
+      </div>
+      {aberto && <RoteiroCanalDireto passos={passos} />}
     </div>
   );
 }
