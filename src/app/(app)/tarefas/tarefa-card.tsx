@@ -119,6 +119,7 @@ export function NovaTarefaCard({
           projetoInicial={projetoInicial}
           faseInicial={faseInicial}
           fixarProjeto={!!parentId}
+          comSubtarefas={!parentId}
         />
         <div className="flex items-center gap-2">
           <button type="submit" disabled={pending} className={botaoPrimario}>

@@ -91,6 +91,26 @@ export async function criarTarefa(_prevState: TarefaFormState, formData: FormDat
   const deps = dependencias(formData);
   if (deps.length > 0) await salvarDependencias(supabase, data.id, deps);
 
+  // Subtarefas escritas junto no formulário de criação (uma por linha do campo "subtarefas"):
+  // herdam projeto, fase e responsável da mãe — quem está criando já pensou no conjunto.
+  const subtarefas = String(formData.get("subtarefas") ?? "")
+    .split("\n")
+    .map((linha) => linha.replace(/^[-•*\s]+/, "").trim())
+    .filter(Boolean);
+  if (subtarefas.length > 0) {
+    await supabase.from("tarefas").insert(
+      subtarefas.map((titulo, i) => ({
+        titulo,
+        parent_id: data.id,
+        projeto_id: campos.projeto_id,
+        fase_id: campos.fase_id,
+        responsavel_id: campos.responsavel_id,
+        ordem: i,
+        criado_por: user?.id ?? null,
+      })),
+    );
+  }
+
   revalidatePath("/tarefas");
   return { error: null, success: true };
 }

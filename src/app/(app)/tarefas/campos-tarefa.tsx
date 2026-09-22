@@ -22,6 +22,7 @@ export function CamposTarefa({
   faseInicial,
   fixarProjeto = false,
   abrirTudo = false,
+  comSubtarefas = false,
 }: {
   tarefa?: Tarefa;
   pessoas: Pessoa[];
@@ -35,6 +36,8 @@ export function CamposTarefa({
   /** Subtarefa: o projeto vem da mãe e não muda aqui. */
   fixarProjeto?: boolean;
   abrirTudo?: boolean;
+  /** Só na criação da tarefa-mãe: já escrever as subtarefas, uma por linha. */
+  comSubtarefas?: boolean;
 }) {
   const [projetoId, setProjetoId] = useState(tarefa?.projeto_id ?? projetoInicial ?? "");
   const [mais, setMais] = useState(abrirTudo);
@@ -151,6 +154,18 @@ export function CamposTarefa({
             <label className={rotulo}>Descrição</label>
             <textarea name="descricao" rows={2} defaultValue={tarefa?.descricao ?? ""} className="input input-compacto w-full" />
           </div>
+          {comSubtarefas && (
+            <div className="col-span-2">
+              <label className={rotulo}>Subtarefas (uma por linha)</label>
+              <textarea
+                name="subtarefas"
+                rows={3}
+                placeholder={"Levantar documentos\nPreencher formulário\nEnviar ao contador"}
+                className="input input-compacto w-full"
+              />
+              <p className="mt-0.5 text-[10px] text-text-faint">Herdam projeto, fase e responsável desta tarefa — dá pra ajustar cada uma depois.</p>
+            </div>
+          )}
           {candidatas.length > 0 && (
             <div className="col-span-2">
               <label className={rotulo}>Depende de (só libera depois que estas ficarem feitas)</label>
