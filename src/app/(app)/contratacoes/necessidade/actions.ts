@@ -228,3 +228,25 @@ export async function alocarPerfilHora(_prevState: ActionState, formData: FormDa
   revalidarTelasAfetadas();
   return { error: null, success: true };
 }
+
+/** A nota que explica a alocação: produtividade considerada e por que aquele modelo, por cargo. */
+export async function salvarNotaCargo(_prevState: ActionState, formData: FormData): Promise<ActionState> {
+  const cenario_id = String(formData.get("cenario_id") || "");
+  const cargo_chave = String(formData.get("cargo_chave") || "");
+  const produtividade = String(formData.get("produtividade") || "").trim() || null;
+  const estrategia = String(formData.get("estrategia") || "").trim() || null;
+  if (!cenario_id || !cargo_chave) return { error: "Cargo não identificado." };
+
+  const supabase = await createClient();
+  const { data: sessao } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from("notas_cargo_cenario")
+    .upsert(
+      { cenario_id, cargo_chave, produtividade, estrategia, updated_at: new Date().toISOString(), updated_by: sessao.user?.id ?? null },
+      { onConflict: "cenario_id,cargo_chave" },
+    );
+  if (error) return { error: "Não foi possível salvar a observação." };
+
+  revalidatePath("/contratacoes/necessidade");
+  return { error: null, success: true };
+}

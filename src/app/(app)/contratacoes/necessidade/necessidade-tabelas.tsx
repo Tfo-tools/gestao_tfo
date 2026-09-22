@@ -15,6 +15,7 @@ import {
   type ModeloEquipe,
 } from "@/lib/equipe-comercial";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { NotaCargo, type NotaCargo as NotaCargoTipo } from "./nota-cargo";
 import { RoteiroCanalDireto, type PassoRoteiro } from "./roteiro-canal-direto";
 
 type Modelo = { id: string; cargo: string; tipo_modelo: string; nome: string; categoria?: "pd" | "sm" | "ga"; parametros: ParametrosModelo };
@@ -119,6 +120,7 @@ export function NecessidadeTabelas({
   perfisHora = [],
   custoRegraPorMes = {},
   regraPorProduto = {},
+  notas = [],
   cargoInicial = "sdr",
 }: {
   cenarioId: string;
@@ -137,6 +139,8 @@ export function NecessidadeTabelas({
   custoRegraPorMes?: Record<string, Record<string, { suporte: number; cs: number }>>;
   /** Perfil que a regra de COGS usa em cada produto — é o "quem faz" das linhas sem alocação. */
   regraPorProduto?: Record<string, { suporte: PerfilRegra | null; cs: PerfilRegra | null }>;
+  /** O raciocínio do planejamento por cargo — aparece embaixo da tabela do cargo ativo. */
+  notas?: NotaCargoTipo[];
   cargoInicial?: CargoChave;
 }) {
   const [ativo, setAtivo] = useState<CargoChave>(cargoInicial);
@@ -403,6 +407,13 @@ export function NecessidadeTabelas({
           </div>
         )}
       </div>
+
+      <NotaCargo
+        cenarioId={cenarioId}
+        cargoChave={ativo}
+        cargoLabel={cargoAtual.label}
+        nota={notas.find((n) => n.cargo_chave === ativo)}
+      />
 
       <AlocacaoModelo cenarioId={cenarioId} cargo={cargoAtual.label} modelos={modelosDoCargo} alocacoes={alocacoesDoCargo} produtos={produtos} />
     </div>

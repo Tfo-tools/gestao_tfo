@@ -61,6 +61,11 @@ export default async function NecessidadeContratacaoPage({
 
   // Tabela de custo/hora por perfil (cargo × CLT/PJ × senioridade) — é dela que sai o custo do
   // Suporte e do CS na regra de COGS, e é ela que a tela oferece pra comparar PJ e CLT.
+  const { data: notasCargo } = await supabase
+    .from("notas_cargo_cenario")
+    .select("cargo_chave, produtividade, estrategia")
+    .eq("cenario_id", cenarioAtual);
+
   const { data: perfisHora } = await supabase
     .from("tabela_custo_hora")
     .select("cargo, tipo_contratacao, senioridade, valor_hora")
@@ -282,6 +287,7 @@ export default async function NecessidadeContratacaoPage({
         perfisHora={(perfisHora ?? []).map((t) => ({ ...t, valor_hora: Number(t.valor_hora) }))}
         custoRegraPorMes={custoRegraPorMes}
         regraPorProduto={regraPorProduto}
+        notas={notasCargo ?? []}
         cargoInicial={cargoInicial}
         passosCanalDireto={passosCanalDireto}
       />
