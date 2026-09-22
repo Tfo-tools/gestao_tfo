@@ -53,11 +53,18 @@ export default async function NecessidadeContratacaoPage({
       : Promise.resolve({ data: [] }),
     supabase
       .from("simulacao_mensal")
-      .select("produto_id, mes_referencia, novos_clientes, clientes_ativos, receita_bruta, novos_direto, novos_representante, novos_associacao, novos_acoes")
+      .select("produto_id, mes_referencia, novos_clientes, clientes_ativos, receita_bruta, novos_direto, novos_representante, novos_associacao, novos_acoes, cogs_suporte_reativo, cogs_cs_proativo")
       .eq("cenario_id", cenarioAtual),
     supabase.from("modelos_contratacao").select("*").order("cargo"),
     supabase.from("alocacao_modelo_contratacao").select("*").eq("cenario_id", cenarioAtual),
   ]);
+
+  // Tabela de custo/hora por perfil (cargo × CLT/PJ × senioridade) — é dela que sai o custo do
+  // Suporte e do CS na regra de COGS, e é ela que a tela oferece pra comparar PJ e CLT.
+  const { data: perfisHora } = await supabase
+    .from("tabela_custo_hora")
+    .select("cargo, tipo_contratacao, senioridade, valor_hora")
+    .order("cargo");
 
   const fasesPorProduto: FaseProdutoInput[] = (fasesRaw ?? []).map((f) => ({
     produtoId: f.produto_id,
@@ -168,6 +175,17 @@ export default async function NecessidadeContratacaoPage({
     },
   ];
 
+  // Suporte e CS são pagos pela regra de COGS enquanto não houver alocação — sem mostrar esse
+  // valor, a tabela parece dizer que o mês não custa nada.
+  const custoRegraPorMes: Record<string, Record<string, { suporte: number; cs: number }>> = {};
+  for (const r of simulacaoRaw ?? []) {
+    const doMes = (custoRegraPorMes[r.mes_referencia] ??= {});
+    doMes[r.produto_id] = {
+      suporte: Number((r as Record<string, unknown>).cogs_suporte_reativo ?? 0),
+      cs: Number((r as Record<string, unknown>).cogs_cs_proativo ?? 0),
+    };
+  }
+
   const semDados = demanda.sdr.length === 0 && demanda.coordenador.length === 0 && demanda.suporte.length === 0 && demanda.cs.length === 0;
 
   return (
@@ -229,6 +247,8 @@ export default async function NecessidadeContratacaoPage({
         produtos={(produtosRaw ?? []).filter((p) => fasesPorProduto.some((f) => f.produtoId === p.id))}
         modelos={modelos ?? []}
         alocacoes={alocacoes ?? []}
+        perfisHora={(perfisHora ?? []).map((t) => ({ ...t, valor_hora: Number(t.valor_hora) }))}
+        custoRegraPorMes={custoRegraPorMes}
         cargoInicial={cargoInicial}
         passosCanalDireto={passosCanalDireto}
       />

@@ -158,3 +158,73 @@ export async function salvarPremissasVendas(_prevState: ActionState, formData: F
   revalidarTelasAfetadas();
   return { error: null, success: true };
 }
+
+/** Horas de um mês cheio — a tabela de custo/hora vira custo mensal por esta base. */
+const HORAS_MES = 173.33;
+const SENIORIDADE_LABEL: Record<string, string> = { junior: "júnior", pleno: "pleno", senior: "sênior" };
+
+/**
+ * Aloca direto a partir de um perfil da tabela de custo/hora (Contratações → Custo/hora). É o
+ * caminho de Suporte e CS: a pessoa decide PJ ou CLT e a senioridade sem sair da tela, e o app
+ * cria — ou reaproveita — o modelo de contratação equivalente. PJ é pago pelas horas do mês; CLT
+ * é pessoa inteira, paga mesmo que a demanda do mês seja de poucas horas.
+ */
+export async function alocarPerfilHora(_prevState: ActionState, formData: FormData): Promise<ActionState> {
+  const cenario_id = String(formData.get("cenario_id") || "");
+  const cargo = String(formData.get("perfil_cargo") || "").trim();
+  const tipo = String(formData.get("tipo_contratacao") || "pj") === "clt" ? "clt" : "pj";
+  const senioridade = String(formData.get("senioridade") || "").trim();
+  const valorHora = Number(String(formData.get("valor_hora") || "0").replace(",", "."));
+  const data_inicio = String(formData.get("data_inicio") || "") || null;
+  const data_fim = String(formData.get("data_fim") || "") || null;
+
+  if (!cenario_id || !cargo || !(valorHora > 0)) return { error: "Perfil de custo/hora inválido." };
+
+  const supabase = await createClient();
+  const rotulo = `${cargo} — ${tipo.toUpperCase()} ${SENIORIDADE_LABEL[senioridade] ?? senioridade}`;
+  const nome = `${rotulo} (R$ ${valorHora.toLocaleString("pt-BR")}/h)`;
+
+  const { data: existente } = await supabase.from("modelos_contratacao").select("id").eq("nome", nome).maybeSingle();
+  let modelo_id = existente?.id as string | undefined;
+
+  if (!modelo_id) {
+    const mensal = Number((valorHora * HORAS_MES).toFixed(2));
+    const parametros =
+      tipo === "clt"
+        ? // A tabela já entrega o custo/hora com encargos — por isso a alíquota fica zerada aqui.
+          { salario_bruto: mensal, aliquota_encargos: 0, capacidade_unidade_mes: HORAS_MES, custo_hora_tabela: valorHora }
+        : { valor_mensal: mensal, capacidade_unidade_mes: HORAS_MES, fixo_por_pessoa_inteira: false, custo_hora_tabela: valorHora };
+    const { data: novo, error: erroModelo } = await supabase
+      .from("modelos_contratacao")
+      .insert({
+        cargo,
+        tipo_modelo: tipo,
+        nome,
+        categoria: "sm",
+        parametros,
+        observacoes: "Criado a partir da tabela de custo/hora, em Necessidade de Contratação.",
+      })
+      .select("id")
+      .single();
+    if (erroModelo || !novo) return { error: "Não foi possível criar o modelo a partir do perfil." };
+    modelo_id = novo.id;
+  }
+
+  const { error } = await supabase.from("alocacao_modelo_contratacao").insert({
+    cenario_id,
+    cargo,
+    modelo_id,
+    // CLT é pessoa inteira; PJ por hora acompanha a demanda do mês.
+    quantidade: tipo === "clt" ? 1 : 0,
+    data_inicio,
+    data_fim,
+    produto_ids: produtosDoForm(formData),
+    cobertura_modo: "demanda",
+    cobertura_pct: null,
+  });
+  if (error) return { error: "Não foi possível salvar a alocação." };
+
+  revalidatePath("/contratacoes/modelos");
+  revalidarTelasAfetadas();
+  return { error: null, success: true };
+}

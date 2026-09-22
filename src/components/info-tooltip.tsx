@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 
-export function InfoTooltip({ texto }: { texto: string }) {
+/** `posicao="baixo"` é pra quando o "?" fica dentro de um container com rolagem: aberto pra cima,
+ *  o balão some atrás da borda do container. */
+export function InfoTooltip({ texto, posicao = "cima" }: { texto: string; posicao?: "cima" | "baixo" }) {
   const [aberto, setAberto] = useState(false);
 
   return (
@@ -21,9 +23,17 @@ export function InfoTooltip({ texto }: { texto: string }) {
         ?
       </button>
       {aberto && (
-        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 w-56 -translate-x-1/2 rounded-lg bg-wine-deep px-3 py-2 text-[11px] leading-relaxed text-white shadow-lg">
+        <span
+          className={`pointer-events-none absolute left-1/2 z-50 w-56 -translate-x-1/2 rounded-lg bg-wine-deep px-3 py-2 text-[11px] leading-relaxed text-white shadow-lg ${
+            posicao === "baixo" ? "top-full mt-1.5" : "bottom-full mb-1.5"
+          }`}
+        >
           {texto}
-          <span className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-wine-deep" />
+          <span
+            className={`absolute left-1/2 -translate-x-1/2 border-4 border-transparent ${
+              posicao === "baixo" ? "bottom-full border-b-wine-deep" : "top-full border-t-wine-deep"
+            }`}
+          />
         </span>
       )}
     </span>

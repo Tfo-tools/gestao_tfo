@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useActionState, useMemo, useRef, useState, useTransition } from "react";
-import { criarAlocacaoModelo, editarAlocacaoModelo, excluirAlocacaoModelo, type ActionState } from "./actions";
+import { alocarPerfilHora, criarAlocacaoModelo, editarAlocacaoModelo, excluirAlocacaoModelo, type ActionState } from "./actions";
 import { leadsParaReunioes } from "@/lib/modelos-contratacao";
 import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
 import { cargoChave, type CargoChave, type DemandaProdutoMes } from "@/lib/necessidade-contratacao";
@@ -33,6 +33,11 @@ type Alocacao = {
   cobertura_pct?: number | null;
 };
 type Produto = { id: string; nome: string };
+export type PerfilHora = { cargo: string; tipo_contratacao: string; senioridade: string; valor_hora: number };
+
+const SENIORIDADE_LABEL: Record<string, string> = { junior: "júnior", pleno: "pleno", senior: "sênior" };
+/** Horas de um mês cheio — é a base que a tabela de custo/hora usa pra virar custo mensal. */
+const HORAS_MES = 173.33;
 
 const initialState: ActionState = { error: null };
 
@@ -109,6 +114,8 @@ export function NecessidadeTabelas({
   passosCanalDireto = [],
   modelos,
   alocacoes,
+  perfisHora = [],
+  custoRegraPorMes = {},
   cargoInicial = "sdr",
 }: {
   cenarioId: string;
@@ -120,6 +127,11 @@ export function NecessidadeTabelas({
   passosCanalDireto?: PassoRoteiro[];
   modelos: Modelo[];
   alocacoes: Alocacao[];
+  /** Tabela de custo/hora (Contratações → Custo/hora). É dela que a regra de COGS tira o custo de
+   *  Suporte e CS — e é ela que a tela oferece pra comparar PJ × CLT por senioridade. */
+  perfisHora?: PerfilHora[];
+  /** Custo que a REGRA de COGS paga em cada mês, por produto: custoRegraPorMes[mes][produtoId]. */
+  custoRegraPorMes?: Record<string, Record<string, { suporte: number; cs: number }>>;
   cargoInicial?: CargoChave;
 }) {
   const [ativo, setAtivo] = useState<CargoChave>(cargoInicial);
@@ -131,6 +143,8 @@ export function NecessidadeTabelas({
 
   const modelosDoCargo = useMemo(() => modelos.filter((m) => cargoChave(m.cargo) === ativo), [modelos, ativo]);
   const alocacoesDoCargo = useMemo(() => alocacoes.filter((a) => cargoChave(a.cargo) === ativo), [alocacoes, ativo]);
+  // Perfis da tabela de custo/hora que servem a este cargo — viram opções de PJ e CLT na comparação.
+  const perfisDoCargo = useMemo(() => perfisHora.filter((t) => cargoChave(t.cargo) === ativo), [perfisHora, ativo]);
   const modelosMap = useMemo(
     () => new Map(modelos.map((m) => [m.id, { ...m, categoria: m.categoria ?? "sm" } as ModeloEquipe])),
     [modelos],
@@ -168,9 +182,13 @@ export function NecessidadeTabelas({
         // Quem cobre o mês: modelo, quanto foi contratado e o custo — é o que a tabela mostra por
         // padrão. A comparação entre modelos só aparece ao editar.
         itens: equipe.itens.filter((i) => i.chave === ativo && (i.coberto > 0 || i.custo > 0)),
+        custoRegra: alvo.reduce((sm, pid) => {
+          const r = custoRegraPorMes[mes]?.[pid];
+          return sm + (ativo === "cs" ? (r?.cs ?? 0) : ativo === "suporte" ? (r?.suporte ?? 0) : 0);
+        }, 0),
       };
     });
-  }, [porProduto, arpuPorProdutoMes, filtro, alocacoesDoCargo, modelosMap, ativo]);
+  }, [porProduto, arpuPorProdutoMes, filtro, alocacoesDoCargo, modelosMap, ativo, custoRegraPorMes]);
 
   const linhasRelevantes = useMemo(() => {
     const primeiro = linhas.findIndex((l) => l.demanda > 0.001);
@@ -264,11 +282,20 @@ export function NecessidadeTabelas({
         </div>
         {modelosDoCargo.length === 0 && linhasRelevantes.length > 0 && (
           <p className="mt-2 text-[11.5px] text-text-faint">
-            Nenhum modelo cadastrado pra {cargoAtual.label} ainda — a tabela mostra a demanda mesmo assim.{" "}
-            <a href="/contratacoes/modelos" className="text-primary-deep underline">
-              Cadastre um modelo
-            </a>{" "}
-            pra comparar custos e alocar por período.
+            Nenhum modelo de contratação cadastrado pra {cargoAtual.label} ainda.{" "}
+            {perfisDoCargo.length > 0 ? (
+              <>
+                Não precisa cadastrar pra decidir: clique em <strong>editar</strong> no mês e escolha PJ ou CLT por senioridade, direto
+                da tabela de custo/hora.
+              </>
+            ) : (
+              <>
+                <a href="/contratacoes/modelos" className="text-primary-deep underline">
+                  Cadastre um modelo
+                </a>{" "}
+                pra comparar custos e alocar por período.
+              </>
+            )}
           </p>
         )}
         {linhasRelevantes.length === 0 ? (
@@ -289,7 +316,10 @@ export function NecessidadeTabelas({
                   <td className="px-2 py-1.5 font-medium">
                     <span className="inline-flex items-center">
                       Alocado
-                      <InfoTooltip texto="Quem cobre a demanda do mês. Clique no nome do modelo pra rever a remuneração cadastrada; clique em 'editar' pra comparar os modelos e trocar." />
+                      <InfoTooltip
+                        posicao="baixo"
+                        texto="Quem cobre a demanda do mês. Clique no nome do modelo pra rever a remuneração cadastrada; clique em 'editar' pra comparar os modelos e trocar."
+                      />
                     </span>
                   </td>
                   <td className="px-2 py-1.5 text-right font-medium">Quantidade</td>
@@ -327,6 +357,7 @@ export function NecessidadeTabelas({
                         <tr className="border-t border-primary-fill bg-primary-soft/10">
                           <td colSpan={colunas + 1} className="px-3 py-2.5">
                             <ComparativoModelos
+                              perfis={perfisDoCargo}
                               linha={l}
                               ativo={ativo}
                               unidade={cargoAtual.unidade}
@@ -467,6 +498,8 @@ type LinhaMesDemanda = {
   custoAlocado: number;
   descoberto: number;
   itens: ItemEquipeMes[];
+  /** O que a regra de COGS paga neste mês (Suporte e CS). Zero nos outros cargos. */
+  custoRegra: number;
 };
 
 /** Contexto que cada modelo precisa pra calcular custo naquele volume. */
@@ -477,7 +510,7 @@ function contextoDoMes(ativo: CargoChave, l: LinhaMesDemanda) {
 }
 
 function unidadeCurta(ativo: CargoChave) {
-  return ativo === "suporte" ? "h" : "reuniões";
+  return ativo === "suporte" || ativo === "cs" ? "h" : ativo === "coordenador" ? "vendedores" : "reuniões";
 }
 
 /** Colunas de acompanhamento: quem cobre, quanto foi contratado e o custo (com o unitário). */
@@ -502,7 +535,10 @@ function CelulasAlocado({ linha: l, ativo, modelos }: { linha: LinhaMesDemanda; 
           {pagoPelaRegra ? (
             <span className="inline-flex items-center text-text-muted">
               regra de COGS (1.1.3)
-              <InfoTooltip texto="Nenhuma alocação neste mês: as horas são pagas pela regra do produto — horas × custo/hora do perfil, em Plano de Custos → CSP. Alocar um modelo aqui substitui a regra nos meses cobertos, e aí o custo passa a ser o do contrato." />
+              <InfoTooltip
+                posicao="baixo"
+                texto="Nenhuma alocação neste mês: as horas são pagas pela regra do produto — horas × custo/hora do perfil escolhido lá, em Plano de Custos → CSP. Alocar um modelo aqui substitui a regra nos meses cobertos."
+              />
             </span>
           ) : (
             <>
@@ -521,7 +557,18 @@ function CelulasAlocado({ linha: l, ativo, modelos }: { linha: LinhaMesDemanda; 
             {unidadeCurta(ativo)} {pagoPelaRegra ? "pela regra" : "sem cobertura"}
           </span>
         </td>
-        <td className="px-2 py-1.5 text-right font-mono text-text-faint">{pagoPelaRegra ? "—" : "R$ 0"}</td>
+        <td className="px-2 py-1.5 text-right font-mono text-text-faint">
+          {pagoPelaRegra ? (
+            <>
+              {formatBRL(l.custoRegra)}
+              <span className="block text-[9px] font-normal">
+                {l.custoRegra > 0 ? "pela regra de COGS" : "a regra ainda não paga este mês"}
+              </span>
+            </>
+          ) : (
+            "R$ 0"
+          )}
+        </td>
       </>
     );
   }
@@ -563,11 +610,91 @@ function CelulasAlocado({ linha: l, ativo, modelos }: { linha: LinhaMesDemanda; 
  * Comparação de modelos no volume DAQUELE mês — só aparece ao editar. É o momento de decidir:
  * escolher um modelo aqui cria a alocação já com o período começando neste mês.
  */
+/** Um perfil da tabela de custo/hora visto como modelo de contratação — é assim que ele vira
+ *  custo no mês, e é exatamente o que a alocação grava se você escolher esse perfil. */
+function modeloDoPerfil(t: PerfilHora): Modelo {
+  const clt = t.tipo_contratacao === "clt";
+  return {
+    id: `perfil:${t.cargo}|${t.tipo_contratacao}|${t.senioridade}`,
+    cargo: t.cargo,
+    tipo_modelo: clt ? "clt" : "pj",
+    nome: `${clt ? "CLT" : "PJ"} ${SENIORIDADE_LABEL[t.senioridade] ?? t.senioridade}`,
+    parametros: clt
+      ? { salario_bruto: t.valor_hora * HORAS_MES, aliquota_encargos: 0, capacidade_unidade_mes: HORAS_MES }
+      : { valor_mensal: t.valor_hora * HORAS_MES, capacidade_unidade_mes: HORAS_MES, fixo_por_pessoa_inteira: false },
+  };
+}
+
+/**
+ * Suporte e CS já têm uma tabela de preço por hora, por senioridade e por CLT/PJ — é dela que a
+ * regra de COGS tira o custo. Trazer esses perfis pra cá é o que permite decidir "PJ pleno até
+ * 2029, CLT depois" sem precisar cadastrar modelo nenhum antes.
+ */
+function PerfisDaTabela({
+  perfis,
+  linha: l,
+  cenarioId,
+  unidade,
+  aoFechar,
+}: {
+  perfis: PerfilHora[];
+  linha: LinhaMesDemanda;
+  cenarioId: string;
+  unidade: string;
+  aoFechar: () => void;
+}) {
+  const [state, formAction, pending] = useActionState(alocarPerfilHora, initialState);
+  const linhas = perfis
+    .map((t) => ({ t, m: modeloDoPerfil(t), ...custoMensalModelo(modeloDoPerfil(t).tipo_modelo as TipoModelo, modeloDoPerfil(t).parametros, l.demanda, {}) }))
+    .sort((a, b) => a.custoMensal - b.custoMensal);
+
+  return (
+    <div className="mt-1 border-t border-border-soft pt-2">
+      <p className="text-[11.5px] text-text-muted">
+        Ou escolha um perfil da{" "}
+        <a href="/contratacoes/custo-hora" className="text-primary-deep underline">
+          tabela de custo/hora
+        </a>{" "}
+        — a mesma que a regra de COGS usa. O <strong>PJ</strong> é pago pelas {l.demanda.toFixed(1)} {unidade} do mês; o{" "}
+        <strong>CLT</strong> é pessoa inteira, paga mesmo que a demanda seja pequena.
+      </p>
+      <div className="mt-1.5 flex flex-col gap-1">
+        {linhas.map(({ t, m, custoMensal }) => (
+          <form
+            key={m.id}
+            action={async (fd) => {
+              await formAction(fd);
+              aoFechar();
+            }}
+            className="flex flex-wrap items-center gap-2 text-[11.5px]"
+          >
+            <input type="hidden" name="cenario_id" value={cenarioId} />
+            <input type="hidden" name="perfil_cargo" value={t.cargo} />
+            <input type="hidden" name="tipo_contratacao" value={t.tipo_contratacao} />
+            <input type="hidden" name="senioridade" value={t.senioridade} />
+            <input type="hidden" name="valor_hora" value={t.valor_hora} />
+            <input type="hidden" name="data_inicio" value={`${l.mes.slice(0, 7)}-01`} />
+            <span className="w-28 font-medium">{m.nome}</span>
+            <span className="w-24 text-right font-mono text-text-muted">{formatBRL(t.valor_hora)}/h</span>
+            <span className="w-28 text-right font-mono font-semibold">{formatBRL(custoMensal)}</span>
+            <span className="text-[10px] text-text-faint">no mês</span>
+            <button type="submit" disabled={pending} className="text-primary-deep underline disabled:opacity-50">
+              {pending ? "…" : "alocar a partir deste mês"}
+            </button>
+          </form>
+        ))}
+      </div>
+      {state.error && <p className="mt-1 text-[11px] text-danger">{state.error}</p>}
+    </div>
+  );
+}
+
 function ComparativoModelos({
   linha: l,
   ativo,
   unidade,
   modelos,
+  perfis = [],
   alocacoes,
   cenarioId,
   cargo,
@@ -578,6 +705,7 @@ function ComparativoModelos({
   ativo: CargoChave;
   unidade: string;
   modelos: Modelo[];
+  perfis?: PerfilHora[];
   alocacoes: Alocacao[];
   cenarioId: string;
   cargo: string;
@@ -656,6 +784,8 @@ function ComparativoModelos({
           </tbody>
         </table>
       </div>
+
+      {perfis.length > 0 && <PerfisDaTabela perfis={perfis} linha={l} cenarioId={cenarioId} unidade={unidade} aoFechar={aoFechar} />}
 
       {escolhido && (
         <form
