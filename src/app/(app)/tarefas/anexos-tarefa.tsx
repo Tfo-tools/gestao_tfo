@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { anexarNaTarefa, excluirAnexoTarefa, urlAnexoTarefa, LIMITE_ANEXO_MB } from "./actions";
+import { anexarNaTarefa, excluirAnexoTarefa, urlAnexoTarefa } from "./actions";
+import { LIMITE_ANEXO_MB } from "./limites";
 import type { AnexoTarefa } from "./tipos";
 
 function tamanho(bytes: number | null) {

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
+import { LIMITE_ANEXO_MB } from "./limites";
 
 export type TarefaFormState = { error: string | null; success?: boolean };
 
@@ -215,12 +216,9 @@ export async function excluirFaseProjeto(id: string): Promise<{ error: string | 
   return { error: null };
 }
 
-/** Limite por arquivo: documento/planilha/print cabe folgado; vídeo é o que estoura o plano
- * grátis (1 GB no total). Acima disso, a tela manda usar link do Drive. */
-export const LIMITE_ANEXO_MB = 20;
-
 export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{ error: string | null }> {
   if (!arquivo || arquivo.size === 0) return { error: "Escolha um arquivo." };
+  // Documento/planilha/print cabe folgado; vídeo é o que estoura o 1 GB do plano grátis.
   if (arquivo.size > LIMITE_ANEXO_MB * 1024 * 1024) {
     return { error: `Arquivo maior que ${LIMITE_ANEXO_MB} MB — guarde no Drive e cole o link na descrição.` };
   }
