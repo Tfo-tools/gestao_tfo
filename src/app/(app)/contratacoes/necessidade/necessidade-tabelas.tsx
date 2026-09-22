@@ -34,6 +34,8 @@ type Alocacao = {
 };
 type Produto = { id: string; nome: string };
 export type PerfilHora = { cargo: string; tipo_contratacao: string; senioridade: string; valor_hora: number };
+/** O perfil que a regra de COGS manda executar o trabalho (Suporte e CS). */
+export type PerfilRegra = { cargo: string; tipo: string; senioridade: string; valorHora: number | null; inicio: string | null };
 
 const SENIORIDADE_LABEL: Record<string, string> = { junior: "júnior", pleno: "pleno", senior: "sênior" };
 /** Horas de um mês cheio — é a base que a tabela de custo/hora usa pra virar custo mensal. */
@@ -116,6 +118,7 @@ export function NecessidadeTabelas({
   alocacoes,
   perfisHora = [],
   custoRegraPorMes = {},
+  regraPorProduto = {},
   cargoInicial = "sdr",
 }: {
   cenarioId: string;
@@ -132,6 +135,8 @@ export function NecessidadeTabelas({
   perfisHora?: PerfilHora[];
   /** Custo que a REGRA de COGS paga em cada mês, por produto: custoRegraPorMes[mes][produtoId]. */
   custoRegraPorMes?: Record<string, Record<string, { suporte: number; cs: number }>>;
+  /** Perfil que a regra de COGS usa em cada produto — é o "quem faz" das linhas sem alocação. */
+  regraPorProduto?: Record<string, { suporte: PerfilRegra | null; cs: PerfilRegra | null }>;
   cargoInicial?: CargoChave;
 }) {
   const [ativo, setAtivo] = useState<CargoChave>(cargoInicial);
@@ -182,13 +187,26 @@ export function NecessidadeTabelas({
         // Quem cobre o mês: modelo, quanto foi contratado e o custo — é o que a tabela mostra por
         // padrão. A comparação entre modelos só aparece ao editar.
         itens: equipe.itens.filter((i) => i.chave === ativo && (i.coberto > 0 || i.custo > 0)),
+        // Quem a regra manda fazer, só dos produtos que realmente têm demanda no mês.
+        perfisRegra:
+          ativo === "cs" || ativo === "suporte"
+            ? [
+                ...new Map(
+                  Object.entries(dem)
+                    .filter(([, d]) => demandaDoCargo(d, ativo) > 0.001)
+                    .map(([pid]) => regraPorProduto[pid]?.[ativo])
+                    .filter((r): r is PerfilRegra => !!r)
+                    .map((r) => [`${r.cargo}|${r.tipo}|${r.senioridade}`, r]),
+                ).values(),
+              ]
+            : [],
         custoRegra: alvo.reduce((sm, pid) => {
           const r = custoRegraPorMes[mes]?.[pid];
           return sm + (ativo === "cs" ? (r?.cs ?? 0) : ativo === "suporte" ? (r?.suporte ?? 0) : 0);
         }, 0),
       };
     });
-  }, [porProduto, arpuPorProdutoMes, filtro, alocacoesDoCargo, modelosMap, ativo, custoRegraPorMes]);
+  }, [porProduto, arpuPorProdutoMes, filtro, alocacoesDoCargo, modelosMap, ativo, custoRegraPorMes, regraPorProduto]);
 
   const linhasRelevantes = useMemo(() => {
     const primeiro = linhas.findIndex((l) => l.demanda > 0.001);
@@ -270,7 +288,13 @@ export function NecessidadeTabelas({
       <div className="rounded-xl border border-border bg-surface p-6">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="flex items-center font-heading text-sm font-semibold">
-            {ativo === "sdr" ? "Reuniões a agendar e custo por modelo de SDR" : `Demanda de ${cargoAtual.label}`}
+            {ativo === "sdr"
+              ? "Reuniões a agendar e custo por modelo de SDR"
+              : ativo === "cs"
+                ? "Horas de CS proativo e quem paga cada mês"
+                : ativo === "suporte"
+                  ? "Horas de suporte e quem paga cada mês"
+                  : `Demanda de ${cargoAtual.label}`}
             <InfoTooltip
               texto={
                 ativo === "sdr"
@@ -500,6 +524,8 @@ type LinhaMesDemanda = {
   itens: ItemEquipeMes[];
   /** O que a regra de COGS paga neste mês (Suporte e CS). Zero nos outros cargos. */
   custoRegra: number;
+  /** Perfis que a regra manda executar o trabalho neste mês (Suporte e CS). */
+  perfisRegra: PerfilRegra[];
 };
 
 /** Contexto que cada modelo precisa pra calcular custo naquele volume. */
@@ -507,6 +533,19 @@ function contextoDoMes(ativo: CargoChave, l: LinhaMesDemanda) {
   if (ativo === "sdr") return { reunioes: l.demanda };
   if (ativo === "vendedor") return { reunioes: l.demanda, vendas: l.vendas, receitaNovasVendas: l.receitaNovasVendas };
   return {};
+}
+
+/** Horas viram gente: é o que deixa a linha de CS legível como a de SDR ("1 PJ"). */
+function equivalentePessoas(horas: number) {
+  const n = horas / HORAS_MES;
+  return `${n < 1 ? n.toFixed(2) : n.toFixed(1)} ${n >= 2 ? "pessoas" : "pessoa"}`;
+}
+
+/** "Customer Success Manager · PJ pleno" — o mesmo nível de detalhe que o SDR mostra do modelo. */
+function rotuloPerfil(r: PerfilRegra) {
+  const tipo = r.tipo ? r.tipo.toUpperCase() : "";
+  const sen = SENIORIDADE_LABEL[r.senioridade] ?? r.senioridade;
+  return [r.cargo, [tipo, sen].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
 }
 
 function unidadeCurta(ativo: CargoChave) {
@@ -533,12 +572,26 @@ function CelulasAlocado({ linha: l, ativo, modelos }: { linha: LinhaMesDemanda; 
       <>
         <td className="px-2 py-1.5 text-[11px] text-text-faint">
           {pagoPelaRegra ? (
-            <span className="inline-flex items-center text-text-muted">
-              regra de COGS (1.1.3)
-              <InfoTooltip
-                posicao="baixo"
-                texto="Nenhuma alocação neste mês: as horas são pagas pela regra do produto — horas × custo/hora do perfil escolhido lá, em Plano de Custos → CSP. Alocar um modelo aqui substitui a regra nos meses cobertos."
-              />
+            <span className="text-text-muted">
+              {l.perfisRegra.length === 0 ? (
+                <span className="inline-flex items-center">
+                  sem perfil na regra
+                  <InfoTooltip
+                    posicao="baixo"
+                    texto="A regra de COGS deste produto não tem perfil escolhido (cargo, CLT/PJ, senioridade), então o custo/hora fica zero. Defina em Plano de Custos → CSP → 1.1.3, ou aloque um modelo aqui."
+                  />
+                </span>
+              ) : (
+                l.perfisRegra.map((r) => (
+                  <span key={`${r.cargo}|${r.tipo}|${r.senioridade}`} className="block">
+                    <span className="font-medium text-text">{rotuloPerfil(r)}</span>
+                    <span className="block text-[9.5px]">
+                      pela regra de COGS{r.valorHora ? ` · ${formatBRL(r.valorHora)}/h` : ""}
+                      {r.inicio ? ` · ${l.mes.slice(0, 7) >= r.inicio.slice(0, 7) ? "paga desde" : "só a partir de"} ${formatMes(r.inicio)}` : ""}
+                    </span>
+                  </span>
+                ))
+              )}
             </span>
           ) : (
             <>
@@ -552,17 +605,30 @@ function CelulasAlocado({ linha: l, ativo, modelos }: { linha: LinhaMesDemanda; 
           )}
         </td>
         <td className={`px-2 py-1.5 text-right font-mono ${pagoPelaRegra ? "text-text-muted" : "text-warning"}`}>
-          {l.descoberto > 0.05 ? `${pagoPelaRegra ? "" : "+"}${l.descoberto.toFixed(1)}` : "—"}
-          <span className="block text-[9px] font-normal text-text-faint">
-            {unidadeCurta(ativo)} {pagoPelaRegra ? "pela regra" : "sem cobertura"}
-          </span>
+          {pagoPelaRegra ? (
+            <>
+              {equivalentePessoas(l.demanda)}
+              <span className="block text-[9px] font-normal text-text-faint">
+                {l.demanda.toFixed(1)} h ÷ {HORAS_MES.toFixed(0)} h/mês
+              </span>
+            </>
+          ) : (
+            <>
+              {l.descoberto > 0.05 ? `+${l.descoberto.toFixed(1)}` : "—"}
+              <span className="block text-[9px] font-normal text-text-faint">{unidadeCurta(ativo)} sem cobertura</span>
+            </>
+          )}
         </td>
         <td className="px-2 py-1.5 text-right font-mono text-text-faint">
           {pagoPelaRegra ? (
             <>
-              {formatBRL(l.custoRegra)}
+              <span className={l.custoRegra > 0 ? "font-semibold text-text" : ""}>{formatBRL(l.custoRegra)}</span>
               <span className="block text-[9px] font-normal">
-                {l.custoRegra > 0 ? "pela regra de COGS" : "a regra ainda não paga este mês"}
+                {l.custoRegra > 0
+                  ? l.perfisRegra[0]?.valorHora
+                    ? `${l.demanda.toFixed(1)} h × ${formatBRL(l.perfisRegra[0].valorHora)}/h`
+                    : "pela regra de COGS"
+                  : "esforço próprio — a regra ainda não paga"}
               </span>
             </>
           ) : (

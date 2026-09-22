@@ -186,6 +186,38 @@ export default async function NecessidadeContratacaoPage({
     };
   }
 
+  // Quem a REGRA de COGS manda fazer o trabalho em cada produto: o perfil escolhido lá (cargo,
+  // CLT/PJ, senioridade), o valor/hora dele na tabela e a partir de quando passa a ser pago. Sem
+  // isso a linha de Suporte/CS só sabia dizer "regra de COGS", e não dava pra ler o planejamento.
+  const valorHoraDoPerfil = (perfil: { cargo?: string; tipo_contratacao?: string; senioridade?: string } | undefined) =>
+    (perfisHora ?? []).find(
+      (t) => t.cargo === perfil?.cargo && t.tipo_contratacao === perfil?.tipo_contratacao && t.senioridade === perfil?.senioridade,
+    )?.valor_hora ?? null;
+  const perfilDaRegra = (perfil: {
+    cargo?: string;
+    tipo_contratacao?: string;
+    senioridade?: string;
+    inicio?: string | null;
+  } | undefined) =>
+    perfil?.cargo
+      ? {
+          cargo: perfil.cargo,
+          tipo: perfil.tipo_contratacao ?? "",
+          senioridade: perfil.senioridade ?? "",
+          valorHora: Number(valorHoraDoPerfil(perfil) ?? 0) || null,
+          inicio: perfil.inicio ?? null,
+        }
+      : null;
+  const regraPorProduto: Record<string, { suporte: ReturnType<typeof perfilDaRegra>; cs: ReturnType<typeof perfilDaRegra> }> = {};
+  for (const linha of cogsRaw ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const par = (linha.parametros ?? {}) as any;
+    regraPorProduto[linha.produto_id] = {
+      suporte: perfilDaRegra(par.suporte),
+      cs: par.cs_proativo?.ativo ? perfilDaRegra(par.cs_proativo) : null,
+    };
+  }
+
   const semDados = demanda.sdr.length === 0 && demanda.coordenador.length === 0 && demanda.suporte.length === 0 && demanda.cs.length === 0;
 
   return (
@@ -200,7 +232,7 @@ export default async function NecessidadeContratacaoPage({
         <div>
           <h1 className="font-heading text-[22px] font-semibold">Necessidade de Contratação</h1>
           <p className="mt-1 text-[13px] text-text-muted">
-            Demanda de SDR, Coordenador e Suporte derivada das premissas de funil (em{" "}
+            Demanda de SDR, Vendedor, Coordenador, Suporte e CS derivada das premissas de funil (em{" "}
             <Link href="/produtos" className="text-primary-deep underline">
               Produtos
             </Link>
@@ -249,6 +281,7 @@ export default async function NecessidadeContratacaoPage({
         alocacoes={alocacoes ?? []}
         perfisHora={(perfisHora ?? []).map((t) => ({ ...t, valor_hora: Number(t.valor_hora) }))}
         custoRegraPorMes={custoRegraPorMes}
+        regraPorProduto={regraPorProduto}
         cargoInicial={cargoInicial}
         passosCanalDireto={passosCanalDireto}
       />
