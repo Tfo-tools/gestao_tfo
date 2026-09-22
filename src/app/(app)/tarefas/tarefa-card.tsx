@@ -44,6 +44,7 @@ function FormEdicao({ tarefa, dados, dependeDe, aoFechar }: { tarefa: TarefaNo; 
         dependeDe={dependeDe}
         fixarProjeto={!!tarefa.parent_id}
         abrirTudo
+        modoSubtarefa={!!tarefa.parent_id}
       />
       <div className="flex items-center gap-2">
         <button type="submit" disabled={pending} className={botaoPrimario}>
@@ -135,14 +136,12 @@ export function NovaTarefaCard({
   );
 }
 
-/** Linha de subtarefa dentro da caixinha: checkbox de feito, título, prazo, editar/×. */
+/** Item do checklist da tarefa: caixa de feito, título e, no máximo, um responsável. Sem prazo e
+ * sem projeto — isso é da tarefa. Também não cria outro nível: a lista é plana de propósito. */
 function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number; dados: DadosFormulario; dependeDe: Map<string, string[]> }) {
   const [editando, setEditando] = useState(false);
-  const [novaSub, setNovaSub] = useState(false);
   const [isPending, startTransition] = useTransition();
   const feita = no.status === "feito";
-  const hoje = new Date().toISOString().slice(0, 10);
-  const atrasada = !feita && !!no.prazo && no.prazo < hoje;
   const resp = dados.pessoas.find((p) => p.id === no.responsavel_id);
 
   if (editando) {
@@ -173,13 +172,7 @@ function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number
           {no.aguardando.length > 0 && !feita && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
         </span>
         {resp && <span className="shrink-0 text-[10px] text-text-faint">{resp.nome.split(" ")[0]}</span>}
-        {no.prazo && <span className={`shrink-0 text-[10px] ${atrasada ? "font-semibold text-danger" : "text-text-faint"}`}>{fmt(no.prazo)}</span>}
         <span className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100">
-          {nivel < 2 && (
-            <button type="button" onClick={() => setNovaSub(true)} title="Subtarefa" className="text-[10.5px] text-text-muted hover:text-primary-deep">
-              +
-            </button>
-          )}
           <button type="button" onClick={() => setEditando(true)} className="text-[10.5px] text-primary-deep">
             editar
           </button>
@@ -201,11 +194,6 @@ function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number
       {no.filhas.map((f) => (
         <SubLinha key={f.id} no={f} nivel={nivel + 1} dados={dados} dependeDe={dependeDe} />
       ))}
-      {novaSub && (
-        <div style={{ marginLeft: `${(nivel + 1) * 14}px` }}>
-          <NovaTarefaCard dados={dados} projetoInicial={no.projeto_id} faseInicial={no.fase_id} parentId={no.id} aoConcluir={() => setNovaSub(false)} />
-        </div>
-      )}
     </>
   );
 }
@@ -326,27 +314,20 @@ export function TarefaCard({
             </p>
           )}
 
-          {bloqueada && (
-            <p className="text-[10.5px] text-cream-deep" title={no.aguardando.map((a) => a.titulo).join(", ")}>
-              ⏳ aguarda {no.aguardando.length === 1 ? no.aguardando[0].titulo : `${no.aguardando.length} tarefas`}
-            </p>
-          )}
-          {libera.length > 0 && (
-            <p className="text-[10.5px] text-primary-deep" title={libera.map((l) => l.titulo).join(", ")}>
-              🔓 libera {libera.length === 1 ? libera[0].titulo : `${libera.length} tarefas`}
-            </p>
-          )}
 
           {no.filhas.length > 0 && (
-            <div className="flex flex-col gap-0.5 border-t border-border-soft pt-1.5">
-              {no.progresso !== null && (
-                <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-text-faint">
-                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-bg">
+            <div className="flex flex-col gap-0.5 rounded-md border border-border-soft bg-bg/60 px-2 py-1.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-text-faint">
+                <span className="font-semibold uppercase tracking-wide">Subtarefas</span>
+                <span>
+                  {no.filhas.filter((f) => f.status === "feito").length}/{no.filhas.length}
+                </span>
+                {no.progresso !== null && (
+                  <span className="ml-1 h-1 flex-1 overflow-hidden rounded-full bg-border-soft">
                     <span className="block h-full rounded-full bg-primary-fill" style={{ width: `${Math.round(no.progresso * 100)}%` }} />
                   </span>
-                  {Math.round(no.progresso * 100)}%
-                </div>
-              )}
+                )}
+              </div>
               {no.filhas.map((f) => (
                 <SubLinha key={f.id} no={f} nivel={0} dados={dados} dependeDe={dependeDe} />
               ))}
@@ -355,14 +336,31 @@ export function TarefaCard({
 
           {novaSub && <NovaTarefaCard dados={dados} projetoInicial={no.projeto_id} faseInicial={no.fase_id} parentId={no.id} aoConcluir={() => setNovaSub(false)} />}
 
+          {/* Dependência é entre TAREFAS (uma espera a outra) — nada a ver com subtarefa. Só aparece
+              quando existe de fato. */}
+          {(bloqueada || libera.length > 0) && (
+            <div className="flex flex-col gap-0.5 border-t border-dashed border-border-soft pt-1.5">
+              {bloqueada && (
+                <p className="text-[10.5px] text-cream-deep" title={no.aguardando.map((a) => a.titulo).join(", ")}>
+                  ⏳ só começa depois de: {no.aguardando.map((a) => a.titulo).join(", ")}
+                </p>
+              )}
+              {libera.length > 0 && (
+                <p className="text-[10.5px] text-primary-deep" title={libera.map((l) => l.titulo).join(", ")}>
+                  🔓 ao concluir, libera: {libera.map((l) => l.titulo).join(", ")}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-2 pt-1">
             <span className="flex items-center gap-2">
               <button type="button" onClick={() => setEditando(true)} className="text-[10.5px] font-medium text-primary-deep">
                 editar
               </button>
               {!novaSub && (
-                <button type="button" onClick={() => setNovaSub(true)} title="Adicionar subtarefa" className="text-[10.5px] text-text-muted hover:text-primary-deep">
-                  + sub
+                <button type="button" onClick={() => setNovaSub(true)} title="Adicionar item ao checklist desta tarefa" className="text-[10.5px] text-text-muted hover:text-primary-deep">
+                  + subtarefa
                 </button>
               )}
               <button

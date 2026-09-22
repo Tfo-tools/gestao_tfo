@@ -74,6 +74,16 @@ export default async function TarefasPage({
     const ids = new Set(recorte.map((t) => t.id));
     for (const t of todas) if (t.parent_id && ids.has(t.parent_id) && !ids.has(t.id)) recorte.push(t);
   }
+  // Subtarefa é checklist da tarefa — nunca aparece como card solto na lista. Se ela passou no
+  // filtro mas a mãe não (ex.: filtro por responsável), a mãe entra junto pra ela ficar dentro.
+  const porId = new Map(todas.map((t) => [t.id, t]));
+  for (let i = 0; i < recorte.length; i++) {
+    const t = recorte[i];
+    if (!t.parent_id) continue;
+    if (recorte.some((x) => x.id === t.parent_id)) continue;
+    const mae = porId.get(t.parent_id);
+    if (mae) recorte.push(mae);
+  }
   // Dependências consideram TODAS as tarefas (uma pendência fora do filtro ainda bloqueia).
   const raizes = montarArvore(recorte, deps);
 
@@ -104,7 +114,8 @@ export default async function TarefasPage({
     produtos: produtos ?? [],
     projetos,
     fases,
-    candidatasDependencia: todas.map((t) => ({ id: t.id, titulo: t.titulo, projeto_id: t.projeto_id, status: t.status })),
+    // Dependência é entre tarefas; subtarefa (parent_id) não entra na lista.
+    candidatasDependencia: todas.filter((t) => !t.parent_id).map((t) => ({ id: t.id, titulo: t.titulo, projeto_id: t.projeto_id, status: t.status })),
     anexos: anexosPorTarefa,
   };
 

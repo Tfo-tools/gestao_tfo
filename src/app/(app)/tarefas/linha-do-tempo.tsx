@@ -31,7 +31,8 @@ export function LinhaDoTempo({
 }) {
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
-  const itens = achatar(raizes).filter(({ no }) => no.prazo || no.data_inicio);
+  // Só tarefas: subtarefa é checklist (não tem prazo próprio) e poluiria a linha.
+  const itens = achatar(raizes).filter(({ no, nivel }) => nivel === 0 && (no.prazo || no.data_inicio));
 
   const datas: number[] = [hoje.getTime()];
   for (const { no } of itens) {

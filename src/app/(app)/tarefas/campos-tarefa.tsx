@@ -23,6 +23,7 @@ export function CamposTarefa({
   fixarProjeto = false,
   abrirTudo = false,
   comSubtarefas = false,
+  modoSubtarefa = false,
 }: {
   tarefa?: Tarefa;
   pessoas: Pessoa[];
@@ -38,12 +39,39 @@ export function CamposTarefa({
   abrirTudo?: boolean;
   /** Só na criação da tarefa-mãe: já escrever as subtarefas, uma por linha. */
   comSubtarefas?: boolean;
+  /** Subtarefa é item de checklist da tarefa: só título e, no máximo, responsável — sem prazo,
+   * projeto, etiqueta ou dependência. Quem tem prazo e projeto é a tarefa. */
+  modoSubtarefa?: boolean;
 }) {
   const [projetoId, setProjetoId] = useState(tarefa?.projeto_id ?? projetoInicial ?? "");
   const [mais, setMais] = useState(abrirTudo);
 
   const fasesDoProjeto = fases.filter((f) => f.projeto_id === projetoId);
   const candidatas = candidatasDependencia.filter((c) => c.id !== tarefa?.id && (c.projeto_id ?? "") === (projetoId || ""));
+
+  if (modoSubtarefa) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <input
+          name="titulo"
+          type="text"
+          defaultValue={tarefa?.titulo ?? ""}
+          placeholder="Atividade que compõe a tarefa"
+          required
+          autoFocus
+          className="input input-compacto min-w-0 flex-1"
+        />
+        <select name="responsavel_id" defaultValue={tarefa?.responsavel_id ?? ""} className="input input-compacto w-[110px] shrink-0" title="Responsável (opcional)">
+          <option value="">quem?</option>
+          {pessoas.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nome.split(" ")[0]}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
