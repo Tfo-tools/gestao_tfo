@@ -89,7 +89,14 @@ export function montarArvore(tarefas: Tarefa[], deps: Dependencia[]): TarefaNo[]
   }
 
   const ordenar = (lista: TarefaNo[]) => {
-    lista.sort((a, b) => a.ordem - b.ordem || (a.prazo ?? "9999").localeCompare(b.prazo ?? "9999") || a.titulo.localeCompare(b.titulo));
+    // Padrão é por vencimento: o que vence primeiro aparece primeiro, sem data vai pro fim. `ordem`
+    // só desempata (arrastar manualmente continua valendo dentro do mesmo dia).
+    lista.sort(
+      (a, b) =>
+        (a.prazo ?? "9999-12-31").localeCompare(b.prazo ?? "9999-12-31") ||
+        a.ordem - b.ordem ||
+        a.titulo.localeCompare(b.titulo),
+    );
     for (const n of lista) {
       ordenar(n.filhas);
       if (n.filhas.length > 0) {

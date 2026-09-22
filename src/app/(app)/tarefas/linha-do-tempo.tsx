@@ -1,4 +1,8 @@
-import { achatar, type FaseProjeto, type Pessoa, type TarefaNo } from "./tipos";
+import { achatar, type FaseProjeto, type Pessoa, type Produto, type TarefaNo } from "./tipos";
+
+/** Como dividir a linha do tempo em faixas — pra ver que tipo de trabalho está tomando o tempo. */
+export type DividirPor = "nenhum" | "etiqueta" | "produto" | "pessoa";
+export const DIVIDIR_LABEL: Record<DividirPor, string> = { nenhum: "sem divisão", etiqueta: "etiqueta", produto: "produto", pessoa: "pessoa" };
 
 const DIA = 86_400_000;
 const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -12,7 +16,19 @@ function dia(iso: string) {
  * `data_inicio` (ou prazo − 1 dia, quando não tem início) até `prazo`. Tarefa sem data alguma não
  * entra — a lista já cobre esse caso. Escala vai do menor início ao maior fim, com folga.
  */
-export function LinhaDoTempo({ raizes, fases, pessoas }: { raizes: TarefaNo[]; fases: FaseProjeto[]; pessoas: Pessoa[] }) {
+export function LinhaDoTempo({
+  raizes,
+  fases,
+  pessoas,
+  produtos,
+  dividir = "nenhum",
+}: {
+  raizes: TarefaNo[];
+  fases: FaseProjeto[];
+  pessoas: Pessoa[];
+  produtos: Produto[];
+  dividir?: DividirPor;
+}) {
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
   const itens = achatar(raizes).filter(({ no }) => no.prazo || no.data_inicio);
@@ -44,6 +60,43 @@ export function LinhaDoTempo({ raizes, fases, pessoas }: { raizes: TarefaNo[]; f
   }
 
   const fasesComData = fases.filter((f) => f.data_inicio || f.data_fim);
+
+  // Quantos dias a tarefa ocupa — é o que mostra onde o tempo está indo, não a contagem de tarefas.
+  const diasDa = ({ no }: (typeof itens)[number]) => {
+    const fimT = no.prazo ? dia(no.prazo) + DIA : dia(no.data_inicio!) + DIA;
+    const iniT = no.data_inicio ? dia(no.data_inicio) : fimT - DIA;
+    return Math.max(1, Math.round((fimT - iniT) / DIA));
+  };
+
+  // Tarefa com duas etiquetas (ou dois produtos) entra nas duas faixas: a pergunta é "quanto tempo
+  // isso toma", e o trabalho realmente serve aos dois.
+  const chavesDa = (no: TarefaNo): { chave: string; titulo: string }[] => {
+    if (dividir === "etiqueta")
+      return no.etiquetas.length > 0 ? no.etiquetas.map((e) => ({ chave: e, titulo: e })) : [{ chave: "", titulo: "sem etiqueta" }];
+    if (dividir === "produto")
+      return no.produtos.length > 0
+        ? no.produtos.map((id) => ({ chave: id, titulo: produtos.find((p) => p.id === id)?.nome ?? "produto" }))
+        : [{ chave: "", titulo: "sem produto" }];
+    if (dividir === "pessoa") {
+      const ids = [no.responsavel_id, ...no.participantes].filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
+      return ids.length > 0 ? ids.map((id) => ({ chave: id, titulo: pessoas.find((p) => p.id === id)?.nome ?? "pessoa" })) : [{ chave: "", titulo: "sem responsável" }];
+    }
+    return [{ chave: "_", titulo: "" }];
+  };
+
+  const porFaixa = new Map<string, { titulo: string; itens: typeof itens; dias: number }>();
+  for (const item of itens) {
+    for (const { chave, titulo } of chavesDa(item.no)) {
+      const f = porFaixa.get(chave) ?? { titulo, itens: [] as typeof itens, dias: 0 };
+      f.itens.push(item);
+      f.dias += diasDa(item);
+      porFaixa.set(chave, f);
+    }
+  }
+  // Mais tempo primeiro; "sem ..." por último.
+  const faixas = [...porFaixa.entries()]
+    .map(([chave, f]) => ({ chave, ...f }))
+    .sort((a, b) => (a.chave === "" ? 1 : b.chave === "" ? -1 : 0) || b.dias - a.dias);
 
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-surface p-4">
@@ -78,10 +131,20 @@ export function LinhaDoTempo({ raizes, fases, pessoas }: { raizes: TarefaNo[]; f
           </div>
         )}
 
-        {/* Tarefas */}
+        {/* Tarefas, em faixas quando "dividir por" está ligado */}
         <div className="relative mt-2 flex flex-col gap-1">
           <div className="pointer-events-none absolute inset-y-0 w-px bg-danger/60" style={{ left: `${pos(hoje.getTime())}%` }} title="Hoje" />
-          {itens.map(({ no, nivel }) => {
+          {faixas.map((faixa) => (
+            <div key={faixa.chave} className="flex flex-col gap-1">
+              {dividir !== "nenhum" && (
+                <div className="mt-1 flex items-center gap-2 border-t border-border-soft pt-1.5 text-[10.5px] font-semibold text-text-muted">
+                  {faixa.titulo}
+                  <span className="font-normal text-text-faint">
+                    {faixa.itens.length} {faixa.itens.length === 1 ? "tarefa" : "tarefas"} · {faixa.dias} {faixa.dias === 1 ? "dia" : "dias"}
+                  </span>
+                </div>
+              )}
+              {faixa.itens.map(({ no, nivel }) => {
             const fimT = no.prazo ? dia(no.prazo) + DIA : dia(no.data_inicio!) + DIA;
             const iniT = no.data_inicio ? dia(no.data_inicio) : fimT - DIA;
             const feita = no.status === "feito";
@@ -105,7 +168,9 @@ export function LinhaDoTempo({ raizes, fases, pessoas }: { raizes: TarefaNo[]; f
                 <span className="w-[70px] shrink-0 truncate text-[10.5px] text-text-faint">{resp?.nome ?? ""}</span>
               </div>
             );
-          })}
+              })}
+            </div>
+          ))}
         </div>
       </div>
     </div>

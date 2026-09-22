@@ -1,6 +1,6 @@
 import { FASES } from "@/lib/fases";
 import { createClient } from "@/lib/supabase/server";
-import { LinhaDoTempo } from "./linha-do-tempo";
+import { LinhaDoTempo, DIVIDIR_LABEL, type DividirPor } from "./linha-do-tempo";
 import { ProjetosPanel, type PillProjeto } from "./projetos-panel";
 import { BotaoRecolherTudo, CardsProvider } from "./cards-contexto";
 import { RealceDependencias } from "./realce-dependencias";
@@ -17,12 +17,13 @@ const LABEL_FASE_PRODUTO: Record<string, string> = Object.fromEntries(FASES.map(
 export default async function TarefasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string; agrupar?: string; visao?: string }>;
+  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string; agrupar?: string; visao?: string; dividir?: string }>;
 }) {
   const sp = await searchParams;
   const { status, responsavel } = sp;
   const projetoSel = sp.projeto ?? "";
   const agrupar = (["tema", "fase", "etiqueta"].includes(sp.agrupar ?? "") ? sp.agrupar : "nenhum") as Agrupar;
+  const dividir = (["etiqueta", "produto", "pessoa"].includes(sp.dividir ?? "") ? sp.dividir : "nenhum") as DividirPor;
   const visao: Visao = sp.visao === "linha" ? "linha" : "lista";
   const supabase = await createClient();
 
@@ -115,7 +116,7 @@ export default async function TarefasPage({
 
   const link = (mudancas: Record<string, string | undefined>) => {
     const q = new URLSearchParams();
-    const base = { status, responsavel, projeto: projetoSel || undefined, agrupar: agrupar === "nenhum" ? undefined : agrupar, visao: visao === "lista" ? undefined : visao, ...mudancas };
+    const base = { status, responsavel, projeto: projetoSel || undefined, agrupar: agrupar === "nenhum" ? undefined : agrupar, visao: visao === "lista" ? undefined : visao, dividir: dividir === "nenhum" ? undefined : dividir, ...mudancas };
     for (const [k, v] of Object.entries(base)) if (v !== undefined && v !== "") q.set(k, v);
     const s = q.toString();
     return s ? `/tarefas?${s}` : "/tarefas";
@@ -175,6 +176,21 @@ export default async function TarefasPage({
         <a href={link({ visao: "linha" })} className={visao === "linha" ? "font-semibold text-text" : "text-text-muted underline"}>
           linha do tempo
         </a>
+        {visao === "linha" && (
+          <>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <span className="text-[11px] text-text-faint">Dividir por:</span>
+            {(["nenhum", "etiqueta", "produto", "pessoa"] as DividirPor[]).map((d) => (
+              <a
+                key={d}
+                href={link({ dividir: d === "nenhum" ? undefined : d })}
+                className={dividir === d ? "font-semibold text-text" : "text-text-muted underline"}
+              >
+                {DIVIDIR_LABEL[d]}
+              </a>
+            ))}
+          </>
+        )}
         {visao === "lista" && (
           <>
             <span className="mx-1 h-4 w-px bg-border" />
@@ -184,7 +200,7 @@ export default async function TarefasPage({
       </div>
 
       {visao === "linha" ? (
-        <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} />
+        <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} produtos={produtos ?? []} dividir={dividir} />
       ) : wbs && projetoAtual ? (
         <Wbs projeto={projetoAtual} fases={fasesDoProjeto} raizes={raizes} dados={dados} dependeDe={dependeDe} contagem={contagem[projetoAtual.id]} />
       ) : (
