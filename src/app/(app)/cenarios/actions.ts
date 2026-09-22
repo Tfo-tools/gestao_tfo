@@ -379,6 +379,9 @@ async function clonarCenario(
     "beta_testers_config",
     "alocacao_modelo_contratacao",
     "alocacao_investimento",
+    // A observação de planejamento por cargo vai junto: um cenário copiado sem ela perde o porquê
+    // da alocação e só leva o número.
+    "notas_cargo_cenario",
   ]) {
     const { data } = await supabase
       .from(tabela)
