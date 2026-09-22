@@ -64,6 +64,7 @@ const CARGOS: { chave: CargoChave; label: string; unidade: string }[] = [
   { chave: "vendedor", label: "Vendedor", unidade: "reuniões a atender/mês" },
   { chave: "coordenador", label: "Coordenador", unidade: "vendedores a supervisionar" },
   { chave: "suporte", label: "Suporte", unidade: "horas/mês" },
+  { chave: "cs", label: "CS proativo", unidade: "horas/mês" },
 ];
 
 /** Taxa que o modelo usa pra transformar lead em oportunidade — no bot, o lead qualificado. */
@@ -230,11 +231,14 @@ export function NecessidadeTabelas({
         )}
       </div>
 
-      {ativo === "suporte" && (
+      {(ativo === "suporte" || ativo === "cs") && (
         <div className="rounded-lg border border-dashed border-border bg-bg px-4 py-2.5 text-[11.5px] text-text-muted">
-          <strong>O custo do suporte não sai daqui.</strong> Ele vem das regras de COGS de cada produto (Plano de Custos → CSP → 1.1.3):
-          horas por cliente × custo/hora do perfil escolhido, a partir da data configurada lá. Esta aba mostra quantas horas a base exige
-          e quantas pessoas isso dá — a alocação aqui é só pra dimensionar, não gera custo.
+          <strong>Duas fontes de custo, nunca as duas no mesmo mês.</strong>{" "}
+          {ativo === "cs"
+            ? "As horas vêm da régua de relacionamento do produto (monitoramento + cadência + QBR diluída, × overhead), em Plano de Custos → CSP → 1.1.3."
+            : "As horas vêm da regra de chamados do produto (% da base × TMA × margem), em Plano de Custos → CSP → 1.1.3."}{" "}
+          Enquanto não houver alocação, o mês é pago por essa regra — <strong>um perfil só, do início ao fim do plano</strong>. Alocando
+          aqui, você troca o modelo por período, e a alocação substitui a regra nos meses que cobrir.
         </div>
       )}
       {ativo === "vendedor" && (
@@ -258,17 +262,18 @@ export function NecessidadeTabelas({
             />
           </h2>
         </div>
+        {modelosDoCargo.length === 0 && linhasRelevantes.length > 0 && (
+          <p className="mt-2 text-[11.5px] text-text-faint">
+            Nenhum modelo cadastrado pra {cargoAtual.label} ainda — a tabela mostra a demanda mesmo assim.{" "}
+            <a href="/contratacoes/modelos" className="text-primary-deep underline">
+              Cadastre um modelo
+            </a>{" "}
+            pra comparar custos e alocar por período.
+          </p>
+        )}
         {linhasRelevantes.length === 0 ? (
           <p className="mt-3 text-[12px] text-text-faint">
             Sem demanda calculada{filtro ? " para este produto" : ""} — confira as premissas de {cargoAtual.label} em Funil.
-          </p>
-        ) : modelosDoCargo.length === 0 ? (
-          <p className="mt-3 text-[12px] text-text-faint">
-            Nenhum modelo cadastrado pra {cargoAtual.label} ainda —{" "}
-            <a href="/contratacoes/modelos" className="text-primary-deep underline">
-              cadastre um modelo
-            </a>{" "}
-            pra ver o custo comparado.
           </p>
         ) : (
           <div className="mt-4 max-h-[420px] overflow-y-auto overflow-x-auto">
@@ -487,22 +492,36 @@ function CelulasAlocado({ linha: l, ativo, modelos }: { linha: LinhaMesDemanda; 
     return candidatos.sort((a, b) => a.custoMensal - b.custoMensal)[0];
   }, [l, ativo, modelos]);
 
+  // Suporte e CS já têm quem pague sem alocação nenhuma: a regra de COGS do produto. Dizer
+  // "sem ninguém · R$ 0" ali seria mentira — o custo existe, só não nasce desta tela.
+  const pagoPelaRegra = ativo === "suporte" || ativo === "cs";
   if (l.itens.length === 0) {
     return (
       <>
         <td className="px-2 py-1.5 text-[11px] text-text-faint">
-          — sem ninguém
-          {sugestao && (
-            <span className="block text-[9.5px] text-primary-deep">
-              mais barato: {sugestao.m.nome} · {formatBRL(sugestao.custoMensal)}
+          {pagoPelaRegra ? (
+            <span className="inline-flex items-center text-text-muted">
+              regra de COGS (1.1.3)
+              <InfoTooltip texto="Nenhuma alocação neste mês: as horas são pagas pela regra do produto — horas × custo/hora do perfil, em Plano de Custos → CSP. Alocar um modelo aqui substitui a regra nos meses cobertos, e aí o custo passa a ser o do contrato." />
             </span>
+          ) : (
+            <>
+              — sem ninguém
+              {sugestao && (
+                <span className="block text-[9.5px] text-primary-deep">
+                  mais barato: {sugestao.m.nome} · {formatBRL(sugestao.custoMensal)}
+                </span>
+              )}
+            </>
           )}
         </td>
-        <td className="px-2 py-1.5 text-right font-mono text-warning">
-          {l.descoberto > 0.05 ? `+${l.descoberto.toFixed(1)}` : "—"}
-          <span className="block text-[9px] font-normal text-text-faint">{unidadeCurta(ativo)} sem cobertura</span>
+        <td className={`px-2 py-1.5 text-right font-mono ${pagoPelaRegra ? "text-text-muted" : "text-warning"}`}>
+          {l.descoberto > 0.05 ? `${pagoPelaRegra ? "" : "+"}${l.descoberto.toFixed(1)}` : "—"}
+          <span className="block text-[9px] font-normal text-text-faint">
+            {unidadeCurta(ativo)} {pagoPelaRegra ? "pela regra" : "sem cobertura"}
+          </span>
         </td>
-        <td className="px-2 py-1.5 text-right font-mono text-text-faint">R$ 0</td>
+        <td className="px-2 py-1.5 text-right font-mono text-text-faint">{pagoPelaRegra ? "—" : "R$ 0"}</td>
       </>
     );
   }

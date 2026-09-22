@@ -65,6 +65,9 @@ export type DemandaProdutoMes = {
   /** Coordenadores necessários (vendedores ÷ span). */
   coordenador: number;
   suporte: number;
+  /** Horas de CS proativo (régua de relacionamento) que a base exige no mês. Vem da regra de COGS
+   *  do produto — é outro perfil (CSM) e outro custo, por isso não se mistura com suporte. */
+  cs: number;
   /** Clientes que fecharam passando por reunião com vendedor — base do "por venda" e da
    *  comissão. Self-service e produto sem vendedor ficam fora. */
   vendasComReuniao: number;
@@ -78,6 +81,7 @@ export function demandaProdutoVazia(): DemandaProdutoMes {
     vendedores: 0,
     coordenador: 0,
     suporte: 0,
+    cs: 0,
     vendasComReuniao: 0,
   };
 }
@@ -142,6 +146,8 @@ export function calcularDemandaPorCargo(params: {
   /** Horas de suporte + CS por cliente/mês, por produto — vem das regras de COGS (1.1.3). Quando
    *  informado, substitui o campo por fase (que ficou redundante e saiu da tela). */
   horasSuportePorProduto?: Record<string, number>;
+  /** Horas de CS proativo por cliente/mês, por produto — também das regras de COGS (1.1.3). */
+  horasCsPorProduto?: Record<string, number>;
 }): {
   /** REUNIÕES que o SDR precisa agendar no mês (canal direto). Leads deixaram de ser a unidade:
    *  a remuneração real é por reunião agendada, e leads varia por eficiência de cada modelo. */
@@ -152,6 +158,7 @@ export function calcularDemandaPorCargo(params: {
   /** Vendedores a supervisionar ÷ span of control. Só aparece com span_of_control preenchido. */
   coordenador: MesDemandaCargo[];
   suporte: MesDemandaCargo[];
+  cs: MesDemandaCargo[];
   oportunidades: MesDemandaCargo[];
   /** Reuniões que o canal DIRETO precisa gerar no mês — base pra dimensionar o SDR. As de
    *  parceiro ficam de fora: chegam prontas e não consomem prospecção. */
@@ -161,8 +168,14 @@ export function calcularDemandaPorCargo(params: {
   /** A mesma demanda, aberta por produto e mês: porProduto[produtoId][mes]. */
   porProduto: Record<string, Record<string, DemandaProdutoMes>>;
 } {
-  const { fasesPorProduto, funis, canais, simulacao, horasSuportePorProduto } =
-    params;
+  const {
+    fasesPorProduto,
+    funis,
+    canais,
+    simulacao,
+    horasSuportePorProduto,
+    horasCsPorProduto,
+  } = params;
 
   const canaisPorProduto = new Map<string, CanalFunilInput[]>();
   for (const c of canais) {
@@ -186,6 +199,7 @@ export function calcularDemandaPorCargo(params: {
   const porMesSdr = new Map<string, number>();
   const porMesCoordenador = new Map<string, number>();
   const porMesSuporte = new Map<string, number>();
+  const porMesCs = new Map<string, number>();
   const porMesOportunidades = new Map<string, number>();
   const porMesOportunidadesDireto = new Map<string, number>();
   const porMesVendedor = new Map<string, number>();
@@ -226,6 +240,16 @@ export function calcularDemandaPorCargo(params: {
         (porMesSuporte.get(mesIso) ?? 0) + s.clientes_ativos * horasPorCliente,
       );
       acc(s.produtoId, mesIso, "suporte", s.clientes_ativos * horasPorCliente);
+    }
+
+    // CS proativo: mesma lógica do suporte, em linha separada — outro perfil, outro custo.
+    const horasCsPorCliente = horasCsPorProduto?.[s.produtoId] ?? 0;
+    if (horasCsPorCliente > 0) {
+      porMesCs.set(
+        mesIso,
+        (porMesCs.get(mesIso) ?? 0) + s.clientes_ativos * horasCsPorCliente,
+      );
+      acc(s.produtoId, mesIso, "cs", s.clientes_ativos * horasCsPorCliente);
     }
 
     // Funil em dois estágios, calculado de trás pra frente e CANAL A CANAL — porque a taxa de
@@ -338,6 +362,7 @@ export function calcularDemandaPorCargo(params: {
     vendedor: toArray(porMesVendedor),
     coordenador: toArray(porMesCoordenador),
     suporte: toArray(porMesSuporte),
+    cs: toArray(porMesCs),
     oportunidades: toArray(porMesOportunidades),
     oportunidadesDireto: toArray(porMesOportunidadesDireto),
     mesesSemQualificacao: [...mesesSemQualificacao].sort(),
@@ -370,7 +395,7 @@ export function leadsDoModeloNoMes(
   return oportunidadesDireto / taxaQualificacaoDoModelo;
 }
 
-export type CargoChave = "sdr" | "vendedor" | "coordenador" | "suporte";
+export type CargoChave = "sdr" | "vendedor" | "coordenador" | "suporte" | "cs";
 
 /**
  * Reconhece o cargo pelo que ele CONTÉM, não por igualdade: "Vendedor Pleno", "SDR Júnior",
@@ -397,6 +422,15 @@ export function cargoChave(
     c.includes("account")
   )
     return "vendedor";
+  // CS antes de suporte: "Customer Success Manager" é CSM (régua de relacionamento), enquanto
+  // "Customer Support" continua sendo o analista de suporte reativo.
+  if (
+    c.includes("customer success") ||
+    c.includes("csm") ||
+    c.includes("sucesso do cliente") ||
+    c === "cs"
+  )
+    return "cs";
   if (
     c.includes("suporte") ||
     c.includes("customer") ||

@@ -580,6 +580,32 @@ const ORIGEM: Record<string, { rotulo: string; href: (cenarioId: string) => stri
   lancado: { rotulo: "Plano de custos da fase", href: (c) => `/plano/${c}/custos` },
 };
 
+/**
+ * Onde a pessoa quer cair ao clicar numa linha da composição. Quem chega aqui está ANALISANDO o
+ * plano, não editando: nas linhas de pessoal direto (1.1.3) o destino é Necessidade de Contratação
+ * — mês a mês, demanda, modelo e custo — e a regra de COGS fica como link secundário de edição.
+ */
+function destinoLinha(
+  origem: string,
+  rotulo: string,
+  cenarioId: string,
+): { rotulo: string; href: string; editar?: { rotulo: string; href: string } } {
+  const r = rotulo.toLowerCase();
+  const editarRegra = { rotulo: "editar a regra", href: `/plano/${cenarioId}/custos?card=csp#card-csp` };
+  const necessidade = (cargo: string, label: string) => ({
+    rotulo: `Necessidade de Contratação → ${label}`,
+    href: `/contratacoes/necessidade?cenario=${cenarioId}&cargo=${cargo}`,
+  });
+  if (r.startsWith("suporte reativo")) return { ...necessidade("suporte", "Suporte"), editar: editarRegra };
+  if (r.startsWith("cs proativo")) return { ...necessidade("cs", "CS proativo"), editar: editarRegra };
+  if (origem === "equipe" && r.includes("(1.1.3)"))
+    return r.includes("customer success") || r.includes("csm")
+      ? necessidade("cs", "CS proativo")
+      : necessidade("suporte", "Suporte");
+  const o = ORIGEM[origem];
+  return { rotulo: o?.rotulo ?? origem, href: o?.href(cenarioId) ?? "#" };
+}
+
 const CAMPO_GRUPO: Record<"cogs" | "sm" | "pd" | "ga", (l: Agregado) => number> = {
   cogs: (l) => l.cogs,
   sm: (l) => l.smMarketing + l.smVendas + l.smOutros,
@@ -641,7 +667,7 @@ function ComposicaoGrupo({ grupo, linhas, cenarioId }: { grupo: "cogs" | "sm" | 
             <thead>
               <tr className="text-left text-text-muted">
                 <td className="px-2 py-1.5 font-medium">O que entra</td>
-                <td className="px-2 py-1.5 font-medium">Onde ajustar</td>
+                <td className="px-2 py-1.5 font-medium">Onde analisar</td>
                 {anos.map((a) => (
                   <td key={a} className="px-2 py-1.5 text-right font-medium">
                     {a}
@@ -657,9 +683,24 @@ function ComposicaoGrupo({ grupo, linhas, cenarioId }: { grupo: "cogs" | "sm" | 
                   <tr className="border-t border-border-soft">
                     <td className="px-2 py-1.5 font-medium">{it.rotulo}</td>
                     <td className="px-2 py-1.5 text-[11.5px]">
-                      <Link href={ORIGEM[it.origem]?.href(cenarioId) ?? "#"} className="text-primary-deep underline decoration-dotted">
-                        {ORIGEM[it.origem]?.rotulo ?? it.origem} →
-                      </Link>
+                      {(() => {
+                        const d = destinoLinha(it.origem, it.rotulo, cenarioId);
+                        return (
+                          <>
+                            <Link href={d.href} className="text-primary-deep underline decoration-dotted">
+                              {d.rotulo} →
+                            </Link>
+                            {d.editar && (
+                              <>
+                                {" · "}
+                                <Link href={d.editar.href} className="text-text-faint underline decoration-dotted">
+                                  {d.editar.rotulo}
+                                </Link>
+                              </>
+                            )}
+                          </>
+                        );
+                      })()}
                     </td>
                     {anos.map((a) => (
                       <td key={a} className="px-2 py-1.5 text-right font-mono">

@@ -4,7 +4,7 @@ import {
   faseDoProdutoNoMes,
   type CustoEmpresaInput,
 } from "@/lib/custos-empresa";
-import { horasAtendimentoPorProduto } from "@/lib/cogs";
+import { horasAtendimentoPorProduto, horasCsProativoPorProduto } from "@/lib/cogs";
 import {
   custoImplementacaoDasEtapas,
   temAjusteDeEtapas,
@@ -111,8 +111,11 @@ export type Agregado = {
   alocacaoCoordenador: number;
   alocacaoSuporte: number;
   /** Suporte REATIVO pelas regras de COGS (horas × custo/hora) dos produtos — substituído pela
-   *  equipe de suporte alocada quando ela existe no mês. O CS proativo fica sempre na regra. */
+   *  equipe de Suporte alocada quando ela existe no mês. */
   cogsSuporteRegra: number;
+  /** CS proativo pela regra de COGS — substituído pela alocação de CS, quando houver. Enquanto
+   *  não houver alocação de CS, a regra continua valendo, que é o comportamento de sempre. */
+  cogsCsRegra: number;
   alocacaoOutros: number;
   empresaSm: number;
   empresaPd: number;
@@ -193,6 +196,7 @@ export function agregadoVazio(mes: string): Agregado {
     alocacaoCoordenador: 0,
     alocacaoSuporte: 0,
     cogsSuporteRegra: 0,
+    cogsCsRegra: 0,
     alocacaoOutros: 0,
     empresaSm: 0,
     empresaPd: 0,
@@ -1215,6 +1219,8 @@ export async function agregarPorCenario(
     simulacao: simulacaoInput,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     horasSuportePorProduto: horasAtendimentoPorProduto((cogsRaw ?? []) as any),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    horasCsPorProduto: horasCsProativoPorProduto((cogsRaw ?? []) as any),
   });
 
   // Canais de parceiro que cobram mensalidade por parceiro mantido.
@@ -1355,8 +1361,11 @@ export async function agregarPorCenario(
       n("cogs_llm"),
       produto,
     );
-    // Só o reativo é substituído pela alocação de Suporte; o CS proativo (CSM) segue pela regra.
+    // Cada regra é substituída pela alocação do SEU cargo: Suporte troca o reativo, CS troca o
+    // proativo. Antes, alocar Suporte apagava a linha de CS da composição sem tirar o valor do
+    // total — a soma das origens não fechava com a linha da DRE.
     atual.cogsSuporteRegra += n("cogs_suporte_reativo");
+    atual.cogsCsRegra += n("cogs_cs_proativo");
     compor(
       atual,
       "cogs",
@@ -1671,7 +1680,7 @@ export async function agregarPorCenario(
       else if (chaveCargo === "vendedor") atual.alocacaoVendedor += custoModelo;
       else if (chaveCargo === "coordenador")
         atual.alocacaoCoordenador += custoModelo;
-      else if (chaveCargo === "suporte") atual.alocacaoSuporte += custoModelo;
+      else if (chaveCargo === "suporte" || chaveCargo === "cs") atual.alocacaoSuporte += custoModelo;
       else atual.alocacaoOutros += custoModelo;
       const sub = item.sub;
       // Suporte alocado (1 analista pros três produtos; PJ proporcional até 2 pessoas, CLT inteiro
@@ -1679,16 +1688,18 @@ export async function agregarPorCenario(
       // (é a demanda), mas quem paga é a contratação. Rateio entre produtos por receita.
       const rotuloEquipe = item.rotulo;
       if (sub === "suporte" && custoModelo > 0) {
-        if (atual.cogsSuporteRegra > 0) {
-          atual.cogs -= atual.cogsSuporteRegra;
+        const trocaCs = chaveCargo === "cs";
+        const regra = trocaCs ? atual.cogsCsRegra : atual.cogsSuporteRegra;
+        const prefixo = trocaCs
+          ? "cogs|regra_cogs|CS proativo"
+          : "cogs|regra_cogs|Suporte reativo";
+        if (regra > 0) {
+          atual.cogs -= regra;
           for (const k of Object.keys(atual.composicao)) {
-            if (
-              k.startsWith("cogs|regra_cogs|Suporte reativo") ||
-              k.startsWith("cogs|regra_cogs|CS proativo")
-            )
-              delete atual.composicao[k];
+            if (k.startsWith(prefixo)) delete atual.composicao[k];
           }
-          atual.cogsSuporteRegra = 0;
+          if (trocaCs) atual.cogsCsRegra = 0;
+          else atual.cogsSuporteRegra = 0;
         }
         atual.cogs += custoModelo;
         if (item.regime === "clt" && tipo !== "clt")

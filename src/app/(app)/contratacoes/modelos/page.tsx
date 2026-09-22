@@ -15,6 +15,7 @@ export default async function ModelosContratacaoPage() {
     "SDR",
     "Coordenador",
     "Suporte",
+    "Customer Success Manager",
     ...new Set(
       (alocacoesCargos ?? []).map((a) => a.cargo.trim()).filter(Boolean),
     ),

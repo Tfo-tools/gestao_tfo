@@ -205,6 +205,16 @@ export function calcularCogsMes(
 /** Horas de SUPORTE REATIVO por cliente/mês, por produto — é o que dimensiona a alocação de
  *  Suporte (analista). O CS proativo fica fora de propósito: é outro perfil (CSM) e outro custo,
  *  e continua pago pela regra de COGS do produto. */
+export function horasCsProativoPorProduto(
+  linhas: { produto_id: string; parametros: CogsPremissas | null }[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const l of linhas) {
+    out[l.produto_id] = horasCsPorCliente(l.parametros?.cs_proativo);
+  }
+  return out;
+}
+
 export function horasAtendimentoPorProduto(
   linhas: { produto_id: string; parametros: CogsPremissas | null }[],
 ): Record<string, number> {

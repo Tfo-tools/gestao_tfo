@@ -37,7 +37,10 @@ export function subgrupoDeConta(codigo: string, tipo: string): SubgrupoConta {
  * mesmo que a categoria salva seja S&M, porque é assim que o time pensa esse custo.
  */
 export function subgrupoDeCargo(cargo: string | null | undefined, categoria: "pd" | "sm" | "ga"): SubgrupoConta {
-  if (cargo && cargo.trim().toLowerCase().includes("suporte")) return "suporte";
+  const c = (cargo ?? "").trim().toLowerCase();
+  // Suporte e CS são os dois perfis de Pessoal Direto (1.1.3) — os dois viram COGS-suporte.
+  if (c.includes("suporte") || c.includes("customer success") || c.includes("csm") || c === "cs")
+    return "suporte";
   if (categoria === "pd") return "pd";
   if (categoria === "ga") return "ga";
   return "vendas";

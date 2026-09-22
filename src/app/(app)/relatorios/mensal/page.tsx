@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { horasAtendimentoPorProduto } from "@/lib/cogs";
+import { horasAtendimentoPorProduto, horasCsProativoPorProduto } from "@/lib/cogs";
 import { Fragment } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { custoEmpresaNoMes, faseDoProdutoNoMes, type CustoEmpresaInput } from "@/lib/custos-empresa";
@@ -215,6 +215,8 @@ export default async function RelatoriosMensalPage({
       simulacao: simulacaoInput,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       horasSuportePorProduto: horasAtendimentoPorProduto((cogsRaw ?? []) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      horasCsPorProduto: horasCsProativoPorProduto((cogsRaw ?? []) as any),
     });
     const modeloById = new Map(
       ((modelosRaw ?? []) as { id: string; cargo: string; tipo_modelo: string; categoria: "pd" | "sm" | "ga"; parametros: ParametrosModelo }[]).map((m) => [

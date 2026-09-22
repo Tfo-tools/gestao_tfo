@@ -171,10 +171,10 @@ export default async function PlanoCustosPage({
     },
     {
       categoria: "csp",
-      rotulo: "Suporte alocado",
+      rotulo: "Suporte e CS alocados",
       grupo: "COGS — 1.1.3",
       total: alocSuporte,
-      detalhe: "Custo do modelo de suporte alocado em Necessidade de Contratação, pelas horas que a base exige em cada mês.",
+      detalhe: "Custo dos modelos de Suporte e de CS alocados em Necessidade de Contratação, pelas horas que a base exige em cada mês. Onde há alocação, ela substitui a regra de COGS do produto.",
       href: "/contratacoes/necessidade?cenario={cenarioId}&cargo=suporte",
       ondeEditar: "Necessidade de Contratação",
     },
@@ -211,8 +211,13 @@ export default async function PlanoCustosPage({
     csp: [
       {
         label: "Suporte necessário",
-        descricao: "Horas de suporte que a base de clientes exige mês a mês e o custo de cobrir isso com cada modelo.",
+        descricao: "Horas de suporte reativo que a base exige mês a mês e o custo de cobrir isso com cada modelo de contratação.",
         href: `/contratacoes/necessidade?cenario=${cenarioId}&cargo=suporte`,
+      },
+      {
+        label: "CS proativo necessário",
+        descricao: "Horas da régua de relacionamento mês a mês. Sem alocação, o CS é pago pela regra abaixo com um perfil só do início ao fim; alocando, o modelo muda por período.",
+        href: `/contratacoes/necessidade?cenario=${cenarioId}&cargo=cs`,
       },
     ],
   };

@@ -119,6 +119,8 @@ export function demandaDoCargo(
       return d.vendedores;
     case "suporte":
       return d.suporte;
+    case "cs":
+      return d.cs;
   }
 }
 
@@ -148,7 +150,7 @@ export type EquipeMes = {
   descoberto: Record<CargoChave, number>;
 };
 
-const CHAVES: CargoChave[] = ["sdr", "vendedor", "coordenador", "suporte"];
+const CHAVES: CargoChave[] = ["sdr", "vendedor", "coordenador", "suporte", "cs"];
 
 export function custoEquipeNoMes(params: {
   mes: string;
@@ -164,7 +166,7 @@ export function custoEquipeNoMes(params: {
   const restante: Record<string, Record<CargoChave, number>> = {};
   const vendasRestantes: Record<string, number> = {};
   for (const p of produtos) {
-    restante[p] = { sdr: 0, vendedor: 0, coordenador: 0, suporte: 0 };
+    restante[p] = { sdr: 0, vendedor: 0, coordenador: 0, suporte: 0, cs: 0 };
     for (const c of CHAVES) restante[p][c] = demandaDoCargo(demanda[p], c);
     vendasRestantes[p] = demanda[p].vendasComReuniao;
   }
@@ -295,6 +297,7 @@ export function custoEquipeNoMes(params: {
     vendedor: 0,
     coordenador: 0,
     suporte: 0,
+    cs: 0,
   };
   for (const p of produtos)
     for (const c of CHAVES) descoberto[c] += Math.max(0, restante[p][c]);

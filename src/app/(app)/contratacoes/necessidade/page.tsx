@@ -11,7 +11,7 @@ import {
 import type { FaseValue } from "@/lib/fases";
 import { NecessidadeTabelas } from "./necessidade-tabelas";
 import type { PassoRoteiro } from "./roteiro-canal-direto";
-import { horasAtendimentoPorProduto } from "@/lib/cogs";
+import { horasAtendimentoPorProduto, horasCsProativoPorProduto } from "@/lib/cogs";
 import { PremissasVendas, type PremissaVendasProduto } from "./premissas-vendas";
 
 export default async function NecessidadeContratacaoPage({
@@ -21,7 +21,7 @@ export default async function NecessidadeContratacaoPage({
 }) {
   const { cenario, cargo: cargoParam } = await searchParams;
   // Atalhos vindos do Plano de Custos abrem direto na aba do cargo (S&M -> SDR, COGS -> Suporte).
-  const cargoInicial = (["sdr", "vendedor", "coordenador", "suporte"] as const).find((c) => c === cargoParam) ?? "sdr";
+  const cargoInicial = (["sdr", "vendedor", "coordenador", "suporte", "cs"] as const).find((c) => c === cargoParam) ?? "sdr";
   const supabase = await createClient();
 
   const { data: cenarios } = await supabase.from("cenarios").select("id, nome, is_base").order("created_at");
@@ -112,7 +112,9 @@ export default async function NecessidadeContratacaoPage({
   const { data: cogsRaw } = await supabase.from("cogs_premissas").select("produto_id, parametros").eq("cenario_id", cenarioAtual);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const horasSuportePorProduto = horasAtendimentoPorProduto((cogsRaw ?? []) as any);
-  const demanda = calcularDemandaPorCargo({ fasesPorProduto, funis, canais, simulacao, horasSuportePorProduto });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const horasCsPorProduto = horasCsProativoPorProduto((cogsRaw ?? []) as any);
+  const demanda = calcularDemandaPorCargo({ fasesPorProduto, funis, canais, simulacao, horasSuportePorProduto, horasCsPorProduto });
   // Receita média por cliente, por mês e produto — base da comissão % na comparação de vendedor.
   const arpuPorProdutoMes: Record<string, Record<string, number>> = {};
   for (const s of simulacaoRaw ?? []) {
@@ -166,7 +168,7 @@ export default async function NecessidadeContratacaoPage({
     },
   ];
 
-  const semDados = demanda.sdr.length === 0 && demanda.coordenador.length === 0 && demanda.suporte.length === 0;
+  const semDados = demanda.sdr.length === 0 && demanda.coordenador.length === 0 && demanda.suporte.length === 0 && demanda.cs.length === 0;
 
   return (
     <div>
