@@ -95,18 +95,18 @@ function FormProduto({ cenarioId, produto, perfis }: { cenarioId: string; produt
         resumo={`${brl(infraBaseNoMes(p.infra, 0))} base → ${brl(p.infra?.por_cliente_mes ?? 0)}/cliente`}
         tooltip="Antes de 'custa a partir de' a infra fica no plano gratuito (zero). Plataforma (Supabase, Vercel, storage) tem uma base fixa que sobe em degraus quando a base de clientes cruza um limite (plano maior, réplica, etc.) e um incremento por cliente (banco, egress, funções). O Price pesa mais por cliente porque carrega o livro de vendas e o cálculo tributário por operação; o Skills é o mais leve.">
         <div className="form-linha">
-          <Campo label="Custa a partir de"><input type="month" className="input campo-data" value={(p.infra?.inicio ?? "").slice(0, 7)} onChange={(e) => set("infra", { inicio: e.target.value ? `${e.target.value}-01` : null })} /></Campo>
-          <Campo label="Base mensal (R$)"><input type="number" step="0.01" className="input campo-dinheiro" value={p.infra?.base_mensal ?? ""} onChange={(e) => set("infra", { base_mensal: num(e) })} /></Campo>
-          <Campo label="Por cliente/mês (R$)"><input type="number" step="0.01" className="input campo-dinheiro" value={p.infra?.por_cliente_mes ?? ""} onChange={(e) => set("infra", { por_cliente_mes: num(e) })} /></Campo>
+          <Campo label="Custa a partir de" ajuda="Mês em que a infra começa a custar. Antes disso o produto roda no plano gratuito das plataformas e a linha sai zero."><input type="month" className="input campo-data" value={(p.infra?.inicio ?? "").slice(0, 7)} onChange={(e) => set("infra", { inicio: e.target.value ? `${e.target.value}-01` : null })} /></Campo>
+          <Campo label="Base mensal (R$)" ajuda="Mensalidade fixa da plataforma (Supabase, Vercel, storage) independente de quantos clientes existem. Sobe em degraus quando a base cresce — os degraus ficam logo abaixo."><input type="number" step="0.01" className="input campo-dinheiro" value={p.infra?.base_mensal ?? ""} onChange={(e) => set("infra", { base_mensal: num(e) })} /></Campo>
+          <Campo label="Por cliente/mês (R$)" ajuda="O que cada cliente adiciona de infra por mês: banco, tráfego de saída, execuções de função. Multiplica pela base ativa do mês."><input type="number" step="0.01" className="input campo-dinheiro" value={p.infra?.por_cliente_mes ?? ""} onChange={(e) => set("infra", { por_cliente_mes: num(e) })} /></Campo>
         </div>
         <p className="mt-1 text-[10.5px] text-text-muted">Degraus da base (quando a base de clientes cruza o limite, a plataforma passa pro valor novo):</p>
         <div className="flex flex-col gap-1">
           {(p.infra?.degraus ?? []).map((d, i) => (
             <div key={i} className="form-linha items-center">
-              <Campo label="A partir de (clientes)"><input type="number" step="1" className="input campo-num" value={d.a_partir_de_clientes} onChange={(e) => {
+              <Campo label="A partir de (clientes)" ajuda="Quantidade de clientes ativos que dispara este degrau. Quando a base cruza esse número, a base mensal passa a ser a do degrau."><input type="number" step="1" className="input campo-num" value={d.a_partir_de_clientes} onChange={(e) => {
                 const degraus = [...(p.infra?.degraus ?? [])]; degraus[i] = { ...d, a_partir_de_clientes: Number(e.target.value) }; set("infra", { degraus });
               }} /></Campo>
-              <Campo label="Base mensal (R$)"><input type="number" step="0.01" className="input campo-dinheiro" value={d.base_mensal} onChange={(e) => {
+              <Campo label="Base mensal (R$)" ajuda="Quanto a plataforma passa a custar por mês depois que a base cruza o limite ao lado."><input type="number" step="0.01" className="input campo-dinheiro" value={d.base_mensal} onChange={(e) => {
                 const degraus = [...(p.infra?.degraus ?? [])]; degraus[i] = { ...d, base_mensal: Number(e.target.value) }; set("infra", { degraus });
               }} /></Campo>
               <button type="button" className="mt-4 text-[11px] text-danger" onClick={() => set("infra", { degraus: (p.infra?.degraus ?? []).filter((_, j) => j !== i) })}>remover</button>
@@ -121,18 +121,18 @@ function FormProduto({ cenarioId, produto, perfis }: { cenarioId: string; produt
         resumo={p.llm?.ativo ? `${brl2(llmCli)}/cliente ${p.llm.nivel_nome ?? ""}` : "desligado"}
         tooltip="Só o Fashion Mind usa LLM, e só a partir do 3º módulo (Premium): geração da apresentação de acompanhamento com leitura dos dados e texto. Estimativa de tokens por cliente por mês × preço por milhão (entrada e saída) × câmbio. Ajuste os tokens quando tiver medição real.">
         <div className="form-linha">
-          <label className="mt-4 flex items-center gap-1.5 text-[11px]"><input type="checkbox" checked={p.llm?.ativo ?? false} onChange={(e) => set("llm", { ativo: e.target.checked })} /> Ativo</label>
-          <Campo label="Só clientes do nível">
+          <label className="mt-4 flex items-center gap-1.5 text-[11px]"><input type="checkbox" checked={p.llm?.ativo ?? false} onChange={(e) => set("llm", { ativo: e.target.checked })} /> Ativo<InfoTooltip texto="Desligado, o produto não consome LLM e a linha sai zero. Hoje só o Fashion Mind usa." /></label>
+          <Campo label="Só clientes do nível" ajuda="Restringe o custo de IA a um nível do produto. Vazio = todos os clientes. Hoje só o Premium do Mind usa LLM.">
             <select className="input campo-select" value={p.llm?.nivel_nome ?? ""} onChange={(e) => set("llm", { nivel_nome: e.target.value })}>
               <option value="">— todos —</option>
               {produto.niveis.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           </Campo>
-          <Campo label="Tokens entrada/mês"><input type="number" step="1000" className="input campo-num" value={p.llm?.tokens_entrada_mes ?? ""} onChange={(e) => set("llm", { tokens_entrada_mes: num(e) })} /></Campo>
-          <Campo label="Tokens saída/mês"><input type="number" step="1000" className="input campo-num" value={p.llm?.tokens_saida_mes ?? ""} onChange={(e) => set("llm", { tokens_saida_mes: num(e) })} /></Campo>
-          <Campo label="US$/M entrada"><input type="number" step="0.01" className="input campo-pct" value={p.llm?.preco_milhao_entrada_usd ?? ""} onChange={(e) => set("llm", { preco_milhao_entrada_usd: num(e) })} /></Campo>
-          <Campo label="US$/M saída"><input type="number" step="0.01" className="input campo-pct" value={p.llm?.preco_milhao_saida_usd ?? ""} onChange={(e) => set("llm", { preco_milhao_saida_usd: num(e) })} /></Campo>
-          <Campo label="Câmbio R$/US$"><input type="number" step="0.01" className="input campo-pct" value={p.llm?.cambio ?? ""} onChange={(e) => set("llm", { cambio: num(e) })} /></Campo>
+          <Campo label="Tokens entrada/mês" ajuda="Quanto texto o modelo LÊ por cliente por mês — os dados do cliente e as instruções. Entrada é mais barata que saída. Ajuste quando tiver medição real."><input type="number" step="1000" className="input campo-num" value={p.llm?.tokens_entrada_mes ?? ""} onChange={(e) => set("llm", { tokens_entrada_mes: num(e) })} /></Campo>
+          <Campo label="Tokens saída/mês" ajuda="Quanto texto o modelo ESCREVE por cliente por mês — a apresentação de acompanhamento gerada. É a parte cara."><input type="number" step="1000" className="input campo-num" value={p.llm?.tokens_saida_mes ?? ""} onChange={(e) => set("llm", { tokens_saida_mes: num(e) })} /></Campo>
+          <Campo label="US$/M entrada" ajuda="Preço de tabela do fornecedor por 1 milhão de tokens lidos, em dólar."><input type="number" step="0.01" className="input campo-pct" value={p.llm?.preco_milhao_entrada_usd ?? ""} onChange={(e) => set("llm", { preco_milhao_entrada_usd: num(e) })} /></Campo>
+          <Campo label="US$/M saída" ajuda="Preço de tabela do fornecedor por 1 milhão de tokens escritos, em dólar."><input type="number" step="0.01" className="input campo-pct" value={p.llm?.preco_milhao_saida_usd ?? ""} onChange={(e) => set("llm", { preco_milhao_saida_usd: num(e) })} /></Campo>
+          <Campo label="Câmbio R$/US$" ajuda="Câmbio usado para trazer o preço do fornecedor para real. Um cenário mais conservador usa um dólar mais alto aqui."><input type="number" step="0.01" className="input campo-pct" value={p.llm?.cambio ?? ""} onChange={(e) => set("llm", { cambio: num(e) })} /></Campo>
         </div>
       </Secao>
 
@@ -141,10 +141,10 @@ function FormProduto({ cenarioId, produto, perfis }: { cenarioId: string; produt
         resumo={`${hSup.toFixed(3)} h/cliente × ${brl2(custoHora(p.suporte))}/h = ${brl2(hSup * custoHora(p.suporte))}/cliente`}
         tooltip="Antes de 'pago a partir de' quem atende é a equipe atual, sem custo extra — as horas continuam aparecendo na demanda. Suporte movido por tickets: (taxa de chamados × TMA em horas) × 1,20 de pausa/contexto. SaaS novo em lançamento tem taxa maior (15–20%); Price/Skills 5%, Mind 12%. TMA de 20 min = 0,33 h. O custo/hora vem da tabela pelo perfil escolhido.">
         <div className="form-linha">
-          <Campo label="Pago a partir de"><input type="month" className="input campo-data" value={(p.suporte?.inicio ?? "").slice(0, 7)} onChange={(e) => set("suporte", { inicio: e.target.value ? `${e.target.value}-01` : null })} /></Campo>
-          <Campo label="% da base abre chamado/mês"><input type="number" step="0.1" className="input campo-pct" value={pct(p.suporte?.taxa_chamados_pct)} onChange={(e) => set("suporte", { taxa_chamados_pct: num(e) / 100 })} /></Campo>
-          <Campo label="TMA (horas)"><input type="number" step="0.01" className="input campo-pct" value={p.suporte?.tma_horas ?? ""} onChange={(e) => set("suporte", { tma_horas: num(e) })} /></Campo>
-          <Campo label="Margem (×)"><input type="number" step="0.01" className="input campo-pct" value={p.suporte?.margem ?? ""} onChange={(e) => set("suporte", { margem: num(e) })} /></Campo>
+          <Campo label="Pago a partir de" ajuda="Mês em que o suporte passa a custar. Antes disso quem atende são as sócias, sem custo de folha — as horas continuam aparecendo na demanda de contratação, só não viram despesa."><input type="month" className="input campo-data" value={(p.suporte?.inicio ?? "").slice(0, 7)} onChange={(e) => set("suporte", { inicio: e.target.value ? `${e.target.value}-01` : null })} /></Campo>
+          <Campo label="% da base abre chamado/mês" ajuda="De cada 100 clientes ativos, quantos abrem pelo menos um chamado no mês. SaaS recém-lançado fica em 15–20%; produto maduro e simples, perto de 5%."><input type="number" step="0.1" className="input campo-pct" value={pct(p.suporte?.taxa_chamados_pct)} onChange={(e) => set("suporte", { taxa_chamados_pct: num(e) / 100 })} /></Campo>
+          <Campo label="TMA (horas)" ajuda="Tempo médio de atendimento de um chamado, em horas. 0,33 h = 20 min. Multiplica pela quantidade de chamados do mês."><input type="number" step="0.01" className="input campo-pct" value={p.suporte?.tma_horas ?? ""} onChange={(e) => set("suporte", { tma_horas: num(e) })} /></Campo>
+          <Campo label="Margem (×)" ajuda="Multiplicador do tempo que o cronômetro do chamado não pega: pausa entre atendimentos, registro, troca de contexto. 1,2 = 20% a mais."><input type="number" step="0.01" className="input campo-pct" value={p.suporte?.margem ?? ""} onChange={(e) => set("suporte", { margem: num(e) })} /></Campo>
           <PerfilSelect valor={p.suporte} cargos={cargos} perfis={perfis} onChange={(v) => set("suporte", v)} />
         </div>
       </Secao>
@@ -153,12 +153,12 @@ function FormProduto({ cenarioId, produto, perfis }: { cenarioId: string; produt
         resumo={p.cs_proativo?.ativo ? `${hCs.toFixed(2)} h/cliente × ${brl2(custoHora(p.cs_proativo))}/h = ${brl2(hCs * custoHora(p.cs_proativo))}/cliente` : "desligado"}
         tooltip="Régua de relacionamento: monitoramento de health score (15 min), cadência mensal (15 min) e QBR trimestral diluída (1h ÷ 3 = 20 min), × 1,20 de overhead/CRM ≈ 1,0 h/cliente/mês no mid-touch. Só o Mind tem CS proativo.">
         <div className="form-linha">
-          <label className="mt-4 flex items-center gap-1.5 text-[11px]"><input type="checkbox" checked={p.cs_proativo?.ativo ?? false} onChange={(e) => set("cs_proativo", { ativo: e.target.checked })} /> Ativo</label>
-          <Campo label="Pago a partir de"><input type="month" className="input campo-data" value={(p.cs_proativo?.inicio ?? "").slice(0, 7)} onChange={(e) => set("cs_proativo", { inicio: e.target.value ? `${e.target.value}-01` : null })} /></Campo>
-          <Campo label="Monitoramento (h)"><input type="number" step="0.01" className="input campo-pct" value={p.cs_proativo?.monitoramento_h ?? ""} onChange={(e) => set("cs_proativo", { monitoramento_h: num(e) })} /></Campo>
-          <Campo label="Cadência (h)"><input type="number" step="0.01" className="input campo-pct" value={p.cs_proativo?.cadencia_h ?? ""} onChange={(e) => set("cs_proativo", { cadencia_h: num(e) })} /></Campo>
-          <Campo label="QBR diluída (h/mês)"><input type="number" step="0.01" className="input campo-pct" value={p.cs_proativo?.qbr_h_mes ?? ""} onChange={(e) => set("cs_proativo", { qbr_h_mes: num(e) })} /></Campo>
-          <Campo label="Overhead (×)"><input type="number" step="0.01" className="input campo-pct" value={p.cs_proativo?.overhead ?? ""} onChange={(e) => set("cs_proativo", { overhead: num(e) })} /></Campo>
+          <label className="mt-4 flex items-center gap-1.5 text-[11px]"><input type="checkbox" checked={p.cs_proativo?.ativo ?? false} onChange={(e) => set("cs_proativo", { ativo: e.target.checked })} /> Ativo<InfoTooltip texto="Liga a régua de CS proativo neste produto. Desligado, o produto só tem suporte reativo (por chamado). Hoje só o Fashion Mind tem CS proativo." /></label>
+          <Campo label="Pago a partir de" ajuda="Mês em que o CS passa a custar. Antes disso o acompanhamento é feito pelas sócias, sem custo de folha — as horas continuam aparecendo na demanda de contratação, só não viram despesa."><input type="month" className="input campo-data" value={(p.cs_proativo?.inicio ?? "").slice(0, 7)} onChange={(e) => set("cs_proativo", { inicio: e.target.value ? `${e.target.value}-01` : null })} /></Campo>
+          <Campo label="Monitoramento (h)" ajuda="Horas por cliente por mês só olhando o health score — uso, entregas, sinais de risco — sem contato com o cliente. 0,2 h = 12 min."><input type="number" step="0.01" className="input campo-pct" value={p.cs_proativo?.monitoramento_h ?? ""} onChange={(e) => set("cs_proativo", { monitoramento_h: num(e) })} /></Campo>
+          <Campo label="Cadência (h)" ajuda="Horas por cliente por mês de contato ativo: o call ou o report mensal combinado no contrato. 0,25 h = 15 min."><input type="number" step="0.01" className="input campo-pct" value={p.cs_proativo?.cadencia_h ?? ""} onChange={(e) => set("cs_proativo", { cadencia_h: num(e) })} /></Campo>
+          <Campo label="QBR diluída (h/mês)" ajuda="A revisão trimestral (QBR) dividida por 3, pra virar custo todo mês em vez de um pico a cada trimestre. Um QBR de 1 h vira 0,33 h/mês."><input type="number" step="0.01" className="input campo-pct" value={p.cs_proativo?.qbr_h_mes ?? ""} onChange={(e) => set("cs_proativo", { qbr_h_mes: num(e) })} /></Campo>
+          <Campo label="Overhead (×)" ajuda="Multiplicador do tempo que não aparece na agenda: preparar o call, registrar no CRM, trocar de contexto. 1,2 = 20% sobre a soma das horas ao lado."><input type="number" step="0.01" className="input campo-pct" value={p.cs_proativo?.overhead ?? ""} onChange={(e) => set("cs_proativo", { overhead: num(e) })} /></Campo>
           <PerfilSelect valor={p.cs_proativo} cargos={cargos} perfis={perfis} onChange={(v) => set("cs_proativo", v)} />
         </div>
       </Secao>
@@ -168,7 +168,7 @@ function FormProduto({ cenarioId, produto, perfis }: { cenarioId: string; produt
         resumo={(p.software_atendimento?.custo_mensal ?? 0) > 0 ? `${brl(p.software_atendimento!.custo_mensal!)}/mês` : "modelo interno — sem custo"}
         tooltip="Ferramenta de atendimento. Decisão atual: modelo interno, custo zero. Se um dia contratar (Intercom, Zendesk…), lance a mensalidade aqui.">
         <div className="form-linha">
-          <Campo label="Custo mensal (R$)"><input type="number" step="0.01" className="input campo-dinheiro" value={p.software_atendimento?.custo_mensal ?? ""} onChange={(e) => set("software_atendimento", { custo_mensal: num(e) })} /></Campo>
+          <Campo label="Custo mensal (R$)" ajuda="Mensalidade da ferramenta de atendimento (Intercom, Zendesk…). Zero = modelo interno, que é a decisão atual."><input type="number" step="0.01" className="input campo-dinheiro" value={p.software_atendimento?.custo_mensal ?? ""} onChange={(e) => set("software_atendimento", { custo_mensal: num(e) })} /></Campo>
         </div>
       </Secao>
 
@@ -177,13 +177,13 @@ function FormProduto({ cenarioId, produto, perfis }: { cenarioId: string; produt
         resumo={`cartão ${pct(p.gateway?.mix_cartao)}% · boleto ${pct(p.gateway?.mix_boleto)}% · pix ${pct(p.gateway?.mix_pix)}%`}
         tooltip="Asaas (set/2026): cartão 2,99% + R$0,49 por transação; boleto R$1,99; Pix R$1,99; sem mensalidade. Cada cobrança do mês (assinatura + parcela de implementação) passa pelo gateway na proporção do mix. Price/Skills são quase só cartão; Mind é misto.">
         <div className="form-linha">
-          <Campo label="Mix cartão (%)"><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_cartao)} onChange={(e) => set("gateway", { mix_cartao: num(e) / 100 })} /></Campo>
-          <Campo label="Mix boleto (%)"><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_boleto)} onChange={(e) => set("gateway", { mix_boleto: num(e) / 100 })} /></Campo>
-          <Campo label="Mix Pix (%)"><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_pix)} onChange={(e) => set("gateway", { mix_pix: num(e) / 100 })} /></Campo>
-          <Campo label="Cartão (%)"><input type="number" step="0.01" className="input campo-pct" value={pct(p.gateway?.cartao_pct, 2)} onChange={(e) => set("gateway", { cartao_pct: num(e) / 100 })} /></Campo>
-          <Campo label="Cartão fixo (R$)"><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.cartao_fixo ?? ""} onChange={(e) => set("gateway", { cartao_fixo: num(e) })} /></Campo>
-          <Campo label="Boleto (R$)"><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.boleto_fixo ?? ""} onChange={(e) => set("gateway", { boleto_fixo: num(e) })} /></Campo>
-          <Campo label="Pix (R$)"><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.pix_fixo ?? ""} onChange={(e) => set("gateway", { pix_fixo: num(e) })} /></Campo>
+          <Campo label="Mix cartão (%)" ajuda="De cada 100 cobranças do mês, quantas saem no cartão. Os três mixes somam 100%."><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_cartao)} onChange={(e) => set("gateway", { mix_cartao: num(e) / 100 })} /></Campo>
+          <Campo label="Mix boleto (%)" ajuda="Fatia das cobranças em boleto. Cliente maior e compra por empresa puxam esse número para cima."><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_boleto)} onChange={(e) => set("gateway", { mix_boleto: num(e) / 100 })} /></Campo>
+          <Campo label="Mix Pix (%)" ajuda="Fatia das cobranças em Pix."><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_pix)} onChange={(e) => set("gateway", { mix_pix: num(e) / 100 })} /></Campo>
+          <Campo label="Cartão (%)" ajuda="Percentual que o gateway cobra sobre o valor de cada cobrança no cartão. Asaas: 2,99%."><input type="number" step="0.01" className="input campo-pct" value={pct(p.gateway?.cartao_pct, 2)} onChange={(e) => set("gateway", { cartao_pct: num(e) / 100 })} /></Campo>
+          <Campo label="Cartão fixo (R$)" ajuda="Tarifa fixa por transação no cartão, somada ao percentual. Asaas: R$ 0,49."><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.cartao_fixo ?? ""} onChange={(e) => set("gateway", { cartao_fixo: num(e) })} /></Campo>
+          <Campo label="Boleto (R$)" ajuda="Tarifa por boleto liquidado. Valor fixo, sem percentual."><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.boleto_fixo ?? ""} onChange={(e) => set("gateway", { boleto_fixo: num(e) })} /></Campo>
+          <Campo label="Pix (R$)" ajuda="Tarifa por cobrança recebida via Pix."><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.pix_fixo ?? ""} onChange={(e) => set("gateway", { pix_fixo: num(e) })} /></Campo>
         </div>
       </Secao>
 
@@ -234,32 +234,35 @@ function PerfilSelect({ valor, cargos, perfis, onChange }: {
   const vh = perfis.find((x) => x.cargo === valor?.cargo && x.tipo_contratacao === valor?.tipo_contratacao && x.senioridade === valor?.senioridade)?.valor_hora;
   return (
     <>
-      <Campo label="Perfil (cargo)">
+      <Campo label="Perfil (cargo)" ajuda="Quem faz esse trabalho. O cargo é só o filtro que busca o valor na tabela de custo/hora — escolher aqui não contrata ninguém nem cria alocação.">
         <select className="input campo-select" value={valor?.cargo ?? ""} onChange={(e) => onChange({ cargo: e.target.value })}>
           <option value="">—</option>
           {cargos.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </Campo>
-      <Campo label="Contratação">
+      <Campo label="Contratação" ajuda="CLT ou PJ. Muda o valor lido na tabela: o custo/hora de CLT já vem com encargos embutidos.">
         <select className="input campo-pct" value={valor?.tipo_contratacao ?? ""} onChange={(e) => onChange({ tipo_contratacao: e.target.value })}>
           <option value="">—</option><option value="clt">CLT</option><option value="pj">PJ</option>
         </select>
       </Campo>
-      <Campo label="Senioridade">
+      <Campo label="Senioridade" ajuda="Júnior, pleno ou sênior — o terceiro filtro da tabela de custo/hora. Perfil mais sênior atende em menos tempo, mas a hora custa mais.">
         <select className="input campo-pct" value={valor?.senioridade ?? ""} onChange={(e) => onChange({ senioridade: e.target.value })}>
           <option value="">—</option>
           {["junior", "pleno", "senior"].map((s) => <option key={s} value={s}>{SENIORIDADE_LABEL[s]}</option>)}
         </select>
       </Campo>
-      <Campo label="Custo/hora"><span className="mt-1.5 block font-mono text-[12px]">{vh != null ? brl2(vh) : "—"}</span></Campo>
+      <Campo label="Custo/hora" ajuda="Valor lido na tabela a partir de cargo + contratação + senioridade. Não se digita aqui: para mudar, edite em Contratações → Custo/hora."><span className="mt-1.5 block font-mono text-[12px]">{vh != null ? brl2(vh) : "—"}</span></Campo>
     </>
   );
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, ajuda, children }: { label: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div className="form-campo">
-      <label>{label}</label>
+      <label>
+        {label}
+        {ajuda && <InfoTooltip texto={ajuda} />}
+      </label>
       {children}
     </div>
   );
