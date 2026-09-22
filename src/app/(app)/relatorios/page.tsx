@@ -645,10 +645,25 @@ export async function RelatorioPlanos({
       : ultimoMes && seguinte > ultimoMes
         ? primeiroMes
         : seguinte;
+  // O período escolhido fica SEMPRE dentro do plano do cenário. Trocando de cenário no seletor, o
+  // "De/Até" do cenário anterior continua na URL — e um plano que começa em jan/2027 lido desde
+  // out/2026 traz meses de desenvolvimento (sem receita) e distorce margem, CAC e break-even.
+  const limitarAoPlano = (mes: string | null | undefined): string | null => {
+    if (!mes) return null;
+    const m = mes.slice(0, 7);
+    const min = primeiroMes?.slice(0, 7);
+    const max = ultimoMes?.slice(0, 7);
+    if (min && m < min) return min;
+    if (max && m > max) return max;
+    return m;
+  };
+  const inicioEfetivo = limitarAoPlano(inicio) ?? inicioPadrao;
+  const fimEfetivo = limitarAoPlano(fim) ?? ultimoMes;
+
   const linhasPeriodo = recortarPeriodo(
     resumo.linhas,
-    inicio ?? inicioPadrao,
-    fim ?? ultimoMes,
+    inicioEfetivo,
+    fimEfetivo,
   );
 
   const metricas = computeMetricas(
@@ -697,8 +712,11 @@ export async function RelatorioPlanos({
       ),
     };
   });
-  const inicioSel = inicio ?? (inicioPadrao ? inicioPadrao.slice(0, 7) : "");
-  const fimSel = fim ?? (ultimoMes ? ultimoMes.slice(0, 7) : "");
+  const inicioSel = inicioEfetivo ? inicioEfetivo.slice(0, 7) : "";
+  const fimSel = fimEfetivo ? fimEfetivo.slice(0, 7) : "";
+  // min/max nos campos: o calendário já não deixa escolher fora do plano.
+  const limiteMin = primeiroMes ? primeiroMes.slice(0, 7) : undefined;
+  const limiteMax = ultimoMes ? ultimoMes.slice(0, 7) : undefined;
 
   // Base do valor de saída na simulação de retorno: ARR (MRR × 12) do último mês do período e
   // EBITDA dos últimos 12 meses, já depois de IRPJ/CSLL.
@@ -824,6 +842,8 @@ export async function RelatorioPlanos({
             type="month"
             name="inicio"
             defaultValue={inicioSel}
+            min={limiteMin}
+            max={limiteMax}
             className="input"
           />
         </div>
@@ -835,6 +855,8 @@ export async function RelatorioPlanos({
             type="month"
             name="fim"
             defaultValue={fimSel}
+            min={limiteMin}
+            max={limiteMax}
             className="input"
           />
         </div>
