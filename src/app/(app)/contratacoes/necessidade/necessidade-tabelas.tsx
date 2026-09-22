@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useActionState, useMemo, useRef, useState, useTransition } from "react";
 import { criarAlocacaoModelo, editarAlocacaoModelo, excluirAlocacaoModelo, type ActionState } from "./actions";
 import { leadsParaReunioes } from "@/lib/modelos-contratacao";
 import { custoMensalModelo, type ParametrosModelo, type TipoModelo } from "@/lib/modelos-contratacao";
@@ -11,9 +11,11 @@ import {
   produtosDaAlocacao,
   LABEL_COBERTURA,
   type CoberturaModo,
+  type ItemEquipeMes,
   type ModeloEquipe,
 } from "@/lib/equipe-comercial";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { RoteiroCanalDireto, type PassoRoteiro } from "./roteiro-canal-direto";
 
 type Modelo = { id: string; cargo: string; tipo_modelo: string; nome: string; categoria?: "pd" | "sm" | "ga"; parametros: ParametrosModelo };
 type Alocacao = {
@@ -103,6 +105,7 @@ export function NecessidadeTabelas({
   porProduto,
   arpuPorProdutoMes,
   produtos,
+  passosCanalDireto = [],
   modelos,
   alocacoes,
   mesesSemQualificacao,
@@ -113,12 +116,16 @@ export function NecessidadeTabelas({
   porProduto: Record<string, Record<string, DemandaProdutoMes>>;
   arpuPorProdutoMes: Record<string, Record<string, number>>;
   produtos: Produto[];
+  /** Passos do canal direto — só valem pro SDR, então só aparecem naquela aba. */
+  passosCanalDireto?: PassoRoteiro[];
   modelos: Modelo[];
   alocacoes: Alocacao[];
   mesesSemQualificacao: string[];
   cargoInicial?: CargoChave;
 }) {
   const [ativo, setAtivo] = useState<CargoChave>(cargoInicial);
+  // Comparar modelos é o momento de DECIDIR — só abre no mês que está sendo editado.
+  const [mesEditando, setMesEditando] = useState<string | null>(null);
   // Filtro de produto: ver só a demanda do Mind (SDR PJ + vendedor) ou só a do Price e do Skills (bot).
   const [filtro, setFiltro] = useState<string | null>(null);
   const cargoAtual = CARGOS.find((c) => c.chave === ativo)!;
@@ -159,6 +166,9 @@ export function NecessidadeTabelas({
         coberto: equipe.itens.reduce((s, i) => s + i.coberto, 0),
         custoAlocado: equipe.itens.reduce((s, i) => s + i.custo, 0),
         descoberto: equipe.descoberto[ativo],
+        // Quem cobre o mês: modelo, quanto foi contratado e o custo — é o que a tabela mostra por
+        // padrão. A comparação entre modelos só aparece ao editar.
+        itens: equipe.itens.filter((i) => i.chave === ativo && (i.coberto > 0 || i.custo > 0)),
       };
     });
   }, [porProduto, arpuPorProdutoMes, filtro, alocacoesDoCargo, modelosMap, ativo]);
@@ -181,6 +191,8 @@ export function NecessidadeTabelas({
           .
         </div>
       )}
+
+      {ativo === "sdr" && passosCanalDireto.some((p) => !p.feito) && <RoteiroCanalDireto passos={passosCanalDireto} />}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-2">
@@ -267,68 +279,63 @@ export function NecessidadeTabelas({
                   </td>
                   {ativo === "vendedor" && <td className="px-2 py-1.5 text-right font-medium">Vendedores</td>}
                   {ativo === "coordenador" && <td className="px-2 py-1.5 text-right font-medium">Coordenadores</td>}
-                  {modelosDoCargo.map((m) => (
-                    <td key={m.id} className="px-2 py-1.5 text-right font-medium">
-                      {m.nome}
-                    </td>
-                  ))}
-                  <td className="px-2 py-1.5 text-right font-medium">
+                  <td className="px-2 py-1.5 font-medium">
                     <span className="inline-flex items-center">
                       Alocado
-                      <InfoTooltip texto="O que as alocações registradas abaixo cobrem no mês e quanto custam, pela mesma regra do Plano de Custos. O que sobra é esforço próprio — não gera custo, mas precisa de alguém fazendo." />
+                      <InfoTooltip texto="Quem cobre a demanda do mês. Clique no nome do modelo pra rever a remuneração cadastrada; clique em 'editar' pra comparar os modelos e trocar." />
                     </span>
                   </td>
+                  <td className="px-2 py-1.5 text-right font-medium">Quantidade</td>
+                  <td className="px-2 py-1.5 text-right font-medium">Custo</td>
+                  <td className="px-2 py-1.5" />
                 </tr>
               </thead>
               <tbody>
-                {linhasRelevantes.map((l) => (
-                  <tr key={l.mes} className="border-t border-border-soft">
-                    <td className="px-2 py-1.5 capitalize">{formatMes(l.mes)}</td>
-                    <td className="px-2 py-1.5 text-right font-mono font-semibold">{l.demanda.toFixed(1)}</td>
-                    {ativo === "vendedor" && (
-                      <td className="px-2 py-1.5 text-right font-mono">
-                        {l.vendedores.toFixed(1)}
-                        {l.vendedores > 1 && <span className="block text-[9px] font-normal text-warning">passa de 1 pessoa</span>}
-                      </td>
-                    )}
-                    {ativo === "coordenador" && <td className="px-2 py-1.5 text-right font-mono">{l.coordenadores.toFixed(1)}</td>}
-                    {modelosDoCargo.map((m) => {
-                      const contexto =
-                        ativo === "sdr"
-                          ? { reunioes: l.demanda }
-                          : ativo === "vendedor"
-                            ? { reunioes: l.demanda, vendas: l.vendas, receitaNovasVendas: l.receitaNovasVendas }
-                            : {};
-                      const { custoMensal, unidades } = custoMensalModelo(m.tipo_modelo as TipoModelo, m.parametros, l.demanda, contexto);
-                      const capacidade = m.parametros.capacidade_unidade_mes ?? 0;
-                      const unidadesInteiras = Math.ceil(unidades - 1e-9);
-                      const taxa = taxaDoModelo(m.parametros);
-                      return (
-                        <td key={m.id} className="px-2 py-1.5 text-right font-mono">
-                          {formatBRL(custoMensal)}
-                          {unidades > 0 && (
-                            <span className="block text-[9px] font-normal text-text-faint">
-                              {num(unidadesInteiras, 0)} {unidadesInteiras === 1 ? UNIDADE_LABEL[m.tipo_modelo] ?? "un." : (UNIDADE_PLURAL[m.tipo_modelo] ?? "un.")}
-                              {capacidade > 0 && m.tipo_modelo !== "empresa_ia_atendimento" && ` · ${num(capacidade, 0)}/cada`}
-                            </span>
-                          )}
-                          {ativo === "sdr" && taxa ? (
-                            <span className="block text-[9px] font-normal text-text-faint">
-                              {num(leadsParaReunioes(m.parametros, l.demanda), 0)} leads · {(taxa * 100).toFixed(1)}%
-                            </span>
-                          ) : null}
+                {linhasRelevantes.map((l) => {
+                  const colunas = 4 + (ativo === "vendedor" || ativo === "coordenador" ? 1 : 0);
+                  return (
+                    <Fragment key={l.mes}>
+                      <tr className={`border-t border-border-soft ${mesEditando === l.mes ? "bg-primary-soft/20" : ""}`}>
+                        <td className="px-2 py-1.5 capitalize">{formatMes(l.mes)}</td>
+                        <td className="px-2 py-1.5 text-right font-mono font-semibold">{l.demanda.toFixed(1)}</td>
+                        {ativo === "vendedor" && (
+                          <td className="px-2 py-1.5 text-right font-mono">
+                            {l.vendedores.toFixed(1)}
+                            {l.vendedores > 1 && <span className="block text-[9px] font-normal text-warning">passa de 1 pessoa</span>}
+                          </td>
+                        )}
+                        {ativo === "coordenador" && <td className="px-2 py-1.5 text-right font-mono">{l.coordenadores.toFixed(1)}</td>}
+                        <CelulasAlocado linha={l} ativo={ativo} modelos={modelosDoCargo} />
+                        <td className="px-2 py-1.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setMesEditando(mesEditando === l.mes ? null : l.mes)}
+                            className="text-[11px] text-primary-deep underline"
+                          >
+                            {mesEditando === l.mes ? "fechar" : "editar"}
+                          </button>
                         </td>
-                      );
-                    })}
-                    <td className={`px-2 py-1.5 text-right font-mono ${l.coberto > 0 ? "text-success" : "text-text-faint"}`}>
-                      {l.coberto > 0 ? l.coberto.toFixed(1) : "—"}
-                      {l.custoAlocado > 0 && <span className="block text-[9px] font-normal text-text-muted">{formatBRL(l.custoAlocado)}</span>}
-                      {l.descoberto > 0.05 && (
-                        <span className="block text-[9px] font-normal text-warning">+{l.descoberto.toFixed(1)} sem ninguém</span>
+                      </tr>
+                      {mesEditando === l.mes && (
+                        <tr className="border-t border-primary-fill bg-primary-soft/10">
+                          <td colSpan={colunas + 1} className="px-3 py-2.5">
+                            <ComparativoModelos
+                              linha={l}
+                              ativo={ativo}
+                              unidade={cargoAtual.unidade}
+                              modelos={modelosDoCargo}
+                              alocacoes={alocacoesDoCargo}
+                              cenarioId={cenarioId}
+                              cargo={cargoAtual.label}
+                              produtos={produtos}
+                              aoFechar={() => setMesEditando(null)}
+                            />
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -440,6 +447,237 @@ function EscolhaCobertura({
       )}
       {modo !== "pacote" && !discreto && <input type="hidden" name="quantidade" value={quantidade ?? 0} />}
     </>
+  );
+}
+
+
+type LinhaMesDemanda = {
+  mes: string;
+  demanda: number;
+  vendas: number;
+  receitaNovasVendas: number;
+  coberto: number;
+  custoAlocado: number;
+  descoberto: number;
+  itens: ItemEquipeMes[];
+};
+
+/** Contexto que cada modelo precisa pra calcular custo naquele volume. */
+function contextoDoMes(ativo: CargoChave, l: LinhaMesDemanda) {
+  if (ativo === "sdr") return { reunioes: l.demanda };
+  if (ativo === "vendedor") return { reunioes: l.demanda, vendas: l.vendas, receitaNovasVendas: l.receitaNovasVendas };
+  return {};
+}
+
+function unidadeCurta(ativo: CargoChave) {
+  return ativo === "suporte" ? "h" : "reuniões";
+}
+
+/** Colunas de acompanhamento: quem cobre, quanto foi contratado e o custo (com o unitário). */
+function CelulasAlocado({ linha: l, ativo, modelos }: { linha: LinhaMesDemanda; ativo: CargoChave; modelos: Modelo[] }) {
+  // Nenhum modelo alocado: sugere o mais barato que cobriria a demanda do mês.
+  const sugestao = useMemo(() => {
+    if (l.itens.length > 0 || l.demanda <= 0.001 || modelos.length === 0) return null;
+    const candidatos = modelos
+      .map((m) => ({ m, ...custoMensalModelo(m.tipo_modelo as TipoModelo, m.parametros, l.demanda, contextoDoMes(ativo, l)) }))
+      .filter((c) => c.unidades > 0 || c.custoMensal > 0);
+    if (candidatos.length === 0) return null;
+    return candidatos.sort((a, b) => a.custoMensal - b.custoMensal)[0];
+  }, [l, ativo, modelos]);
+
+  if (l.itens.length === 0) {
+    return (
+      <>
+        <td className="px-2 py-1.5 text-[11px] text-text-faint">
+          — sem ninguém
+          {sugestao && (
+            <span className="block text-[9.5px] text-primary-deep">
+              mais barato: {sugestao.m.nome} · {formatBRL(sugestao.custoMensal)}
+            </span>
+          )}
+        </td>
+        <td className="px-2 py-1.5 text-right font-mono text-warning">
+          {l.descoberto > 0.05 ? `+${l.descoberto.toFixed(1)}` : "—"}
+          <span className="block text-[9px] font-normal text-text-faint">{unidadeCurta(ativo)} sem cobertura</span>
+        </td>
+        <td className="px-2 py-1.5 text-right font-mono text-text-faint">R$ 0</td>
+      </>
+    );
+  }
+
+  const unitario = l.coberto > 0 ? l.custoAlocado / l.coberto : 0;
+  return (
+    <>
+      <td className="px-2 py-1.5 text-[11px]">
+        {l.itens.map((i) => (
+          <a key={i.alocacaoId} href="/contratacoes/modelos" className="block text-primary-deep underline" title="Rever remuneração deste modelo">
+            {i.modelo.nome}
+          </a>
+        ))}
+        {l.descoberto > 0.05 && (
+          <span className="block text-[9.5px] text-warning">+{l.descoberto.toFixed(1)} {unidadeCurta(ativo)} sem ninguém</span>
+        )}
+      </td>
+      <td className="px-2 py-1.5 text-right font-mono">
+        {l.itens.map((i) => (
+          <span key={i.alocacaoId} className="block">
+            {i.unidades > 0 ? `${num(Math.ceil(i.unidades - 1e-9), 0)} ${UNIDADE_LABEL[i.tipo] ?? "un."}` : "—"}
+            <span className="block text-[9px] font-normal text-text-faint">{i.coberto.toFixed(1)} {unidadeCurta(ativo)}</span>
+          </span>
+        ))}
+      </td>
+      <td className="px-2 py-1.5 text-right font-mono font-semibold">
+        {formatBRL(l.custoAlocado)}
+        {unitario > 0 && (
+          <span className="block text-[9px] font-normal text-text-faint">
+            {formatBRL(unitario)}/{ativo === "suporte" ? "h" : "reunião"}
+          </span>
+        )}
+      </td>
+    </>
+  );
+}
+
+/**
+ * Comparação de modelos no volume DAQUELE mês — só aparece ao editar. É o momento de decidir:
+ * escolher um modelo aqui cria a alocação já com o período começando neste mês.
+ */
+function ComparativoModelos({
+  linha: l,
+  ativo,
+  unidade,
+  modelos,
+  alocacoes,
+  cenarioId,
+  cargo,
+  produtos,
+  aoFechar,
+}: {
+  linha: LinhaMesDemanda;
+  ativo: CargoChave;
+  unidade: string;
+  modelos: Modelo[];
+  alocacoes: Alocacao[];
+  cenarioId: string;
+  cargo: string;
+  produtos: Produto[];
+  aoFechar: () => void;
+}) {
+  const [state, formAction, pending] = useActionState(criarAlocacaoModelo, initialState);
+  const [escolhido, setEscolhido] = useState<string | null>(null);
+  const [soEsteMes, setSoEsteMes] = useState(false);
+
+  // Alocação que já cobre este mês e veio de um período maior — trocar aqui mexe no período todo,
+  // então perguntamos antes (ver "só este mês").
+  const doPeriodo = l.itens[0];
+  const alocacaoAtual = doPeriodo ? alocacoes.find((a) => a.id === doPeriodo.alocacaoId) : undefined;
+  const periodoMaior =
+    !!alocacaoAtual && (!alocacaoAtual.data_inicio || alocacaoAtual.data_inicio.slice(0, 7) !== l.mes.slice(0, 7) || !alocacaoAtual.data_fim || alocacaoAtual.data_fim.slice(0, 7) !== l.mes.slice(0, 7));
+
+  const fimDoMes = (() => {
+    const [a, m] = l.mes.slice(0, 7).split("-").map(Number);
+    return new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10);
+  })();
+
+  const comparacao = modelos.map((m) => {
+    const r = custoMensalModelo(m.tipo_modelo as TipoModelo, m.parametros, l.demanda, contextoDoMes(ativo, l));
+    return { m, ...r, taxa: taxaDoModelo(m.parametros) };
+  });
+  const maisBarato = [...comparacao].filter((c) => c.custoMensal > 0).sort((a, b) => a.custoMensal - b.custoMensal)[0];
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[11.5px] text-text-muted">
+        Custo de cada modelo pra cobrir <strong>{l.demanda.toFixed(1)}</strong> {unidade} em <strong className="capitalize">{formatMes(l.mes)}</strong>
+      </p>
+
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[11.5px]">
+          <thead>
+            <tr className="text-left text-text-faint">
+              <td className="px-2 py-1 font-medium">Modelo</td>
+              <td className="px-2 py-1 text-right font-medium">Quantidade</td>
+              {ativo === "sdr" && <td className="px-2 py-1 text-right font-medium">Leads · taxa</td>}
+              <td className="px-2 py-1 text-right font-medium">Custo no mês</td>
+              <td className="px-2 py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {comparacao.map(({ m, custoMensal, unidades, taxa }) => {
+              const unidadesInteiras = Math.ceil(unidades - 1e-9);
+              const emUso = l.itens.some((i) => i.modelo.id === m.id);
+              return (
+                <tr key={m.id} className={`border-t border-border-soft ${escolhido === m.id ? "bg-primary-soft/30" : ""}`}>
+                  <td className="px-2 py-1">
+                    <a href="/contratacoes/modelos" className="text-primary-deep underline" title="Rever remuneração cadastrada">
+                      {m.nome}
+                    </a>
+                    {emUso && <span className="ml-1 text-[9.5px] text-success">em uso</span>}
+                    {maisBarato?.m.id === m.id && !emUso && <span className="ml-1 text-[9.5px] text-primary-deep">mais barato</span>}
+                  </td>
+                  <td className="px-2 py-1 text-right font-mono">
+                    {unidades > 0 ? `${num(unidadesInteiras, 0)} ${unidadesInteiras === 1 ? (UNIDADE_LABEL[m.tipo_modelo] ?? "un.") : (UNIDADE_PLURAL[m.tipo_modelo] ?? "un.")}` : "—"}
+                  </td>
+                  {ativo === "sdr" && (
+                    <td className="px-2 py-1 text-right font-mono text-text-faint">
+                      {taxa ? `${num(leadsParaReunioes(m.parametros, l.demanda), 0)} · ${(taxa * 100).toFixed(1)}%` : "—"}
+                    </td>
+                  )}
+                  <td className="px-2 py-1 text-right font-mono font-semibold">{formatBRL(custoMensal)}</td>
+                  <td className="px-2 py-1 text-right">
+                    <button type="button" onClick={() => setEscolhido(m.id)} className="text-[11px] text-primary-deep underline">
+                      escolher
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {escolhido && (
+        <form
+          action={async (fd) => {
+            await formAction(fd);
+            aoFechar();
+          }}
+          className="flex flex-wrap items-end gap-2 border-t border-border-soft pt-2"
+        >
+          <input type="hidden" name="cenario_id" value={cenarioId} />
+          <input type="hidden" name="cargo" value={cargo} />
+          <input type="hidden" name="modelo_id" value={escolhido} />
+          <input type="hidden" name="data_inicio" value={`${l.mes.slice(0, 7)}-01`} />
+          {soEsteMes && <input type="hidden" name="data_fim" value={fimDoMes} />}
+          <EscolhaProdutos produtos={produtos} taxaPadrao={taxaDoModelo(modelos.find((m) => m.id === escolhido)!.parametros)} />
+          <EscolhaCobertura
+            modeloSelecionado={modelos.find((m) => m.id === escolhido)}
+            cargo={cargo}
+            modo="demanda"
+            setModo={() => {}}
+            quantidade={precisaQuantidade(modelos.find((m) => m.id === escolhido)!.tipo_modelo) ? 1 : 0}
+          />
+          {periodoMaior && (
+            <label className="flex items-center gap-1.5 text-[11px] text-text-muted" title="A alocação atual cobre vários meses. Marcando, a troca vale só neste mês e o período existente continua nos demais.">
+              <input type="checkbox" checked={soEsteMes} onChange={(e) => setSoEsteMes(e.target.checked)} />
+              só este mês
+            </label>
+          )}
+          <button type="submit" disabled={pending} className="rounded-lg bg-wine-deep px-3 py-2 text-[11.5px] font-medium text-white disabled:opacity-60">
+            {pending ? "…" : soEsteMes ? "Alocar só neste mês" : "Alocar a partir deste mês"}
+          </button>
+          <button type="button" onClick={aoFechar} className="rounded-lg border border-border px-3 py-2 text-[11.5px] text-text-muted">
+            Cancelar
+          </button>
+          {periodoMaior && !soEsteMes && (
+            <p className="w-full text-[10.5px] text-warning">
+              A alocação atual começa antes deste mês — sem marcar &quot;só este mês&quot;, a nova passa a valer daqui em diante.
+            </p>
+          )}
+          {state.error && <p className="w-full text-[11px] text-danger">{state.error}</p>}
+        </form>
+      )}
+    </div>
   );
 }
 

@@ -209,10 +209,9 @@ export default async function NecessidadeContratacaoPage({
         </form>
       </div>
 
-      {/* O roteiro aparece mesmo sem demanda calculada: é justamente quando está tudo vazio que a
-          pessoa mais precisa saber quais telas preencher, e em que ordem. */}
+      {/* O roteiro é do canal DIRETO (SDR) — desceu pra dentro daquela aba. No topo, ele aparecia
+          pra quem tinha vindo ver Suporte ou Vendedor e falava de outro cargo. */}
       <div className="mb-4 flex flex-col gap-3">
-        <RoteiroCanalDireto passos={passosCanalDireto} />
         <PremissasVendas cenarioId={cenarioAtual} produtos={premissasVendas} />
       </div>
 
@@ -234,6 +233,7 @@ export default async function NecessidadeContratacaoPage({
         alocacoes={alocacoes ?? []}
         mesesSemQualificacao={demanda.mesesSemQualificacao}
         cargoInicial={cargoInicial}
+        passosCanalDireto={passosCanalDireto}
       />
     </div>
   );
