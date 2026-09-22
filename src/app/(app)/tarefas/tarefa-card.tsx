@@ -256,17 +256,28 @@ export function TarefaCard({
       }`}
     >
       {/* Cabeçalho — sempre visível, clicável */}
-      <button type="button" onClick={alternarAberto} className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left">
-        <span className={`text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`}>
-          {no.titulo}
-          {bloqueada && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
-          {libera.length > 0 && <span title={`Libera: ${libera.map((l) => l.titulo).join(", ")}`}> 🔓</span>}
-          {no.filhas.length > 0 && no.progresso !== null && <span className="ml-1 text-[10px] font-normal text-text-faint">{Math.round(no.progresso * 100)}%</span>}
+      <button type="button" onClick={alternarAberto} className="flex w-full flex-col gap-1 px-3 py-2 text-left">
+        <span className="flex w-full items-start justify-between gap-2">
+          <span className={`text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`}>
+            {no.titulo}
+            {bloqueada && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
+            {libera.length > 0 && <span title={`Libera: ${libera.map((l) => l.titulo).join(", ")}`}> 🔓</span>}
+          </span>
+          <span className="flex shrink-0 flex-col items-end text-[10.5px] leading-tight">
+            {textoPrazo && <span className={corPrazo}>{textoPrazo}</span>}
+            {quem && <span className="text-text-faint">{quem}</span>}
+          </span>
         </span>
-        <span className="flex shrink-0 flex-col items-end text-[10.5px] leading-tight">
-          {textoPrazo && <span className={corPrazo}>{textoPrazo}</span>}
-          {quem && <span className="text-text-faint">{quem}</span>}
-        </span>
+        {/* Progresso é DA TAREFA: quanto das atividades dela já foi feito. Tarefa sem lista não tem
+            barra — o que ela tem é status (a fazer / fazendo / feito). */}
+        {no.progresso !== null && (
+          <span className="flex w-full items-center gap-1.5">
+            <span className="h-1 flex-1 overflow-hidden rounded-full bg-bg">
+              <span className="block h-full rounded-full bg-primary-fill" style={{ width: `${Math.round(no.progresso * 100)}%` }} />
+            </span>
+            <span className="shrink-0 text-[10px] text-text-faint">{Math.round(no.progresso * 100)}%</span>
+          </span>
+        )}
       </button>
 
       {aberto && (
@@ -317,17 +328,6 @@ export function TarefaCard({
 
           {no.filhas.length > 0 && (
             <div className="flex flex-col gap-0.5 rounded-md border border-border-soft bg-bg/60 px-2 py-1.5">
-              <div className="flex items-center gap-1.5 text-[10px] text-text-faint">
-                <span className="font-semibold uppercase tracking-wide">Subtarefas</span>
-                <span>
-                  {no.filhas.filter((f) => f.status === "feito").length}/{no.filhas.length}
-                </span>
-                {no.progresso !== null && (
-                  <span className="ml-1 h-1 flex-1 overflow-hidden rounded-full bg-border-soft">
-                    <span className="block h-full rounded-full bg-primary-fill" style={{ width: `${Math.round(no.progresso * 100)}%` }} />
-                  </span>
-                )}
-              </div>
               {no.filhas.map((f) => (
                 <SubLinha key={f.id} no={f} nivel={0} dados={dados} dependeDe={dependeDe} />
               ))}
