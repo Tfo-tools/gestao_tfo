@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 
 export type TarefaFormState = { error: string | null; success?: boolean };
 
@@ -212,4 +213,53 @@ export async function excluirFaseProjeto(id: string): Promise<{ error: string | 
   if (error) return { error: "Não foi possível excluir a fase." };
   revalidatePath("/tarefas");
   return { error: null };
+}
+
+/** Limite por arquivo: documento/planilha/print cabe folgado; vídeo é o que estoura o plano
+ * grátis (1 GB no total). Acima disso, a tela manda usar link do Drive. */
+export const LIMITE_ANEXO_MB = 20;
+
+export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{ error: string | null }> {
+  if (!arquivo || arquivo.size === 0) return { error: "Escolha um arquivo." };
+  if (arquivo.size > LIMITE_ANEXO_MB * 1024 * 1024) {
+    return { error: `Arquivo maior que ${LIMITE_ANEXO_MB} MB — guarde no Drive e cole o link na descrição.` };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // NFC: o Finder do macOS grava acento decomposto e a Storage recusa esse nome com 400.
+  const nome = nomeArquivoSeguro(arquivo.name);
+  const path = `tarefas/${tarefaId}/${Date.now()}-${nome}`;
+  const { error: uploadError } = await supabase.storage.from("comprovantes").upload(path, arquivo, { contentType: arquivo.type });
+  if (uploadError) return { error: "Não foi possível subir o arquivo." };
+
+  const { error } = await supabase.from("anexos_tarefa").insert({
+    tarefa_id: tarefaId,
+    nome_arquivo: nome,
+    caminho_arquivo: path,
+    tipo_mime: arquivo.type,
+    tamanho_bytes: arquivo.size,
+    enviado_por: user?.id ?? null,
+  });
+  if (error) return { error: "Não foi possível registrar o anexo." };
+  revalidatePath("/tarefas");
+  return { error: null };
+}
+
+export async function excluirAnexoTarefa(id: string, caminho: string): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  await supabase.storage.from("comprovantes").remove([caminho]);
+  const { error } = await supabase.from("anexos_tarefa").delete().eq("id", id);
+  if (error) return { error: "Não foi possível excluir." };
+  revalidatePath("/tarefas");
+  return { error: null };
+}
+
+export async function urlAnexoTarefa(caminho: string): Promise<string | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage.from("comprovantes").createSignedUrl(caminho, 60 * 10);
+  return error ? null : data.signedUrl;
 }

@@ -42,6 +42,14 @@ export type Tarefa = {
   ordem: number;
 };
 
+export type AnexoTarefa = {
+  id: string;
+  tarefa_id: string;
+  nome_arquivo: string;
+  caminho_arquivo: string;
+  tamanho_bytes: number | null;
+};
+
 export type Dependencia = { tarefa_id: string; depende_de_id: string };
 
 export type TarefaNo = Tarefa & {

@@ -5,7 +5,8 @@ import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, type TarefaFormState } from "./actions";
 import { CamposTarefa } from "./campos-tarefa";
 import { useCardAberto } from "./cards-contexto";
-import { STATUS_LABEL, STATUS_ORDEM, type FaseProjeto, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
+import { STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type FaseProjeto, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
+import { AnexosTarefa } from "./anexos-tarefa";
 
 export type DadosFormulario = {
   pessoas: Pessoa[];
@@ -13,6 +14,8 @@ export type DadosFormulario = {
   projetos: Projeto[];
   fases: FaseProjeto[];
   candidatasDependencia: Pick<Tarefa, "id" | "titulo" | "projeto_id" | "status">[];
+  /** Arquivos por tarefa (anexos_tarefa), pra caixinha mostrar sem buscar de novo. */
+  anexos: Map<string, AnexoTarefa[]>;
 };
 
 const initialState: TarefaFormState = { error: null };
@@ -313,6 +316,7 @@ export function TarefaCard({
           )}
 
           {no.descricao && <p className="whitespace-pre-line text-[11px] text-text-muted">{no.descricao}</p>}
+          <AnexosTarefa tarefaId={no.id} anexos={dados.anexos.get(no.id) ?? []} />
 
           {(no.data_inicio || no.prazo) && (
             <p className={`text-[10.5px] ${corPrazo}`}>

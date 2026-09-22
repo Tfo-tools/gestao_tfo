@@ -7,7 +7,7 @@ import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { RotinasPanel } from "./rotinas-panel";
 import { gerarOcorrenciasRotinas, hojeSP, proximaData, type Rotina } from "@/lib/rotinas";
-import { montarArvore, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
+import { montarArvore, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
 
 type Agrupar = "nenhum" | "tema" | "fase" | "etiqueta";
 type Visao = "lista" | "linha";
@@ -34,7 +34,7 @@ export default async function TarefasPage({
   const hojeLocal = hojeSP();
   const proximas = Object.fromEntries(rotinas.map((r) => [r.id, r.ativo ? proximaData(r, hojeLocal) : null]));
 
-  const [{ data: pessoas }, { data: produtos }, { data: projetosRaw }, { data: fasesRaw }, { data: fasesProdutoRaw }, { data: depsRaw }, { data: todasRaw }] =
+  const [{ data: pessoas }, { data: produtos }, { data: projetosRaw }, { data: fasesRaw }, { data: fasesProdutoRaw }, { data: depsRaw }, { data: anexosRaw }, { data: todasRaw }] =
     await Promise.all([
       supabase.from("profiles").select("id, nome").order("nome"),
       supabase.from("produtos").select("id, nome").order("nome"),
@@ -42,6 +42,7 @@ export default async function TarefasPage({
       supabase.from("projeto_fases").select("id, projeto_id, nome, ordem, data_inicio, data_fim").order("ordem"),
       supabase.from("produto_fases").select("id, fase, data_inicio, produtos(nome)").order("data_inicio"),
       supabase.from("tarefa_dependencias").select("tarefa_id, depende_de_id"),
+      supabase.from("anexos_tarefa").select("id, tarefa_id, nome_arquivo, caminho_arquivo, tamanho_bytes").order("criado_em"),
       supabase
         .from("tarefas")
         .select("id, titulo, descricao, responsavel_id, prazo, data_inicio, status, produtos, area, projeto_id, fase_id, parent_id, etiquetas, participantes, ordem")
@@ -90,12 +91,20 @@ export default async function TarefasPage({
   const dependeDe = new Map<string, string[]>();
   for (const d of deps) dependeDe.set(d.tarefa_id, [...(dependeDe.get(d.tarefa_id) ?? []), d.depende_de_id]);
 
+  const anexosPorTarefa = new Map<string, AnexoTarefa[]>();
+  for (const a of (anexosRaw ?? []) as AnexoTarefa[]) {
+    const lista = anexosPorTarefa.get(a.tarefa_id) ?? [];
+    lista.push(a);
+    anexosPorTarefa.set(a.tarefa_id, lista);
+  }
+
   const dados: DadosFormulario = {
     pessoas: pessoas ?? [],
     produtos: produtos ?? [],
     projetos,
     fases,
     candidatasDependencia: todas.map((t) => ({ id: t.id, titulo: t.titulo, projeto_id: t.projeto_id, status: t.status })),
+    anexos: anexosPorTarefa,
   };
 
   const projetoAtual = projetos.find((p) => p.id === projetoSel);
