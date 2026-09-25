@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { aplicarSimulacoes, type ResultadoSimulacao } from "./actions";
 
-type Linha = { nome: string; indice: number; churnPct: number; marcado: boolean };
+type Linha = { nome: string; indice: number; churnPct: number | null; regraVendedor: boolean; marcado: boolean };
 
 export function SimulacoesForm({ linhas }: { linhas: Linha[] }) {
   const [resultado, acao, pendente] = useActionState<ResultadoSimulacao, FormData>(aplicarSimulacoes, null);
@@ -17,6 +17,7 @@ export function SimulacoesForm({ linhas }: { linhas: Linha[] }) {
               <th className="px-3 py-2">Cenário</th>
               <th className="px-3 py-2">Índice × FUNSES 1</th>
               <th className="px-3 py-2">Churn médio do período (% ao mês)</th>
+              <th className="px-3 py-2">Vendedor</th>
             </tr>
           </thead>
           <tbody>
@@ -35,16 +36,23 @@ export function SimulacoesForm({ linhas }: { linhas: Linha[] }) {
                     inputMode="decimal"
                     className="w-20 rounded border border-border px-2 py-1 tabular-nums"
                   />
-                  <span className="ml-2 text-text-muted">0,7 = 30% abaixo · 0,5 = metade</span>
+                  <span className="ml-2 text-text-muted">0,7 = 30% abaixo · 0,5 = metade · 1,3 = 30% acima</span>
                 </td>
                 <td className="px-3 py-2">
                   <input
                     name={`churn:${l.nome}`}
-                    defaultValue={String(l.churnPct).replace(".", ",")}
+                    defaultValue={l.churnPct != null ? String(l.churnPct).replace(".", ",") : ""}
+                    placeholder="= FUNSES 1"
                     inputMode="decimal"
-                    className="w-20 rounded border border-border px-2 py-1 tabular-nums"
+                    className="w-24 rounded border border-border px-2 py-1 tabular-nums"
                   />
-                  <span className="ml-2 text-text-muted">FUNSES 1 ≈ 2,1</span>
+                  <span className="ml-2 text-text-muted">FUNSES 1 ≈ 2,1 · vazio = igual</span>
+                </td>
+                <td className="px-3 py-2">
+                  <label className="flex items-center gap-2 text-text-muted">
+                    <input type="checkbox" name={`vendedor:${l.nome}`} defaultChecked={l.regraVendedor} />
+                    PJ até 1,4 → CLT em degraus
+                  </label>
                 </td>
               </tr>
             ))}

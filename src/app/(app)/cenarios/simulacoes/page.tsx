@@ -7,7 +7,7 @@ import { SimulacoesForm } from "./simulacoes-form";
 // uma página comum.
 export const maxDuration = 300;
 
-const INTOCAVEIS = new Set(["FUNSES 1", "FUNSES 1 - Otimista"]);
+const INTOCAVEIS = new Set(["FUNSES 1"]);
 
 export default async function SimulacoesPage() {
   const supabase = await createClient();
@@ -20,7 +20,8 @@ export default async function SimulacoesPage() {
       return {
         nome,
         indice: padrao?.indice ?? 1,
-        churnPct: padrao ? Math.round(padrao.churnMensal * 1000) / 10 : 2.1,
+        churnPct: padrao?.churnMensal != null ? Math.round(padrao.churnMensal * 1000) / 10 : null,
+        regraVendedor: padrao ? padrao.regraVendedor : false,
         marcado: Boolean(padrao),
       };
     });
@@ -37,8 +38,9 @@ export default async function SimulacoesPage() {
           churn segue a mesma curva do FUNSES 1 (por fase, com decaimento), escalada até o churn médio do período
           — o mesmo cálculo do card de indicadores — bater no valor informado. COGS continua por demanda (Suporte
           e CS em PJ, proporcionais); SDR fica PJ por resultado; o vendedor do Fashion Mind fica PJ proporcional
-          até a necessidade chegar a 1,4 e vira CLT em degraus (1,5 → 1 pessoa, 2,5 → 2, 3,5 → 3…). P&amp;D e
-          G&amp;A seguem as regras já cadastradas no cenário.
+          até a necessidade chegar a 1,4 e vira CLT em degraus (1,5 → 1 pessoa, 2,5 → 2, 3,5 → 3…) quando a regra
+          está marcada; desmarcada, a contratação fica como está no cenário. Churn vazio = a mesma curva do FUNSES 1.
+          P&amp;D e G&amp;A seguem as regras já cadastradas no cenário.
         </p>
       </div>
       <SimulacoesForm linhas={linhas} />
