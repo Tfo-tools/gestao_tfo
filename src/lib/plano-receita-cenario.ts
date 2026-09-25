@@ -92,7 +92,7 @@ const somarMeses = (iso: string, n: number) => {
   return new Date(d.getFullYear(), d.getMonth() + n, 1);
 };
 
-type FaseLinha = {
+export type FaseLinha = {
   fase: string;
   taxa_crescimento_mensal: number | null;
   taxa_churn_mensal: number | null;
@@ -106,7 +106,7 @@ type FaseLinha = {
 const num = (v: unknown) => (v != null ? Number(v) : null);
 
 /** Fases como o motor as vê: datas do produto, taxas do modelo trimestral do cenário. */
-function fasesDoMotor(
+export function fasesDoMotor(
   linhas: FaseLinha[],
   datas: { fase: string; data_inicio: string | null; data_fim: string | null }[],
 ): FaseInput[] {
@@ -128,7 +128,7 @@ function fasesDoMotor(
 }
 
 /** Meses com a fase de cada um, do início da primeira fase até `ate` (inclusive). */
-function mesesComFase(fases: FaseInput[], ate: string): { mes: string; fase: FaseValue }[] {
+export function mesesComFase(fases: FaseInput[], ate: string): { mes: string; fase: FaseValue }[] {
   const inicio = fases
     .map((f) => f.data_inicio)
     .filter((d): d is string => !!d)
@@ -146,7 +146,7 @@ function mesesComFase(fases: FaseInput[], ate: string): { mes: string; fase: Fas
 }
 
 /** Até onde as curvas precisam ir: o fim da última fase fechada ou o fim do cenário + 1 ano. */
-function horizonte(fases: FaseInput[], fimCenario: string): string {
+export function horizonte(fases: FaseInput[], fimCenario: string): string {
   const fimFases = fases
     .map((f) => f.data_fim)
     .filter((d): d is string => !!d)

@@ -1,0 +1,45 @@
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
+import { SIMULACOES_PADRAO } from "@/lib/admin-tasks/simular-cenarios-vs-funses1";
+import { SimulacoesForm } from "./simulacoes-form";
+
+// Calibra o crescimento de cada produto por bissecção e recalcula a projeção — leva bem mais que
+// uma página comum.
+export const maxDuration = 300;
+
+const INTOCAVEIS = new Set(["FUNSES 1", "FUNSES 1 - Otimista"]);
+
+export default async function SimulacoesPage() {
+  const supabase = await createClient();
+  const { data: cenarios } = await supabase.from("cenarios").select("nome").order("created_at");
+  const linhas = (cenarios ?? [])
+    .map((c) => c.nome as string)
+    .filter((n) => !INTOCAVEIS.has(n))
+    .map((nome) => {
+      const padrao = SIMULACOES_PADRAO.find((s) => s.nome === nome);
+      return {
+        nome,
+        indice: padrao?.indice ?? 1,
+        churnPct: padrao ? Math.round(padrao.churnMensal * 1000) / 10 : 2.1,
+        marcado: Boolean(padrao),
+      };
+    });
+
+  return (
+    <div>
+      <div className="mb-6">
+        <Link href="/cenarios" className="text-[12px] text-text-muted hover:text-primary-deep">
+          ← Cenários
+        </Link>
+        <h1 className="mt-1 font-heading text-[22px] font-semibold">Simulações a partir do FUNSES 1</h1>
+        <p className="mt-1 max-w-[720px] text-[13px] text-text-muted">
+          Cada cenário marcado passa a entregar, mês a mês, o índice informado do MRR do FUNSES 1 (por produto), com
+          o churn fixo informado. COGS continua por demanda (Suporte e CS em PJ, proporcionais); SDR fica PJ por
+          resultado; vendedor fica PJ proporcional até a necessidade chegar a 1,4 e vira CLT em degraus (1,5 → 1
+          pessoa, 2,5 → 2, 3,5 → 3…). P&amp;D e G&amp;A seguem as regras já cadastradas no cenário.
+        </p>
+      </div>
+      <SimulacoesForm linhas={linhas} />
+    </div>
+  );
+}

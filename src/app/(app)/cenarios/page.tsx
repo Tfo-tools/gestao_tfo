@@ -40,12 +40,20 @@ export default async function CenariosPage() {
             fase
           </p>
         </div>
-        <Link
-          href="/cenarios/comparar"
-          className="rounded-lg border border-border px-3.5 py-2 text-[12.5px] font-medium text-primary-deep hover:border-primary-fill"
-        >
-          Comparar cenários →
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/cenarios/simulacoes"
+            className="rounded-lg border border-border px-3.5 py-2 text-[12.5px] font-medium text-primary-deep hover:border-primary-fill"
+          >
+            Simular a partir do FUNSES 1
+          </Link>
+          <Link
+            href="/cenarios/comparar"
+            className="rounded-lg border border-border px-3.5 py-2 text-[12.5px] font-medium text-primary-deep hover:border-primary-fill"
+          >
+            Comparar cenários →
+          </Link>
+        </div>
       </div>
 
       <div className="mb-6">

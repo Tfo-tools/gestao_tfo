@@ -253,14 +253,35 @@ export default async function PlanoCustosPage({
   const linhasCustos: LinhaCustos[] = resumo.linhasPeriodo.map((l) => {
     const m = simPorMes.get(l.mes_referencia) ?? {};
     const llm = m.cogs_llm ?? 0, software = m.cogs_software ?? 0, gateway = m.cogs_gateway ?? 0;
+    // Suporte + CS como o Relatório e a planilha exportada contam: a regra que sobrou depois da
+    // substituição pela equipe alocada, mais a própria equipe. Antes a aba somava só a regra
+    // crua da simulação e ficava R$ 49/mês abaixo do export a partir de fev/27 (alocação de
+    // Suporte PJ com R$ 50 de estrutura) — na apresentação, tela e planilha precisam bater.
+    const suporteCsConsolidado = (l.cogsSuporteRegra ?? 0) + (l.cogsCsRegra ?? 0) + (l.alocacaoSuporte ?? 0);
+    const porProdutoBruto = cogsPorProdutoMes.get(l.mes_referencia) ?? {};
+    const receitaTotalMes = Object.values(porProdutoBruto).reduce((s, p) => s + p.receita, 0);
+    const linhasDoMes = (simRows ?? []).filter((r) => r.mes_referencia === l.mes_referencia) as Record<string, unknown>[];
+    const brutoSup = linhasDoMes.reduce((s, r) => s + Number(r.cogs_suporte_reativo ?? 0), 0);
+    const brutoCs = linhasDoMes.reduce((s, r) => s + Number(r.cogs_cs_proativo ?? 0), 0);
+    const cogsPorProduto = Object.fromEntries(
+      Object.entries(porProdutoBruto).map(([pid, p]) => {
+        const rr = linhasDoMes.find((r) => r.produto_id === pid);
+        // A regra que sobrou é rateada na proporção da regra crua de cada produto; a equipe
+        // alocada, na proporção da receita.
+        const supRegra = brutoSup > 0 ? (Number(rr?.cogs_suporte_reativo ?? 0) / brutoSup) * (l.cogsSuporteRegra ?? 0) : 0;
+        const csRegra = brutoCs > 0 ? (Number(rr?.cogs_cs_proativo ?? 0) / brutoCs) * (l.cogsCsRegra ?? 0) : 0;
+        const fatia = receitaTotalMes > 0 ? p.receita / receitaTotalMes : 0;
+        return [pid, { ...p, suporteCs: supRegra + csRegra + (l.alocacaoSuporte ?? 0) * fatia }];
+      }),
+    );
     return {
       mes_referencia: l.mes_referencia,
       receita: l.receita,
       clientes: l.clientes,
-      cogsPorProduto: cogsPorProdutoMes.get(l.mes_referencia) ?? {},
+      cogsPorProduto,
       infra: m.cogs_infraestrutura ?? 0,
       llm,
-      suporteCs: (m.cogs_suporte_reativo ?? 0) + (m.cogs_cs_proativo ?? 0),
+      suporteCs: suporteCsConsolidado,
       gateway,
       implementacao: Math.max(0, (m.cogs_outros ?? 0) - llm - software - gateway),
       empresaCogs: l.empresaCogs,
