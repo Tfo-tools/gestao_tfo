@@ -87,8 +87,57 @@ export async function excluirCenario(
   id: string,
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase.from("cenarios").delete().eq("id", id);
 
+  const { data: cenario, error: erroBusca } = await supabase
+    .from("cenarios")
+    .select("id, is_base")
+    .eq("id", id)
+    .maybeSingle();
+  if (erroBusca) {
+    return { error: `Não foi possível excluir o cenário: ${erroBusca.message}` };
+  }
+  if (!cenario) {
+    return { error: "Cenário não encontrado." };
+  }
+  if (cenario.is_base) {
+    return {
+      error:
+        "O cenário-base é o plano oficial da empresa e não pode ser excluído. Promova outro cenário a base antes.",
+    };
+  }
+
+  // Cenários duplicados a partir deste guardam a linhagem em cenario_origem_id (sem cascade, de
+  // propósito). Antes de apagar, repontamos essa linhagem para o cenário-base — o mesmo que foi
+  // feito à mão ao remover "Base (anterior)" — para não deixar filhos órfãos nem bloquear a exclusão.
+  const { data: derivados, error: erroDerivados } = await supabase
+    .from("cenarios")
+    .select("id")
+    .eq("cenario_origem_id", id);
+  if (erroDerivados) {
+    return { error: `Não foi possível excluir o cenário: ${erroDerivados.message}` };
+  }
+  if (derivados && derivados.length > 0) {
+    const { data: base } = await supabase
+      .from("cenarios")
+      .select("id")
+      .eq("is_base", true)
+      .maybeSingle();
+    if (!base) {
+      return {
+        error:
+          "Não é possível excluir: existem outros cenários duplicados a partir deste e não há cenário-base para herdar a origem. Exclua-os primeiro.",
+      };
+    }
+    const { error: erroRepontar } = await supabase
+      .from("cenarios")
+      .update({ cenario_origem_id: base.id })
+      .eq("cenario_origem_id", id);
+    if (erroRepontar) {
+      return { error: `Não foi possível excluir o cenário: ${erroRepontar.message}` };
+    }
+  }
+
+  const { error } = await supabase.from("cenarios").delete().eq("id", id);
   if (error) {
     if (error.code === "23503") {
       return {
@@ -96,10 +145,11 @@ export async function excluirCenario(
           "Não é possível excluir: existem outros cenários duplicados a partir deste. Exclua-os primeiro.",
       };
     }
-    return { error: "Não foi possível excluir o cenário." };
+    return { error: `Não foi possível excluir o cenário: ${error.message}` };
   }
 
   revalidatePath("/cenarios");
+  revalidatePath("/", "layout");
   return { error: null };
 }
 

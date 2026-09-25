@@ -74,7 +74,9 @@ export type CenarioReferencia = {
   crescimentoPorAno: Record<number, number>;
   /** O mesmo, por produto — pra tabela de trajetória abrir o detalhe (Mind/Price/Skills). */
   crescimentoPorAnoPorProduto: Record<string, Record<number, number>>;
-  /** Churn médio do ano (mensal, já anualizado) desse cenário — total e por produto. */
+  /** Churn médio do ano desse cenário, anualizado: consolidado ponderado pelos clientes ativos
+   *  (a mesma conta do card de Indicadores, que mostra a taxa MENSAL); por produto, média dos
+   *  meses em que o produto tem cliente. */
   churnAnualPorAno: Record<number, number>;
   churnAnualPorAnoPorProduto: Record<string, Record<number, number>>;
   /** MRR e clientes de dezembro, em valor absoluto — é nisso que o índice se ancora ("X × o que
@@ -384,6 +386,10 @@ async function carregarTodosCenariosComCurvas(
     const atual = mapa.get(chave) ?? { soma: 0, n: 0 };
     mapa.set(chave, { soma: atual.soma + v, n: atual.n + 1 });
   };
+  const acumChurnPeso = (mapa: Map<string, { soma: number; n: number }>, chave: string, v: number, peso: number) => {
+    const atual = mapa.get(chave) ?? { soma: 0, n: 0 };
+    mapa.set(chave, { soma: atual.soma + v * peso, n: atual.n + peso });
+  };
   for (const s of simRaw ?? []) {
     const ano = s.mes_referencia.slice(0, 4);
     if (s.mes_referencia.slice(5, 7) === "12") {
@@ -395,8 +401,11 @@ async function carregarTodosCenariosComCurvas(
       );
     }
     if (s.churn_pct != null) {
-      acumChurn(churnSoma, `${s.cenario_id}|${ano}`, Number(s.churn_pct));
-      acumChurn(churnSomaProduto, `${s.cenario_id}|${s.produto_id}|${ano}`, Number(s.churn_pct));
+      const cli = Number(s.clientes_ativos ?? 0);
+      // consolidado: peso = clientes ativos do produto no mês (mesma conta do card de Indicadores)
+      if (cli > 0) acumChurnPeso(churnSoma, `${s.cenario_id}|${ano}`, Number(s.churn_pct), cli);
+      // por produto: só os meses em que o produto tem cliente — antes do lançamento não há churn
+      if (cli > 0) acumChurn(churnSomaProduto, `${s.cenario_id}|${s.produto_id}|${ano}`, Number(s.churn_pct));
     }
   }
 

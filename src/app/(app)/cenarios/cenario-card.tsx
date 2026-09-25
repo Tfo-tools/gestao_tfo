@@ -33,7 +33,12 @@ export function CenarioCard({ cenario }: { cenario: Cenario }) {
   }, [pending, state.error]);
 
   function handleExcluir() {
-    if (!confirm(`Excluir o cenário "${cenario.nome}"? Isso apaga todas as fases, custos e simulações dele — não dá pra desfazer.`)) return;
+    if (
+      !confirm(
+        `Excluir o cenário "${cenario.nome}"? Isso apaga todas as fases, custos, planos de preço, módulos e simulações dele — não dá pra desfazer. Cenários duplicados a partir dele continuam existindo e passam a herdar a origem do cenário-base.`,
+      )
+    )
+      return;
     startTransition(async () => {
       const resultado = await excluirCenario(cenario.id);
       setErroExcluir(resultado.error);
@@ -91,9 +96,11 @@ export function CenarioCard({ cenario }: { cenario: Cenario }) {
           <button type="button" onClick={() => setEditando(true)} className="text-[11px] text-primary-deep">
             Renomear
           </button>
-          <button type="button" disabled={isPending} onClick={handleExcluir} className="text-[11px] text-danger disabled:opacity-60">
-            Excluir
-          </button>
+          {!cenario.is_base && (
+            <button type="button" disabled={isPending} onClick={handleExcluir} className="text-[11px] text-danger disabled:opacity-60">
+              {isPending ? "Excluindo…" : "Excluir"}
+            </button>
+          )}
         </div>
       </div>
       <Link href={`/plano/${cenario.id}`} className="flex flex-col gap-1">

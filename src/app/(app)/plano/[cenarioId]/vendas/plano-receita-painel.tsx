@@ -679,8 +679,12 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                   </div>
                   <span className="pb-1 text-[11px] text-text-faint">
                     × do churn de <strong className="text-text">{cenarioRef?.nome ?? "—"}</strong>
-                    {churnRefNoAno != null ? ` (${pct(churnRefNoAno, 1)} a.a. lá` : " (sem dado lá"}
-                    {churnAlvoDoIndice != null ? ` → ${pct(churnAlvoDoIndice, 1)} a.a. aqui)` : ")"}
+                    {churnRefNoAno != null
+                      ? ` (${pct(churnRefNoAno, 1)} a.a. ≈ ${pct(churnAnualParaMensal(churnRefNoAno), 2)} a.m. lá`
+                      : " (sem dado lá"}
+                    {churnAlvoDoIndice != null
+                      ? ` → ${pct(churnAlvoDoIndice, 1)} a.a. ≈ ${pct(churnAnualParaMensal(churnAlvoDoIndice), 2)} a.m. aqui)`
+                      : ")"}
                   </span>
                   <button
                     type="button"
@@ -699,8 +703,10 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                 {trajetoriaChurnEstimada.length > 0 && (
                   <div className="mt-2.5 border-t border-border-soft pt-2">
                     <p className="mb-1 text-[10px] text-text-faint">
-                      Churn anual médio estimado, por ano — consolidado e, com &quot;detalhe por produto&quot; ligado acima, por
-                      produto (cada um tem sua própria régua).
+                      Churn médio do ano, ponderado pelos clientes ativos, mostrado <strong>ao ano</strong> (com o equivalente
+                      mensal entre parênteses). O card &quot;Churn médio&quot; em Indicadores é a mesma conta, só que{" "}
+                      <strong>mensal</strong> e sobre o período inteiro do cenário, não por ano — 2% a.m. ≈ 22% a.a. Com
+                      &quot;detalhe por produto&quot; ligado acima, aparece por produto (cada um tem sua própria régua).
                     </p>
                     <div className="overflow-x-auto">
                       <table className="text-[11px]" style={{ minWidth: detalheProduto ? 120 + dados.produtos.length * 110 : undefined }}>
@@ -720,7 +726,16 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                           {trajetoriaChurnEstimada.map((l) => (
                             <tr key={l.ano} className="border-t border-border-soft/60">
                               <td className="py-0.5 pr-3">{l.ano}</td>
-                              <td className="px-2 py-0.5 text-right font-mono font-semibold">{l.churn != null ? `${pct(l.churn, 1)} a.a.` : "sem dado"}</td>
+                              <td className="px-2 py-0.5 text-right font-mono font-semibold">
+                                {l.churn != null ? (
+                                  <>
+                                    {pct(l.churn, 1)} a.a.{" "}
+                                    <span className="font-normal text-text-faint">({pct(churnAnualParaMensal(l.churn), 2)} a.m.)</span>
+                                  </>
+                                ) : (
+                                  "sem dado"
+                                )}
+                              </td>
                               {detalheProduto &&
                                 dados.produtos.map((p) => (
                                   <td key={p.id} className="border-l border-border-soft px-2 py-0.5 text-right font-mono text-text-muted">
