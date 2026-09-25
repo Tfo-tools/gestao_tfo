@@ -77,6 +77,11 @@ export type CenarioReferencia = {
   /** Churn médio do ano (mensal, já anualizado) desse cenário — total e por produto. */
   churnAnualPorAno: Record<number, number>;
   churnAnualPorAnoPorProduto: Record<string, Record<number, number>>;
+  /** MRR e clientes de dezembro, em valor absoluto — é nisso que o índice se ancora ("X × o que
+   *  ELE entrega"), não no ritmo aplicado ao ponto de partida daqui, que pode ser outro. */
+  mrrDezPorAno: Record<number, number>;
+  clientesDezPorAno: Record<number, number>;
+  mrrDezPorAnoPorProduto: Record<string, Record<number, number>>;
 };
 
 const mesIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
@@ -362,7 +367,7 @@ async function carregarTodosCenariosComCurvas(
   // dos 12 meses — a régua da fase varia mês a mês, um só mês não representa o ano.
   const { data: simRaw } = await supabase
     .from("simulacao_mensal")
-    .select("cenario_id, produto_id, mes_referencia, mrr, churn_pct")
+    .select("cenario_id, produto_id, mes_referencia, mrr, clientes_ativos, churn_pct")
     .in(
       "cenario_id",
       lista.map((c) => c.id),
@@ -372,6 +377,7 @@ async function carregarTodosCenariosComCurvas(
 
   const mrrDez = new Map<string, number>();
   const mrrDezProduto = new Map<string, number>();
+  const clientesDez = new Map<string, number>();
   const churnSoma = new Map<string, { soma: number; n: number }>();
   const churnSomaProduto = new Map<string, { soma: number; n: number }>();
   const acumChurn = (mapa: Map<string, { soma: number; n: number }>, chave: string, v: number) => {
@@ -381,6 +387,7 @@ async function carregarTodosCenariosComCurvas(
   for (const s of simRaw ?? []) {
     const ano = s.mes_referencia.slice(0, 4);
     if (s.mes_referencia.slice(5, 7) === "12") {
+      clientesDez.set(`${s.cenario_id}|${ano}`, (clientesDez.get(`${s.cenario_id}|${ano}`) ?? 0) + Number(s.clientes_ativos ?? 0));
       mrrDez.set(`${s.cenario_id}|${ano}`, (mrrDez.get(`${s.cenario_id}|${ano}`) ?? 0) + Number(s.mrr ?? 0));
       mrrDezProduto.set(
         `${s.cenario_id}|${s.produto_id}|${ano}`,
@@ -400,8 +407,12 @@ async function carregarTodosCenariosComCurvas(
     const crescimentoPorAnoPorProduto: Record<string, Record<number, number>> = {};
     const churnAnualPorAno: Record<number, number> = {};
     const churnAnualPorAnoPorProduto: Record<string, Record<number, number>> = {};
+    const mrrDezPorAno: Record<number, number> = {};
+    const clientesDezPorAno: Record<number, number> = {};
+    const mrrDezPorAnoPorProduto: Record<string, Record<number, number>> = {};
     for (const pid of produtoIds) crescimentoPorAnoPorProduto[pid] = {};
     for (const pid of produtoIds) churnAnualPorAnoPorProduto[pid] = {};
+    for (const pid of produtoIds) mrrDezPorAnoPorProduto[pid] = {};
 
     for (let a = anoIni; a <= anoFim; a++) {
       const antes = mrrDez.get(`${c.id}|${a - 1}`) ?? 0;
@@ -410,11 +421,16 @@ async function carregarTodosCenariosComCurvas(
       // de referência (ex.: pedir 2032 a um cenário que termina em 2030) virava um "-100%" falso
       // (dez=0 por falta de dado, não por queda real), e a trajetória estimada zerava a partir dali.
       if (antes > 0 && dez > 0) crescimentoPorAno[a] = dez / antes - 1;
+      if (dez > 0) {
+        mrrDezPorAno[a] = dez;
+        clientesDezPorAno[a] = clientesDez.get(`${c.id}|${a}`) ?? 0;
+      }
 
       for (const pid of produtoIds) {
         const antesP = mrrDezProduto.get(`${c.id}|${pid}|${a - 1}`) ?? 0;
         const dezP = mrrDezProduto.get(`${c.id}|${pid}|${a}`) ?? 0;
         if (antesP > 0 && dezP > 0) crescimentoPorAnoPorProduto[pid][a] = dezP / antesP - 1;
+        if (dezP > 0) mrrDezPorAnoPorProduto[pid][a] = dezP;
       }
 
       const chAno = churnSoma.get(`${c.id}|${a}`);
@@ -424,7 +440,11 @@ async function carregarTodosCenariosComCurvas(
         if (chP && chP.n > 0) churnAnualPorAnoPorProduto[pid][a] = churnMensalParaAnual(chP.soma / chP.n);
       }
     }
-    return { id: c.id, nome: c.nome, crescimentoPorAno, crescimentoPorAnoPorProduto, churnAnualPorAno, churnAnualPorAnoPorProduto };
+    return {
+      id: c.id, nome: c.nome,
+      crescimentoPorAno, crescimentoPorAnoPorProduto, churnAnualPorAno, churnAnualPorAnoPorProduto,
+      mrrDezPorAno, clientesDezPorAno, mrrDezPorAnoPorProduto,
+    };
   });
 }
 

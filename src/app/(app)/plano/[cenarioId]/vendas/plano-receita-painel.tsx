@@ -166,10 +166,16 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
   // "cortar o % pela metade": crescimento é velocidade, não nível, então só multiplicar o índice
   // direto no % dá um resultado errado (ver conversa). É esta fórmula que faz o índice virar,
   // de fato, a fração/múltiplo do RESULTADO do outro cenário naquele ano.
+  const mrrRefNoAno = cenarioRef?.mrrDezPorAno[anoAberto];
+  const baseAqui = totalDez(anoAberto - 1);
   const metaDoIndice =
-    crescRefNoAno != null && indiceNum != null && Number.isFinite(indiceNum)
-      ? indiceNum * (1 + crescRefNoAno) - 1
-      : null;
+    indiceNum == null || !Number.isFinite(indiceNum)
+      ? null
+      : mrrRefNoAno != null && baseAqui > 0
+        ? (indiceNum * mrrRefNoAno) / baseAqui - 1
+        : crescRefNoAno != null
+          ? indiceNum * (1 + crescRefNoAno) - 1
+          : null;
 
   const clientesDez = (ano: number) => dados.produtos.reduce((s, p) => s + (p.clientesPorMes[`${ano}-12-01`] ?? 0), 0);
 
@@ -194,21 +200,27 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
     // Por produto: cada um tem seu próprio ritmo no cenário de referência — o mix muda o total.
     const mrrAnteriorPorProduto: Record<string, number> = {};
     for (const p of dados.produtos) {
+      const absP = cenarioRef.mrrDezPorAnoPorProduto[p.id]?.[anoAberto];
       const crescRefP = cenarioRef.crescimentoPorAnoPorProduto[p.id]?.[anoAberto];
-      const metaP = crescRefP != null ? indiceNum * (1 + crescRefP) - 1 : null;
-      mrrAnteriorPorProduto[p.id] = metaP != null ? (p.mrrPorMes[`${anoAberto - 1}-12-01`] ?? 0) * (1 + metaP) : 0;
+      mrrAnteriorPorProduto[p.id] =
+        absP != null
+          ? indiceNum * absP
+          : crescRefP != null
+            ? (p.mrrPorMes[`${anoAberto - 1}-12-01`] ?? 0) * (1 + (indiceNum * (1 + crescRefP) - 1))
+            : 0;
     }
     for (const a of dados.anos) {
       if (a.ano < anoAberto) continue;
       // O cenário de referência pode terminar antes daqui (ex.: comparar com o FUNSES 1, que vai
       // só até 2030, num cenário que segue até 2032) — sem dado dele pra esse ano, não tem como
       // saber o ritmo: mostra "sem dado" em vez de supor 0% (flat) ou travar em zero.
+      const absRef = cenarioRef.mrrDezPorAno[a.ano];
       const cresc = a.ano === anoAberto ? 0 : cenarioRef.crescimentoPorAno[a.ano];
-      if (a.ano !== anoAberto && cresc == null) {
+      if (a.ano !== anoAberto && absRef == null && cresc == null) {
         linhas.push({ ano: a.ano, mrr: null, clientesEstimados: null, porProduto: {} });
         continue;
       }
-      const mrr = a.ano === anoAberto ? mrrAnterior : mrrAnterior * (1 + cresc!);
+      const mrr = absRef != null ? indiceNum * absRef : a.ano === anoAberto ? mrrAnterior : mrrAnterior * (1 + cresc!);
       mrrAnterior = mrr;
       // Clientes estimados: ticket médio DESTE cenário naquele ano (o que ele já projeta hoje),
       // aplicado ao MRR novo — é aproximação (o mix de produto muda o ticket), não o resultado
@@ -219,12 +231,13 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
 
       const porProduto: LinhaTrajetoria["porProduto"] = {};
       for (const p of dados.produtos) {
+        const absRefP = cenarioRef.mrrDezPorAnoPorProduto[p.id]?.[a.ano];
         const crescRefP = a.ano === anoAberto ? 0 : cenarioRef.crescimentoPorAnoPorProduto[p.id]?.[a.ano];
-        if (crescRefP == null && a.ano !== anoAberto) {
+        if (absRefP == null && crescRefP == null && a.ano !== anoAberto) {
           porProduto[p.id] = { mrr: null, clientes: null };
           continue;
         }
-        const mrrP = a.ano === anoAberto ? mrrAnteriorPorProduto[p.id] : mrrAnteriorPorProduto[p.id] * (1 + crescRefP!);
+        const mrrP = absRefP != null ? indiceNum * absRefP : a.ano === anoAberto ? mrrAnteriorPorProduto[p.id] : mrrAnteriorPorProduto[p.id] * (1 + crescRefP!);
         mrrAnteriorPorProduto[p.id] = mrrP;
         const clientesHojeP = p.clientesPorMes[`${a.ano}-12-01`] ?? 0;
         const mrrHojeP = p.mrrPorMes[`${a.ano}-12-01`] ?? 0;
@@ -573,7 +586,7 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                         <thead>
                           <tr className="text-left text-text-faint">
                             <th className="pr-3 font-medium" rowSpan={2}>Dez de</th>
-                            <th className="border-b border-border-soft px-2 text-center font-semibold text-text" colSpan={2}>Consolidado</th>
+                            <th className="border-b border-border-soft px-2 text-center font-semibold text-text" colSpan={3}>Consolidado</th>
                             {detalheProduto &&
                               dados.produtos.map((p) => (
                                 <th key={p.id} className="border-b border-l border-border-soft px-2 text-center font-medium" colSpan={2}>
@@ -584,6 +597,9 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                           <tr className="text-left text-text-faint">
                             <th className="w-[110px] px-2 text-right font-medium">MRR</th>
                             <th className="w-[100px] px-2 text-right font-medium">Clientes</th>
+                            <th className="w-[120px] px-2 text-right font-normal text-text-faint" title="Clientes que o cenário de referência tem nesse ano, pra comparar">
+                              clientes no {cenarioRef?.nome ?? "ref."}
+                            </th>
                             {detalheProduto &&
                               dados.produtos.map((p) => (
                                 <Fragment key={p.id}>
@@ -600,6 +616,9 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                               <td className="px-2 py-0.5 text-right font-mono font-semibold">{l.mrr != null ? brl(l.mrr) : "—"}</td>
                               <td className="px-2 py-0.5 text-right font-mono font-semibold" title={l.clientesEstimados == null ? "sem dado do cenário de referência neste ano" : undefined}>
                                 {l.clientesEstimados != null ? Math.round(l.clientesEstimados).toLocaleString("pt-BR") : "sem dado"}
+                              </td>
+                              <td className="px-2 py-0.5 text-right font-mono text-text-faint">
+                                {cenarioRef?.clientesDezPorAno[l.ano] != null ? Math.round(cenarioRef.clientesDezPorAno[l.ano]).toLocaleString("pt-BR") : "—"}
                               </td>
                               {detalheProduto &&
                                 dados.produtos.map((p) => {
@@ -620,6 +639,23 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                         </tbody>
                       </table>
                     </div>
+                    {(() => {
+                      const ult = [...trajetoriaEstimada].reverse().find((l) => l.mrr != null && l.clientesEstimados != null);
+                      if (!ult || !cenarioRef) return null;
+                      const ticketAqui = ult.mrr! / ult.clientesEstimados!;
+                      const mrrRef = cenarioRef.mrrDezPorAno[ult.ano];
+                      const cliRef = cenarioRef.clientesDezPorAno[ult.ano];
+                      const ticketLa = mrrRef != null && cliRef ? mrrRef / cliRef : null;
+                      if (ticketLa == null || Math.abs(ticketAqui / ticketLa - 1) < 0.02) return null;
+                      return (
+                        <p className="mt-1.5 text-[10.5px] text-text-muted">
+                          O índice reproduz a <strong>receita</strong>; clientes = receita ÷ preço médio <em>deste</em> cenário. Em {ult.ano}
+                          o ticket aqui é {brl(ticketAqui)} e no {cenarioRef.nome} é {brl(ticketLa)} (mix de produto diferente) — por isso a
+                          mesma receita dá {ticketAqui > ticketLa ? "menos" : "mais"} clientes. Pra igualar clientes também, o mix/peso dos produtos
+                          precisaria ser o mesmo.
+                        </p>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
