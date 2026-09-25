@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { aplicarSimulacoes, type ResultadoSimulacao } from "./actions";
 
-type Linha = { nome: string; indice: number; churnPct: number | null; regraVendedor: boolean; marcado: boolean };
+type Linha = { nome: string; indice: number; churnPct: number | null; vendedor: "manter" | "degraus" | "pj"; marcado: boolean };
 
 export function SimulacoesForm({ linhas }: { linhas: Linha[] }) {
   const [resultado, acao, pendente] = useActionState<ResultadoSimulacao, FormData>(aplicarSimulacoes, null);
@@ -49,10 +49,11 @@ export function SimulacoesForm({ linhas }: { linhas: Linha[] }) {
                   <span className="ml-2 text-text-muted">FUNSES 1 ≈ 2,1 · vazio = igual</span>
                 </td>
                 <td className="px-3 py-2">
-                  <label className="flex items-center gap-2 text-text-muted">
-                    <input type="checkbox" name={`vendedor:${l.nome}`} defaultChecked={l.regraVendedor} />
-                    PJ até 1,4 → CLT em degraus
-                  </label>
+                  <select name={`vendedor:${l.nome}`} defaultValue={l.vendedor} className="rounded border border-border px-2 py-1">
+                    <option value="pj">100% PJ proporcional à demanda</option>
+                    <option value="degraus">PJ até 1,4 → CLT em degraus</option>
+                    <option value="manter">Como está no cenário</option>
+                  </select>
                 </td>
               </tr>
             ))}

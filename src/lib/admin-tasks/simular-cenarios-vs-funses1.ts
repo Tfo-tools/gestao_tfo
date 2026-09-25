@@ -54,24 +54,25 @@ export type ConfigSimulacao = {
   indice: number;
   /** Churn médio do período desejado (a.m.). Nulo = a mesma curva do FUNSES 1, sem escalar. */
   churnMensal: number | null;
-  /** Reescreve a alocação de vendedor do Mind (PJ proporcional até 1,4; CLT em degraus). Falso = mantém a atual. */
-  regraVendedor: boolean;
+  /** Vendedor do Mind: "manter" deixa a alocação como está; "degraus" = PJ proporcional até 1,4 e CLT em
+   *  degraus (1,5→1, 2,5→2…); "pj" = 100% PJ proporcional à demanda (custo acompanha a venda). */
+  vendedor: "manter" | "degraus" | "pj";
 };
 
 export const SIMULACOES_PADRAO: ConfigSimulacao[] = [
-  { nome: "Base", indice: 0.7, churnMensal: 0.031, regraVendedor: true },
+  { nome: "Base", indice: 0.7, churnMensal: 0.031, vendedor: "pj" },
   {
     nome: "FUNSES - Pessimista",
     indice: 0.5,
     churnMensal: 0.039,
-    regraVendedor: true,
+    vendedor: "pj",
   },
   // Otimista: 30% acima do FUNSES 1 com as mesmas regras dele (churn e contratações como estão).
   {
     nome: "FUNSES 1 - Otimista",
     indice: 1.3,
     churnMensal: null,
-    regraVendedor: false,
+    vendedor: "manter",
   },
 ];
 
@@ -215,16 +216,6 @@ export async function executarSimulacaoCenarios(
       `\n=== ${cen.nome} — índice ${cfg.indice} × FUNSES 1, churn ${cfg.churnMensal != null ? `médio alvo ${(cfg.churnMensal * 100).toFixed(1)}% a.m.` : "igual ao FUNSES 1"} ===`,
     );
 
-    const { data: curSim } = await admin
-      .from("simulacao_mensal")
-      .select("produto_id, mes_referencia, clientes_ativos")
-      .eq("cenario_id", cen.id);
-    const curPor = new Map<string, Map<string, number>>();
-    for (const r of curSim ?? []) {
-      const m = curPor.get(r.produto_id) ?? new Map<string, number>();
-      m.set(r.mes_referencia, Number(r.clientes_ativos ?? 0));
-      curPor.set(r.produto_id, m);
-    }
 
     // Por produto: a forma do churn do FUNSES 1, o alvo de clientes e a entrada do motor.
     type Prep = {
@@ -233,6 +224,7 @@ export async function executarSimulacaoCenarios(
       forma: FasePlanoReceita[];
       meses: { mes: string; fase: FaseValue }[];
       mrrAlvo: Map<string, number>;
+      fimCalib: string;
       input: any;
       saz: number[] | null;
     };
@@ -304,25 +296,20 @@ export async function executarSimulacaoCenarios(
         cresc_alvo: null,
       }));
 
-      // Alvo: índice × clientes ativos do FUNSES 1, mês a mês; depois do fim do FUNSES 1, segue o
-      // formato atual deste cenário (o FUNSES 1 termina em 2030; Base e Pessimista vão até 2032).
+      // Alvo: índice × clientes ativos do FUNSES 1, mês a mês, só enquanto o FUNSES 1 existe. A
+      // calibração termina no último mês dele (dez/2030), pra esse mês sair redondo — é o número
+      // que a banca vê; depois disso o cenário segue com as taxas calibradas da última fase.
       const f1P = f1Por.get(p.id) ?? new Map<string, number>();
-      const curP = curPor.get(p.id) ?? new Map<string, number>();
       const ultimoF1 = [...f1P.entries()]
         .filter(([, v]) => v > 0)
         .map(([m]) => m)
         .sort()
         .at(-1);
+      const fimCalib = ultimoF1 && ultimoF1 < fim ? ultimoF1 : fim;
       const mrrAlvo = new Map<string, number>();
       for (const { mes } of meses) {
-        if (mes > fim) continue;
-        let alvo: number | null = null;
-        if (f1P.has(mes)) alvo = cfg.indice * f1P.get(mes)!;
-        else if (ultimoF1 && mes > ultimoF1 && (curP.get(ultimoF1) ?? 0) > 0)
-          alvo =
-            cfg.indice *
-            f1P.get(ultimoF1)! *
-            ((curP.get(mes) ?? 0) / curP.get(ultimoF1)!);
+        if (mes > fimCalib) continue;
+        const alvo = f1P.has(mes) ? cfg.indice * f1P.get(mes)! : null;
         if (alvo != null && alvo > 0) mrrAlvo.set(mes, alvo);
       }
 
@@ -351,6 +338,7 @@ export async function executarSimulacaoCenarios(
         forma,
         meses,
         mrrAlvo,
+        fimCalib,
         input: entrada.input,
         saz,
       });
@@ -382,7 +370,7 @@ export async function executarSimulacaoCenarios(
           mesesComFase: pr.meses,
           mrrAlvo: pr.mrrAlvo,
           base,
-          fim,
+          fim: pr.fimCalib,
         });
         calibrados.set(pr.id, fases);
         for (const r of calcularSimulacao({
@@ -469,7 +457,7 @@ export async function executarSimulacaoCenarios(
 
     // ── Regra do vendedor (Fashion Mind) ─────────────────────────────────────────────────────
     const necessidade = new Map<string, number>();
-    if (cfg.regraVendedor) {
+    if (cfg.vendedor !== "manter") {
       const [
         { data: fasesRaw },
         { data: simRaw },
@@ -641,7 +629,8 @@ export async function executarSimulacaoCenarios(
         ]);
       const faixas: { qtd: number; inicio: string; fim: string }[] = [];
       for (let mes = INICIO_REGRA_VENDEDOR; mes <= fim; mes = proximoMes(mes)) {
-        const qtd = cltDe(necessidade.get(mes) ?? 0);
+        // 100% PJ: uma alocação só, proporcional à demanda do mês — nunca vira CLT.
+        const qtd = cfg.vendedor === "pj" ? 0 : cltDe(necessidade.get(mes) ?? 0);
         const ult = faixas.at(-1);
         if (ult && ult.qtd === qtd) ult.fim = mes;
         else faixas.push({ qtd, inicio: mes, fim: mes });
@@ -716,7 +705,7 @@ export async function executarSimulacaoCenarios(
         0,
       );
       escrever(
-        `  dez/${a}: ${Math.round(x.cli)} clientes${f1Cli > 0 ? ` (${((x.cli / f1Cli) * 100).toFixed(1)}% dos clientes do FUNSES 1)` : ""} · MRR ${Math.round(x.mrr)}${cfg.regraVendedor ? ` · necessidade vendedor Mind ${(necessidade.get(`${a}-12-01`) ?? 0).toFixed(2)}` : ""}`,
+        `  dez/${a}: ${Math.round(x.cli)} clientes${f1Cli > 0 ? ` (${((x.cli / f1Cli) * 100).toFixed(1)}% dos clientes do FUNSES 1)` : ""} · MRR ${Math.round(x.mrr)}${cfg.vendedor !== "manter" ? ` · necessidade vendedor Mind ${(necessidade.get(`${a}-12-01`) ?? 0).toFixed(2)}` : ""}`,
       );
     }
   }

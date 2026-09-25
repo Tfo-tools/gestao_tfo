@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { executarSimulacaoCenarios, type ConfigSimulacao } from "@/lib/admin-tasks/simular-cenarios-vs-funses1";
 
+const vendedorDe = (v: FormDataEntryValue | null): ConfigSimulacao["vendedor"] =>
+  v === "pj" || v === "degraus" ? v : "manter";
+
 export type ResultadoSimulacao = { ok: true; log: string[] } | { ok: false; erro: string } | null;
 
 /**
@@ -22,7 +25,7 @@ export async function aplicarSimulacoes(_prev: ResultadoSimulacao, formData: For
     if (!(indice > 0 && indice <= 3)) return { ok: false, erro: `Índice inválido para ${nome} (use algo entre 0,1 e 3).` };
     if (churnPct != null && !(churnPct >= 0 && churnPct < 30))
       return { ok: false, erro: `Churn inválido para ${nome} (informe % ao mês, ex.: 3,1, ou deixe vazio pra manter o do FUNSES 1).` };
-    configs.push({ nome, indice, churnMensal: churnPct != null ? churnPct / 100 : null, regraVendedor: formData.get(`vendedor:${nome}`) === "on" });
+    configs.push({ nome, indice, churnMensal: churnPct != null ? churnPct / 100 : null, vendedor: vendedorDe(formData.get(`vendedor:${nome}`)) });
   }
   if (configs.length === 0) return { ok: false, erro: "Marque pelo menos um cenário." };
   try {
