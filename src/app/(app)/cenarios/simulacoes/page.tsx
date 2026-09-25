@@ -33,10 +33,12 @@ export default async function SimulacoesPage() {
         </Link>
         <h1 className="mt-1 font-heading text-[22px] font-semibold">Simulações a partir do FUNSES 1</h1>
         <p className="mt-1 max-w-[720px] text-[13px] text-text-muted">
-          Cada cenário marcado passa a entregar, mês a mês, o índice informado do MRR do FUNSES 1 (por produto), com
-          o churn fixo informado. COGS continua por demanda (Suporte e CS em PJ, proporcionais); SDR fica PJ por
-          resultado; vendedor fica PJ proporcional até a necessidade chegar a 1,4 e vira CLT em degraus (1,5 → 1
-          pessoa, 2,5 → 2, 3,5 → 3…). P&amp;D e G&amp;A seguem as regras já cadastradas no cenário.
+          Cada cenário marcado passa a entregar, mês a mês, o índice informado do MRR do FUNSES 1 (por produto). O
+          churn segue a mesma curva do FUNSES 1 (por fase, com decaimento), escalada até o churn médio do período
+          — o mesmo cálculo do card de indicadores — bater no valor informado. COGS continua por demanda (Suporte
+          e CS em PJ, proporcionais); SDR fica PJ por resultado; o vendedor do Fashion Mind fica PJ proporcional
+          até a necessidade chegar a 1,4 e vira CLT em degraus (1,5 → 1 pessoa, 2,5 → 2, 3,5 → 3…). P&amp;D e
+          G&amp;A seguem as regras já cadastradas no cenário.
         </p>
       </div>
       <SimulacoesForm linhas={linhas} />

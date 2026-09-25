@@ -16,7 +16,7 @@ export function SimulacoesForm({ linhas }: { linhas: Linha[] }) {
             <tr>
               <th className="px-3 py-2">Cenário</th>
               <th className="px-3 py-2">Índice × FUNSES 1</th>
-              <th className="px-3 py-2">Churn (% ao mês)</th>
+              <th className="px-3 py-2">Churn médio do período (% ao mês)</th>
             </tr>
           </thead>
           <tbody>
