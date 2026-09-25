@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState, useTransition } from "react";
 import type { FaseValue } from "@/lib/fases";
 import {
   churnAnualParaMensal,
+  churnMensalParaAnual,
   crescAnualParaMensal,
   crescMensalParaAnual,
   fatorDoAno,
@@ -127,6 +128,9 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
   const [anoAberto, setAnoAberto] = useState(dados.anos[0]?.ano ?? 0);
   const [refId, setRefId] = useState<string>(dados.outrosCenarios[0]?.id ?? "");
   const [indice, setIndice] = useState<string>("1");
+  const [indiceChurn, setIndiceChurn] = useState<string>("1");
+  const [detalheProduto, setDetalheProduto] = useState(false);
+  const [secao2Aberta, setSecao2Aberta] = useState(false);
   const pesoDe = (id: string) => pesos[id] ?? dados.pesosCalculados[id] ?? 0;
 
   const fasesDoAno = (id: string, ano: number): (FaseValue | null)[] => {
@@ -176,13 +180,35 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
    * porque manter o MESMO ritmo de crescimento do cenário de referência preserva a proporção
    * (ver conversa: crescimento é velocidade, não nível, então não precisa recalcular ano a ano).
    */
-  const trajetoriaEstimada = useMemo(() => {
+  type LinhaTrajetoria = {
+    ano: number;
+    mrr: number | null;
+    clientesEstimados: number | null;
+    porProduto: Record<string, { mrr: number | null; clientes: number | null }>;
+  };
+
+  const trajetoriaEstimada = useMemo((): LinhaTrajetoria[] => {
     if (metaDoIndice == null || !cenarioRef || indiceNum == null) return [];
-    const linhas: { ano: number; mrr: number; clientesEstimados: number }[] = [];
+    const linhas: LinhaTrajetoria[] = [];
     let mrrAnterior = totalDez(anoAberto - 1) * (1 + metaDoIndice);
+    // Por produto: cada um tem seu próprio ritmo no cenário de referência — o mix muda o total.
+    const mrrAnteriorPorProduto: Record<string, number> = {};
+    for (const p of dados.produtos) {
+      const crescRefP = cenarioRef.crescimentoPorAnoPorProduto[p.id]?.[anoAberto];
+      const metaP = crescRefP != null ? indiceNum * (1 + crescRefP) - 1 : null;
+      mrrAnteriorPorProduto[p.id] = metaP != null ? (p.mrrPorMes[`${anoAberto - 1}-12-01`] ?? 0) * (1 + metaP) : 0;
+    }
     for (const a of dados.anos) {
       if (a.ano < anoAberto) continue;
-      const mrr = a.ano === anoAberto ? mrrAnterior : mrrAnterior * (1 + (cenarioRef.crescimentoPorAno[a.ano] ?? 0));
+      // O cenário de referência pode terminar antes daqui (ex.: comparar com o FUNSES 1, que vai
+      // só até 2030, num cenário que segue até 2032) — sem dado dele pra esse ano, não tem como
+      // saber o ritmo: mostra "sem dado" em vez de supor 0% (flat) ou travar em zero.
+      const cresc = a.ano === anoAberto ? 0 : cenarioRef.crescimentoPorAno[a.ano];
+      if (a.ano !== anoAberto && cresc == null) {
+        linhas.push({ ano: a.ano, mrr: null, clientesEstimados: null, porProduto: {} });
+        continue;
+      }
+      const mrr = a.ano === anoAberto ? mrrAnterior : mrrAnterior * (1 + cresc!);
       mrrAnterior = mrr;
       // Clientes estimados: ticket médio DESTE cenário naquele ano (o que ele já projeta hoje),
       // aplicado ao MRR novo — é aproximação (o mix de produto muda o ticket), não o resultado
@@ -190,11 +216,67 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
       const clientesHoje = clientesDez(a.ano);
       const mrrHoje = totalDez(a.ano);
       const ticket = clientesHoje > 0 && mrrHoje > 0 ? mrrHoje / clientesHoje : null;
-      linhas.push({ ano: a.ano, mrr, clientesEstimados: ticket ? mrr / ticket : 0 });
+
+      const porProduto: LinhaTrajetoria["porProduto"] = {};
+      for (const p of dados.produtos) {
+        const crescRefP = a.ano === anoAberto ? 0 : cenarioRef.crescimentoPorAnoPorProduto[p.id]?.[a.ano];
+        if (crescRefP == null && a.ano !== anoAberto) {
+          porProduto[p.id] = { mrr: null, clientes: null };
+          continue;
+        }
+        const mrrP = a.ano === anoAberto ? mrrAnteriorPorProduto[p.id] : mrrAnteriorPorProduto[p.id] * (1 + crescRefP!);
+        mrrAnteriorPorProduto[p.id] = mrrP;
+        const clientesHojeP = p.clientesPorMes[`${a.ano}-12-01`] ?? 0;
+        const mrrHojeP = p.mrrPorMes[`${a.ano}-12-01`] ?? 0;
+        const ticketP = clientesHojeP > 0 && mrrHojeP > 0 ? mrrHojeP / clientesHojeP : null;
+        porProduto[p.id] = { mrr: mrrP, clientes: ticketP ? mrrP / ticketP : null };
+      }
+
+      linhas.push({ ano: a.ano, mrr, clientesEstimados: ticket ? mrr / ticket : null, porProduto });
     }
     return linhas;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metaDoIndice, refId, anoAberto, indice]);
+
+  // ── Índice de churn — mesmo modelo do crescimento, só que a fórmula é direta: índice × churn do
+  // cenário de referência, sem o ajuste de "1 + …" (churn é taxa, não nível que compõe). ─────────
+  const indiceChurnNum = indiceChurn === "" ? null : Number(indiceChurn.replace(",", "."));
+  const churnRefNoAno = cenarioRef?.churnAnualPorAno[anoAberto];
+  const churnAlvoDoIndice =
+    churnRefNoAno != null && indiceChurnNum != null && Number.isFinite(indiceChurnNum) ? indiceChurnNum * churnRefNoAno : null;
+
+  type LinhaChurn = { ano: number; churn: number | null; porProduto: Record<string, number | null> };
+  const trajetoriaChurnEstimada = useMemo((): LinhaChurn[] => {
+    if (!cenarioRef || indiceChurnNum == null) return [];
+    const linhas: LinhaChurn[] = [];
+    for (const a of dados.anos) {
+      if (a.ano < anoAberto) continue;
+      const churnRef = cenarioRef.churnAnualPorAno[a.ano];
+      const porProduto: Record<string, number | null> = {};
+      for (const p of dados.produtos) {
+        const refP = cenarioRef.churnAnualPorAnoPorProduto[p.id]?.[a.ano];
+        porProduto[p.id] = refP != null ? indiceChurnNum * refP : null;
+      }
+      linhas.push({ ano: a.ano, churn: churnRef != null ? indiceChurnNum * churnRef : null, porProduto });
+    }
+    return linhas;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indiceChurn, refId, anoAberto]);
+
+  const aplicarIndiceChurn = () => {
+    if (churnAlvoDoIndice == null || indiceChurnNum == null) return;
+    const produtosNovos = produtosComChurnNasFases(anoAberto, indiceChurnNum, refId, produtos);
+    setProdutos(produtosNovos);
+    setVersao((v) => v + 1);
+    setSujo(true);
+    startTransition(async () => {
+      setErro(null);
+      setOk(false);
+      const r = await previaPlanoReceita(cenarioId, payload(metas, produtosNovos));
+      if (r.error) setErro(r.error);
+      else setPrevia(r.linhas ?? []);
+    });
+  };
 
   const usarSugerido = () => {
     setMetas((ms) => ms.map((m) => (m.ano === anoAberto ? { ...m, metasProduto: { ...m.metasProduto, ...sugeridas } } : m)));
@@ -230,6 +312,42 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
           ...f,
           cresc_alvo: f.cresc_alvo != null ? f.cresc_alvo + d : f.cresc_alvo,
           cresc_inicio: f.cresc_inicio != null ? f.cresc_inicio + d : f.cresc_inicio,
+        };
+      });
+      novo[p.id] = { ...novo[p.id], fases };
+    }
+    return novo;
+  };
+
+  /**
+   * Mesma ideia do índice de crescimento, só que pro churn: desloca o churn_alvo das fases que o
+   * ano escolhido toca, pela diferença entre o churn de hoje (por produto) e índice × churn do
+   * cenário de referência NAQUELE produto. Não precisa de "meta por ano" salva à parte — é um
+   * ajuste direto nas fases, igual "Levar metas às fases" já faz pro crescimento.
+   */
+  const produtosComChurnNasFases = (ano: number, indiceCh: number, refIdCh: string, produtosAtual: typeof produtos): typeof produtos => {
+    const ref = dados.outrosCenarios.find((c) => c.id === refIdCh);
+    if (!ref) return produtosAtual;
+    const novo = { ...produtosAtual };
+    for (const p of dados.produtos) {
+      const hoje = dados.churnAtualPorAnoPorProduto[p.id]?.[ano];
+      const churnRef = ref.churnAnualPorAnoPorProduto[p.id]?.[ano];
+      if (hoje == null || churnRef == null) continue;
+      const alvo = indiceCh * churnRef;
+      if (Math.abs(alvo - hoje) < 0.0005) continue;
+      const desloc = churnAnualParaMensal(alvo) - churnAnualParaMensal(hoje);
+      const meses = Object.entries(p.fasePorMes).filter(([m]) => Number(m.slice(0, 4)) === ano).map(([, fase]) => fase);
+      if (meses.length === 0) continue;
+      const fasesDoAno = new Set(meses);
+      const fases = novo[p.id].fases.map((f) => {
+        if (!fasesDoAno.has(f.fase)) return f;
+        if (f.fase === "maturidade") {
+          return f.churn_alvo == null ? f : { ...f, churn_alvo: churnMensalParaAnual(Math.max(0, churnAnualParaMensal(f.churn_alvo) + desloc)) };
+        }
+        return {
+          ...f,
+          churn_alvo: f.churn_alvo != null ? Math.max(0, f.churn_alvo + desloc) : f.churn_alvo,
+          churn_inicio: f.churn_inicio != null ? Math.max(0, f.churn_inicio + desloc) : f.churn_inicio,
         };
       });
       novo[p.id] = { ...novo[p.id], fases };
@@ -436,29 +554,148 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                 </div>
 
                 {trajetoriaEstimada.length > 0 && (
-                  <div className="mt-2.5 overflow-x-auto border-t border-border-soft pt-2">
-                    <p className="mb-1 text-[10px] text-text-faint">
-                      Estimativa — como fica cada ano, antes de aplicar (aproximação: usa o ticket médio de hoje pra estimar
-                      clientes; o número exato sai depois de aplicar, na prévia real abaixo).
-                    </p>
-                    <table className="text-[11px]">
-                      <thead>
-                        <tr className="text-left text-text-faint">
-                          <th className="pr-3 font-medium">Dez de</th>
-                          <th className="pr-3 text-right font-medium">MRR estimado</th>
-                          <th className="text-right font-medium">Clientes estimados</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {trajetoriaEstimada.map((l) => (
-                          <tr key={l.ano} className="border-t border-border-soft/60">
-                            <td className="py-0.5 pr-3">{l.ano}</td>
-                            <td className="py-0.5 pr-3 text-right font-mono">{brl(l.mrr)}</td>
-                            <td className="py-0.5 text-right font-mono">{Math.round(l.clientesEstimados).toLocaleString("pt-BR")}</td>
+                  <div className="mt-2.5 border-t border-border-soft pt-2">
+                    <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[10px] text-text-faint">
+                        Estimativa, antes de aplicar — o índice vale pro <strong>consolidado</strong> (soma dos produtos) e é
+                        distribuído entre eles pelo peso e pela fase de cada um. Aproximação: usa o ticket médio de hoje pra
+                        estimar clientes; o número exato sai depois de aplicar, na prévia real abaixo.
+                      </p>
+                      <label className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                        <input type="checkbox" checked={detalheProduto} onChange={(e) => setDetalheProduto(e.target.checked)} />
+                        detalhe por produto
+                      </label>
+                    </div>
+                    {/* Rolagem horizontal já prevista: com mais produtos, as colunas continuam do mesmo
+                        tamanho e a tabela rola pro lado em vez de espremer. */}
+                    <div className="overflow-x-auto">
+                      <table className="text-[11px]" style={{ minWidth: detalheProduto ? 180 + dados.produtos.length * 220 : undefined }}>
+                        <thead>
+                          <tr className="text-left text-text-faint">
+                            <th className="pr-3 font-medium" rowSpan={2}>Dez de</th>
+                            <th className="border-b border-border-soft px-2 text-center font-semibold text-text" colSpan={2}>Consolidado</th>
+                            {detalheProduto &&
+                              dados.produtos.map((p) => (
+                                <th key={p.id} className="border-b border-l border-border-soft px-2 text-center font-medium" colSpan={2}>
+                                  {p.nome.replace(/^Fashion /, "")}
+                                </th>
+                              ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                          <tr className="text-left text-text-faint">
+                            <th className="w-[110px] px-2 text-right font-medium">MRR</th>
+                            <th className="w-[100px] px-2 text-right font-medium">Clientes</th>
+                            {detalheProduto &&
+                              dados.produtos.map((p) => (
+                                <Fragment key={p.id}>
+                                  <th className="w-[110px] border-l border-border-soft px-2 text-right font-medium">MRR</th>
+                                  <th className="w-[100px] px-2 text-right font-medium">Clientes</th>
+                                </Fragment>
+                              ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {trajetoriaEstimada.map((l) => (
+                            <tr key={l.ano} className="border-t border-border-soft/60">
+                              <td className="py-0.5 pr-3">{l.ano}</td>
+                              <td className="px-2 py-0.5 text-right font-mono font-semibold">{l.mrr != null ? brl(l.mrr) : "—"}</td>
+                              <td className="px-2 py-0.5 text-right font-mono font-semibold" title={l.clientesEstimados == null ? "sem dado do cenário de referência neste ano" : undefined}>
+                                {l.clientesEstimados != null ? Math.round(l.clientesEstimados).toLocaleString("pt-BR") : "sem dado"}
+                              </td>
+                              {detalheProduto &&
+                                dados.produtos.map((p) => {
+                                  const d = l.porProduto[p.id];
+                                  return (
+                                    <Fragment key={p.id}>
+                                      <td className="border-l border-border-soft px-2 py-0.5 text-right font-mono text-text-muted">
+                                        {d?.mrr != null ? brl(d.mrr) : "—"}
+                                      </td>
+                                      <td className="px-2 py-0.5 text-right font-mono text-text-muted">
+                                        {d?.clientes != null ? Math.round(d.clientes).toLocaleString("pt-BR") : "—"}
+                                      </td>
+                                    </Fragment>
+                                  );
+                                })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Churn: o mesmo modelo, com a fórmula direta (índice × churn) ───────────── */}
+            {dados.outrosCenarios.length > 0 && (
+              <div className="mb-3 rounded-lg border border-dashed border-border-soft bg-bg px-3 py-2.5">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-text-faint">Churn a partir de {anoAberto}: quero</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={indiceChurn}
+                      onChange={(e) => setIndiceChurn(e.target.value)}
+                      placeholder="1"
+                      title="1,5 = churn 50% maior que o do cenário escolhido; 0,8 = 20% menor; 1 = igual"
+                      className="w-[56px] rounded border border-border-soft bg-transparent px-1 py-0.5 text-right font-mono text-[11px] outline-none focus:border-primary-fill"
+                    />
+                  </div>
+                  <span className="pb-1 text-[11px] text-text-faint">
+                    × do churn de <strong className="text-text">{cenarioRef?.nome ?? "—"}</strong>
+                    {churnRefNoAno != null ? ` (${pct(churnRefNoAno, 1)} a.a. lá` : " (sem dado lá"}
+                    {churnAlvoDoIndice != null ? ` → ${pct(churnAlvoDoIndice, 1)} a.a. aqui)` : ")"}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={churnAlvoDoIndice == null || pendente}
+                    onClick={aplicarIndiceChurn}
+                    className="rounded-lg border border-primary-fill px-2.5 py-1 text-[11px] font-medium text-primary-deep disabled:opacity-40"
+                  >
+                    {pendente ? "calculando…" : `aplicar churn a partir de ${anoAberto}`}
+                  </button>
+                  <span className="pb-1 text-[11px] text-text-faint">
+                    Usa o mesmo cenário de referência escolhido acima. Lembre: churn não reduz a receita direto — aumenta quanta
+                    venda nova é preciso pra sustentar a mesma curva.
+                  </span>
+                </div>
+
+                {trajetoriaChurnEstimada.length > 0 && (
+                  <div className="mt-2.5 border-t border-border-soft pt-2">
+                    <p className="mb-1 text-[10px] text-text-faint">
+                      Churn anual médio estimado, por ano — consolidado e, com &quot;detalhe por produto&quot; ligado acima, por
+                      produto (cada um tem sua própria régua).
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="text-[11px]" style={{ minWidth: detalheProduto ? 120 + dados.produtos.length * 110 : undefined }}>
+                        <thead>
+                          <tr className="text-left text-text-faint">
+                            <th className="pr-3 font-medium">Ano</th>
+                            <th className="w-[110px] px-2 text-right font-semibold text-text">Consolidado</th>
+                            {detalheProduto &&
+                              dados.produtos.map((p) => (
+                                <th key={p.id} className="w-[110px] border-l border-border-soft px-2 text-right font-medium">
+                                  {p.nome.replace(/^Fashion /, "")}
+                                </th>
+                              ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {trajetoriaChurnEstimada.map((l) => (
+                            <tr key={l.ano} className="border-t border-border-soft/60">
+                              <td className="py-0.5 pr-3">{l.ano}</td>
+                              <td className="px-2 py-0.5 text-right font-mono font-semibold">{l.churn != null ? `${pct(l.churn, 1)} a.a.` : "sem dado"}</td>
+                              {detalheProduto &&
+                                dados.produtos.map((p) => (
+                                  <td key={p.id} className="border-l border-border-soft px-2 py-0.5 text-right font-mono text-text-muted">
+                                    {l.porProduto[p.id] != null ? `${pct(l.porProduto[p.id]!, 1)} a.a.` : "—"}
+                                  </td>
+                                ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -537,7 +774,17 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
       {/* 2 · Por fase de vida do produto */}
       <section className="rounded-xl border border-border-soft bg-surface p-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-[13px] font-semibold">2 · Por fase de vida do produto</h3>
+          <button
+            type="button"
+            onClick={() => setSecao2Aberta((v) => !v)}
+            className="flex items-center gap-1.5 text-[13px] font-semibold"
+            title={secao2Aberta ? "Recolher" : "Abrir o detalhe por fase (edição fina das curvas)"}
+          >
+            <span className={`inline-block text-[10px] text-text-faint transition-transform ${secao2Aberta ? "rotate-90" : ""}`}>▶</span>
+            2 · Por fase de vida do produto
+            {!secao2Aberta && <span className="text-[10.5px] font-normal text-text-faint">— recolhido; clique pra editar as curvas fase a fase</span>}
+          </button>
+          {secao2Aberta && (
           <div className="flex gap-1">
             <button
               type="button"
@@ -562,8 +809,9 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
               </button>
             ))}
           </div>
+          )}
         </div>
-        {produtoAberto === "__consolidado__" ? (
+        {secao2Aberta && (produtoAberto === "__consolidado__" ? (
           <ConsolidadoTabela dados={dados} totalDez={totalDez} crescTotalHoje={crescTotalHoje} />
         ) : (
         <>
@@ -656,7 +904,7 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
         </p>
         <FimDasFases produto={prodAberto} fases={fasesAbertas} fim={dados.fim} sujo={sujo} onVerPrevia={verPrevia} />
         </>
-        )}
+        ))}
       </section>
 
       {/* 3 · Sazonalidade */}

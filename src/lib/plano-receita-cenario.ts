@@ -5,6 +5,7 @@ import { calcularSimulacao, faseParaMes, taxasDoMes, type FaseInput } from "@/li
 import { montarEntradaSimulacao } from "@/lib/simulacao-produto";
 import {
   calibrarCrescimento,
+  churnMensalParaAnual,
   converterDoModeloTrimestral,
   FASES_PLANO,
   type FasePlanoReceita,
@@ -60,6 +61,10 @@ export type DadosPlanoReceita = {
   /** Outros cenários — pra "índice sobre outro cenário": pega o crescimento QUE ELE já entrega em
    *  cada ano e você aplica uma fração/múltiplo em cima, em vez de calcular a fórmula na mão. */
   outrosCenarios: CenarioReferencia[];
+  /** Churn médio anual DESTE cenário hoje, total e por produto — baseline pra "índice de churn"
+   *  saber quanto deslocar (mesma lógica de crescHoje, só que pro churn). */
+  churnAtualPorAno: Record<number, number>;
+  churnAtualPorAnoPorProduto: Record<string, Record<number, number>>;
 };
 
 export type CenarioReferencia = {
@@ -67,6 +72,11 @@ export type CenarioReferencia = {
   nome: string;
   /** Crescimento do MRR total dez/dez desse cenário, por ano — mesma base da seção 1 daqui. */
   crescimentoPorAno: Record<number, number>;
+  /** O mesmo, por produto — pra tabela de trajetória abrir o detalhe (Mind/Price/Skills). */
+  crescimentoPorAnoPorProduto: Record<string, Record<number, number>>;
+  /** Churn médio do ano (mensal, já anualizado) desse cenário — total e por produto. */
+  churnAnualPorAno: Record<number, number>;
+  churnAnualPorAnoPorProduto: Record<string, Record<number, number>>;
 };
 
 const mesIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
@@ -198,7 +208,10 @@ export async function carregarPlanoReceita(supabase: Supabase, cenarioId: string
   const doCenario = await produtosDoCenario(supabase, cenarioId);
   const ids = doCenario.map((p) => p.id);
   if (ids.length === 0)
-    return { modelo, pctVendasCombo: null, combo: null, pesos: {}, pesosCalculados: {}, anos: [], produtos: [], inicio, fim, outrosCenarios: [] };
+    return {
+      modelo, pctVendasCombo: null, combo: null, pesos: {}, pesosCalculados: {}, anos: [], produtos: [], inicio, fim,
+      outrosCenarios: [], churnAtualPorAno: {}, churnAtualPorAnoPorProduto: {},
+    };
 
   const [{ data: fasesRaw }, { data: simRaw }, { data: produtosRaw }, { data: metasRaw }, { data: itensCombo }] =
     await Promise.all([
@@ -306,6 +319,10 @@ export async function carregarPlanoReceita(supabase: Supabase, cenarioId: string
     for (const p of produtos) pesosCalculados[p.id] = total > 0 ? (p.mrrPorMes[dez] ?? 0) / total : 0;
   }
 
+  const todasAsCurvas = await carregarTodosCenariosComCurvas(supabase, cenarioId, anoIni, anoFim);
+  const self = todasAsCurvas.find((c) => c.id === cenarioId);
+  const outrosCenarios = todasAsCurvas.filter((c) => c.id !== cenarioId);
+
   return {
     modelo,
     pctVendasCombo: cenario.pct_vendas_combo != null ? Number(cenario.pct_vendas_combo) : null,
@@ -316,7 +333,9 @@ export async function carregarPlanoReceita(supabase: Supabase, cenarioId: string
     produtos,
     inicio,
     fim,
-    outrosCenarios: await carregarOutrosCenarios(supabase, cenarioId, anoIni, anoFim),
+    outrosCenarios,
+    churnAtualPorAno: self?.churnAnualPorAno ?? {},
+    churnAtualPorAnoPorProduto: self?.churnAnualPorAnoPorProduto ?? {},
   };
 }
 
@@ -327,42 +346,85 @@ export async function carregarPlanoReceita(supabase: Supabase, cenarioId: string
  * cenário pra cenário sem relação nenhuma com "qual é o meu cenário-base pra comparar receita" —
  * ela escolhe explicitamente qual comparar.
  */
-async function carregarOutrosCenarios(
+/** Inclui o PRÓPRIO cenário na lista — quem chama separa "self" dos "outros" depois. Assim o
+ *  churn de hoje (baseline pra deslocar as fases) sai da mesma conta, sem duplicar a query. */
+async function carregarTodosCenariosComCurvas(
   supabase: Supabase,
   cenarioId: string,
   anoIni: number,
   anoFim: number,
 ): Promise<CenarioReferencia[]> {
-  const { data: cenarios } = await supabase.from("cenarios").select("id, nome").neq("id", cenarioId).order("nome");
+  const { data: cenarios } = await supabase.from("cenarios").select("id, nome").order("nome");
   const lista = cenarios ?? [];
   if (lista.length === 0) return [];
 
+  // MRR só precisa do dezembro de cada ano (é o que define o crescimento dez/dez). Churn precisa
+  // dos 12 meses — a régua da fase varia mês a mês, um só mês não representa o ano.
   const { data: simRaw } = await supabase
     .from("simulacao_mensal")
-    .select("cenario_id, mes_referencia, mrr")
+    .select("cenario_id, produto_id, mes_referencia, mrr, churn_pct")
     .in(
       "cenario_id",
       lista.map((c) => c.id),
     )
-    .in(
-      "mes_referencia",
-      Array.from({ length: anoFim - anoIni + 2 }, (_, i) => `${anoIni - 1 + i}-12-01`),
-    );
+    .gte("mes_referencia", `${anoIni - 1}-01-01`)
+    .lte("mes_referencia", `${anoFim}-12-01`);
 
-  const mrrDezPorCenarioAno = new Map<string, number>();
+  const mrrDez = new Map<string, number>();
+  const mrrDezProduto = new Map<string, number>();
+  const churnSoma = new Map<string, { soma: number; n: number }>();
+  const churnSomaProduto = new Map<string, { soma: number; n: number }>();
+  const acumChurn = (mapa: Map<string, { soma: number; n: number }>, chave: string, v: number) => {
+    const atual = mapa.get(chave) ?? { soma: 0, n: 0 };
+    mapa.set(chave, { soma: atual.soma + v, n: atual.n + 1 });
+  };
   for (const s of simRaw ?? []) {
-    const chave = `${s.cenario_id}|${s.mes_referencia.slice(0, 4)}`;
-    mrrDezPorCenarioAno.set(chave, (mrrDezPorCenarioAno.get(chave) ?? 0) + Number(s.mrr ?? 0));
+    const ano = s.mes_referencia.slice(0, 4);
+    if (s.mes_referencia.slice(5, 7) === "12") {
+      mrrDez.set(`${s.cenario_id}|${ano}`, (mrrDez.get(`${s.cenario_id}|${ano}`) ?? 0) + Number(s.mrr ?? 0));
+      mrrDezProduto.set(
+        `${s.cenario_id}|${s.produto_id}|${ano}`,
+        (mrrDezProduto.get(`${s.cenario_id}|${s.produto_id}|${ano}`) ?? 0) + Number(s.mrr ?? 0),
+      );
+    }
+    if (s.churn_pct != null) {
+      acumChurn(churnSoma, `${s.cenario_id}|${ano}`, Number(s.churn_pct));
+      acumChurn(churnSomaProduto, `${s.cenario_id}|${s.produto_id}|${ano}`, Number(s.churn_pct));
+    }
   }
+
+  const produtoIds = [...new Set((simRaw ?? []).map((s) => s.produto_id))];
 
   return lista.map((c) => {
     const crescimentoPorAno: Record<number, number> = {};
+    const crescimentoPorAnoPorProduto: Record<string, Record<number, number>> = {};
+    const churnAnualPorAno: Record<number, number> = {};
+    const churnAnualPorAnoPorProduto: Record<string, Record<number, number>> = {};
+    for (const pid of produtoIds) crescimentoPorAnoPorProduto[pid] = {};
+    for (const pid of produtoIds) churnAnualPorAnoPorProduto[pid] = {};
+
     for (let a = anoIni; a <= anoFim; a++) {
-      const antes = mrrDezPorCenarioAno.get(`${c.id}|${a - 1}`) ?? 0;
-      const dez = mrrDezPorCenarioAno.get(`${c.id}|${a}`) ?? 0;
-      if (antes > 0) crescimentoPorAno[a] = dez / antes - 1;
+      const antes = mrrDez.get(`${c.id}|${a - 1}`) ?? 0;
+      const dez = mrrDez.get(`${c.id}|${a}`) ?? 0;
+      // Só registra quando os DOIS pontos existem — sem isso, um ano fora do intervalo do cenário
+      // de referência (ex.: pedir 2032 a um cenário que termina em 2030) virava um "-100%" falso
+      // (dez=0 por falta de dado, não por queda real), e a trajetória estimada zerava a partir dali.
+      if (antes > 0 && dez > 0) crescimentoPorAno[a] = dez / antes - 1;
+
+      for (const pid of produtoIds) {
+        const antesP = mrrDezProduto.get(`${c.id}|${pid}|${a - 1}`) ?? 0;
+        const dezP = mrrDezProduto.get(`${c.id}|${pid}|${a}`) ?? 0;
+        if (antesP > 0 && dezP > 0) crescimentoPorAnoPorProduto[pid][a] = dezP / antesP - 1;
+      }
+
+      const chAno = churnSoma.get(`${c.id}|${a}`);
+      if (chAno && chAno.n > 0) churnAnualPorAno[a] = churnMensalParaAnual(chAno.soma / chAno.n);
+      for (const pid of produtoIds) {
+        const chP = churnSomaProduto.get(`${c.id}|${pid}|${a}`);
+        if (chP && chP.n > 0) churnAnualPorAnoPorProduto[pid][a] = churnMensalParaAnual(chP.soma / chP.n);
+      }
     }
-    return { id: c.id, nome: c.nome, crescimentoPorAno };
+    return { id: c.id, nome: c.nome, crescimentoPorAno, crescimentoPorAnoPorProduto, churnAnualPorAno, churnAnualPorAnoPorProduto };
   });
 }
 
