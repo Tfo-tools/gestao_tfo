@@ -125,6 +125,8 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
     })),
   );
   const [anoAberto, setAnoAberto] = useState(dados.anos[0]?.ano ?? 0);
+  const [refId, setRefId] = useState<string>(dados.outrosCenarios[0]?.id ?? "");
+  const [indice, setIndice] = useState<string>("1");
   const pesoDe = (id: string) => pesos[id] ?? dados.pesosCalculados[id] ?? 0;
 
   const fasesDoAno = (id: string, ano: number): (FaseValue | null)[] => {
@@ -153,6 +155,24 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
     setMetas((ms) => ms.map((m) => (m.ano === ano ? { ...m, metasProduto: { ...m.metasProduto, [id]: v ?? 0 } } : m)));
     setSujo(true);
   };
+  const cenarioRef = dados.outrosCenarios.find((c) => c.id === refId);
+  const crescRefNoAno = cenarioRef?.crescimentoPorAno[anoAberto];
+  const indiceNum = indice === "" ? null : Number(indice.replace(",", "."));
+  // meta = índice × (1 + crescimento do cenário de referência) − 1 — a fórmula que substitui
+  // "cortar o % pela metade": crescimento é velocidade, não nível, então só multiplicar o índice
+  // direto no % dá um resultado errado (ver conversa). É esta fórmula que faz o índice virar,
+  // de fato, a fração/múltiplo do RESULTADO do outro cenário naquele ano.
+  const metaDoIndice =
+    crescRefNoAno != null && indiceNum != null && Number.isFinite(indiceNum)
+      ? indiceNum * (1 + crescRefNoAno) - 1
+      : null;
+
+  const usarIndice = () => {
+    if (metaDoIndice == null) return;
+    mudarMeta(anoAberto, metaDoIndice);
+    setVersao((v) => v + 1);
+  };
+
   const usarSugerido = () => {
     setMetas((ms) => ms.map((m) => (m.ano === anoAberto ? { ...m, metasProduto: { ...m.metasProduto, ...sugeridas } } : m)));
     setVersao((v) => v + 1);
@@ -312,6 +332,53 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                 </div>
               ))}
             </div>
+
+            {dados.outrosCenarios.length > 0 && (
+              <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-border-soft bg-bg px-3 py-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-text-faint">Quero, em {anoAberto}</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={indice}
+                    onChange={(e) => setIndice(e.target.value)}
+                    placeholder="1"
+                    title="0,5 = metade do resultado do cenário escolhido; 1,2 = 20% a mais; 1 = igual"
+                    className="w-[56px] rounded border border-border-soft bg-transparent px-1 py-0.5 text-right font-mono text-[11px] outline-none focus:border-primary-fill"
+                  />
+                </div>
+                <span className="pb-1 text-[11px] text-text-faint">× do que</span>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-text-faint">entrega</span>
+                  <select
+                    value={refId}
+                    onChange={(e) => setRefId(e.target.value)}
+                    className="rounded border border-border-soft bg-transparent px-1.5 py-0.5 text-[11px] outline-none focus:border-primary-fill"
+                  >
+                    {dados.outrosCenarios.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <span className="pb-1 text-[11px] text-text-faint">
+                  {crescRefNoAno == null
+                    ? "— esse cenário não tem dado nesse ano"
+                    : `(${sinalPct(crescRefNoAno)} lá → ${metaDoIndice != null ? sinalPct(metaDoIndice) : "—"} aqui)`}
+                </span>
+                <button
+                  type="button"
+                  disabled={metaDoIndice == null}
+                  onClick={usarIndice}
+                  className="rounded-lg border border-primary-fill px-2.5 py-1 text-[11px] font-medium text-primary-deep disabled:opacity-40"
+                  title="Preenche a meta de {anoAberto} com índice × (1 + crescimento do cenário escolhido) − 1 — não é o índice direto no %, crescimento não escala linear."
+                >
+                  usar em {anoAberto}
+                </button>
+              </div>
+            )}
+
             {metaAberta && (
               <>
                 <table className="w-full border-collapse text-[12px]">

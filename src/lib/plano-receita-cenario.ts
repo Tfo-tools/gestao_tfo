@@ -57,6 +57,16 @@ export type DadosPlanoReceita = {
   produtos: ProdutoPlanoReceita[];
   inicio: string;
   fim: string;
+  /** Outros cenários — pra "índice sobre outro cenário": pega o crescimento QUE ELE já entrega em
+   *  cada ano e você aplica uma fração/múltiplo em cima, em vez de calcular a fórmula na mão. */
+  outrosCenarios: CenarioReferencia[];
+};
+
+export type CenarioReferencia = {
+  id: string;
+  nome: string;
+  /** Crescimento do MRR total dez/dez desse cenário, por ano — mesma base da seção 1 daqui. */
+  crescimentoPorAno: Record<number, number>;
 };
 
 const mesIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
@@ -188,7 +198,7 @@ export async function carregarPlanoReceita(supabase: Supabase, cenarioId: string
   const doCenario = await produtosDoCenario(supabase, cenarioId);
   const ids = doCenario.map((p) => p.id);
   if (ids.length === 0)
-    return { modelo, pctVendasCombo: null, combo: null, pesos: {}, pesosCalculados: {}, anos: [], produtos: [], inicio, fim };
+    return { modelo, pctVendasCombo: null, combo: null, pesos: {}, pesosCalculados: {}, anos: [], produtos: [], inicio, fim, outrosCenarios: [] };
 
   const [{ data: fasesRaw }, { data: simRaw }, { data: produtosRaw }, { data: metasRaw }, { data: itensCombo }] =
     await Promise.all([
@@ -306,6 +316,53 @@ export async function carregarPlanoReceita(supabase: Supabase, cenarioId: string
     produtos,
     inicio,
     fim,
+    outrosCenarios: await carregarOutrosCenarios(supabase, cenarioId, anoIni, anoFim),
   };
+}
+
+/**
+ * Crescimento dez/dez, por ano, dos demais cenários — pra tela oferecer "quero X% do que o
+ * cenário Y entrega", em vez de a pessoa calcular a fórmula (1+cresc)×índice−1 na mão. Não usa
+ * cenario_origem_id como referência: aquele campo é só a árvore de "clonado de", que troca de
+ * cenário pra cenário sem relação nenhuma com "qual é o meu cenário-base pra comparar receita" —
+ * ela escolhe explicitamente qual comparar.
+ */
+async function carregarOutrosCenarios(
+  supabase: Supabase,
+  cenarioId: string,
+  anoIni: number,
+  anoFim: number,
+): Promise<CenarioReferencia[]> {
+  const { data: cenarios } = await supabase.from("cenarios").select("id, nome").neq("id", cenarioId).order("nome");
+  const lista = cenarios ?? [];
+  if (lista.length === 0) return [];
+
+  const { data: simRaw } = await supabase
+    .from("simulacao_mensal")
+    .select("cenario_id, mes_referencia, mrr")
+    .in(
+      "cenario_id",
+      lista.map((c) => c.id),
+    )
+    .in(
+      "mes_referencia",
+      Array.from({ length: anoFim - anoIni + 2 }, (_, i) => `${anoIni - 1 + i}-12-01`),
+    );
+
+  const mrrDezPorCenarioAno = new Map<string, number>();
+  for (const s of simRaw ?? []) {
+    const chave = `${s.cenario_id}|${s.mes_referencia.slice(0, 4)}`;
+    mrrDezPorCenarioAno.set(chave, (mrrDezPorCenarioAno.get(chave) ?? 0) + Number(s.mrr ?? 0));
+  }
+
+  return lista.map((c) => {
+    const crescimentoPorAno: Record<number, number> = {};
+    for (let a = anoIni; a <= anoFim; a++) {
+      const antes = mrrDezPorCenarioAno.get(`${c.id}|${a - 1}`) ?? 0;
+      const dez = mrrDezPorCenarioAno.get(`${c.id}|${a}`) ?? 0;
+      if (antes > 0) crescimentoPorAno[a] = dez / antes - 1;
+    }
+    return { id: c.id, nome: c.nome, crescimentoPorAno };
+  });
 }
 
