@@ -167,20 +167,34 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
       ? indiceNum * (1 + crescRefNoAno) - 1
       : null;
 
-  const usarIndice = () => {
-    if (metaDoIndice == null) return;
-    // Preenche o total E já distribui por produto no mesmo clique — antes exigia "usar em [ano]"
-    // + "Usar sugerido" separados, e sem os dois a "Soma ponderada" não batia com a meta.
-    const distribuido = sugerirMetas(
-      metaDoIndice,
-      dados.produtos.map((p) => ({ id: p.id, peso: pesoDe(p.id), fator: fatorDoAno(fasesDoAno(p.id, anoAberto)) })),
-    );
-    setMetas((ms) =>
-      ms.map((m) => (m.ano === anoAberto ? { ...m, crescimento: metaDoIndice, metasProduto: { ...m.metasProduto, ...distribuido } } : m)),
-    );
-    setVersao((v) => v + 1);
-    setSujo(true);
-  };
+  const clientesDez = (ano: number) => dados.produtos.reduce((s, p) => s + (p.clientesPorMes[`${ano}-12-01`] ?? 0), 0);
+
+  /**
+   * A trajetória inteira, não só o ano aberto — é a resposta direta a "não desce em cascata?":
+   * desce sim, e a prova é que dá pra calcular todo o resto sem tocar em mais nada. A partir do
+   * ano aplicado, o MRR de cada ano seguinte é sempre índice × MRR do cenário de referência —
+   * porque manter o MESMO ritmo de crescimento do cenário de referência preserva a proporção
+   * (ver conversa: crescimento é velocidade, não nível, então não precisa recalcular ano a ano).
+   */
+  const trajetoriaEstimada = useMemo(() => {
+    if (metaDoIndice == null || !cenarioRef || indiceNum == null) return [];
+    const linhas: { ano: number; mrr: number; clientesEstimados: number }[] = [];
+    let mrrAnterior = totalDez(anoAberto - 1) * (1 + metaDoIndice);
+    for (const a of dados.anos) {
+      if (a.ano < anoAberto) continue;
+      const mrr = a.ano === anoAberto ? mrrAnterior : mrrAnterior * (1 + (cenarioRef.crescimentoPorAno[a.ano] ?? 0));
+      mrrAnterior = mrr;
+      // Clientes estimados: ticket médio DESTE cenário naquele ano (o que ele já projeta hoje),
+      // aplicado ao MRR novo — é aproximação (o mix de produto muda o ticket), não o resultado
+      // final; o número exato só sai depois de "Levar metas às fases" + recalcular de verdade.
+      const clientesHoje = clientesDez(a.ano);
+      const mrrHoje = totalDez(a.ano);
+      const ticket = clientesHoje > 0 && mrrHoje > 0 ? mrrHoje / clientesHoje : null;
+      linhas.push({ ano: a.ano, mrr, clientesEstimados: ticket ? mrr / ticket : 0 });
+    }
+    return linhas;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metaDoIndice, refId, anoAberto, indice]);
 
   const usarSugerido = () => {
     setMetas((ms) => ms.map((m) => (m.ano === anoAberto ? { ...m, metasProduto: { ...m.metasProduto, ...sugeridas } } : m)));
@@ -189,40 +203,42 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
   };
 
   /**
-   * Leva as metas por produto para as fases: desloca o crescimento mensal de cada fase pela
-   * diferença entre a meta e o que a projeção atual entrega no ano (média dos anos que a fase
-   * atravessa). É um ajuste — a prévia mostra onde ficou.
+   * A mesma conta de "levar metas às fases", só que pura: recebe as metas e o estado atual dos
+   * produtos e RETORNA o novo estado, sem mexer em nada. Assim dá pra encadear no mesmo clique —
+   * "aplicar o índice" não precisa esperar dois re-renders pra saber com que fases ele vai mexer.
    */
-  const levarMetasAsFases = () => {
-    setProdutos((atual) => {
-      const novo = { ...atual };
-      for (const p of dados.produtos) {
-        const deslocPorAno = new Map<number, number>();
-        for (const m of metas) {
-          const hoje = crescHoje(p.id, m.ano);
-          const meta = m.metasProduto[p.id];
-          if (hoje == null || meta == null || Math.abs(meta - hoje) < 0.001) continue;
-          deslocPorAno.set(m.ano, crescAnualParaMensal(meta) - crescAnualParaMensal(hoje));
-        }
-        if (deslocPorAno.size === 0) continue;
-        const fases = novo[p.id].fases.map((f) => {
-          const meses = Object.entries(p.fasePorMes).filter(([, fase]) => fase === f.fase).map(([mes]) => Number(mes.slice(0, 4)));
-          const desl = meses.map((a) => deslocPorAno.get(a)).filter((d): d is number => d != null);
-          if (desl.length === 0) return f;
-          const d = desl.reduce((s, v) => s + v, 0) / meses.length;
-          if (f.fase === "maturidade") {
-            return f.cresc_alvo == null ? f : { ...f, cresc_alvo: crescMensalParaAnual(crescAnualParaMensal(f.cresc_alvo) + d) };
-          }
-          return {
-            ...f,
-            cresc_alvo: f.cresc_alvo != null ? f.cresc_alvo + d : f.cresc_alvo,
-            cresc_inicio: f.cresc_inicio != null ? f.cresc_inicio + d : f.cresc_inicio,
-          };
-        });
-        novo[p.id] = { ...novo[p.id], fases };
+  const produtosComMetasNasFases = (metasParaAplicar: typeof metas, produtosAtual: typeof produtos): typeof produtos => {
+    const novo = { ...produtosAtual };
+    for (const p of dados.produtos) {
+      const deslocPorAno = new Map<number, number>();
+      for (const m of metasParaAplicar) {
+        const hoje = crescHoje(p.id, m.ano);
+        const meta = m.metasProduto[p.id];
+        if (hoje == null || meta == null || Math.abs(meta - hoje) < 0.001) continue;
+        deslocPorAno.set(m.ano, crescAnualParaMensal(meta) - crescAnualParaMensal(hoje));
       }
-      return novo;
-    });
+      if (deslocPorAno.size === 0) continue;
+      const fases = novo[p.id].fases.map((f) => {
+        const meses = Object.entries(p.fasePorMes).filter(([, fase]) => fase === f.fase).map(([mes]) => Number(mes.slice(0, 4)));
+        const desl = meses.map((a) => deslocPorAno.get(a)).filter((d): d is number => d != null);
+        if (desl.length === 0) return f;
+        const d = desl.reduce((s, v) => s + v, 0) / meses.length;
+        if (f.fase === "maturidade") {
+          return f.cresc_alvo == null ? f : { ...f, cresc_alvo: crescMensalParaAnual(crescAnualParaMensal(f.cresc_alvo) + d) };
+        }
+        return {
+          ...f,
+          cresc_alvo: f.cresc_alvo != null ? f.cresc_alvo + d : f.cresc_alvo,
+          cresc_inicio: f.cresc_inicio != null ? f.cresc_inicio + d : f.cresc_inicio,
+        };
+      });
+      novo[p.id] = { ...novo[p.id], fases };
+    }
+    return novo;
+  };
+
+  const levarMetasAsFases = () => {
+    setProdutos((atual) => produtosComMetasNasFases(metas, atual));
     setVersao((v) => v + 1);
     setSujo(true);
   };
@@ -244,20 +260,22 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
     setSujo(true);
   };
 
-  const payload = (): PayloadPlanoReceita => ({
+  // Aceita metas/produtos explícitos — pra montar o payload com um valor que acabou de ser
+  // calculado, sem esperar o estado do React atualizar e re-renderizar antes de mandar pro servidor.
+  const payload = (metasParaEnviar: typeof metas = metas, produtosParaEnviar: typeof produtos = produtos): PayloadPlanoReceita => ({
     pctVendasCombo: pctCombo,
     pesos: Object.fromEntries(dados.produtos.map((p) => [p.id, pesoDe(p.id)])),
-    metas: metas.map((m) => ({ ano: m.ano, crescimento: m.crescimento, metasProduto: m.metasProduto })),
+    metas: metasParaEnviar.map((m) => ({ ano: m.ano, crescimento: m.crescimento, metasProduto: m.metasProduto })),
     produtos: dados.produtos.map((p) => ({
       id: p.id,
-      fases: produtos[p.id].fases.map(({ fase, cresc_inicio, cresc_alvo, churn_inicio, churn_alvo }) => ({
+      fases: produtosParaEnviar[p.id].fases.map(({ fase, cresc_inicio, cresc_alvo, churn_inicio, churn_alvo }) => ({
         fase,
         cresc_inicio,
         cresc_alvo,
         churn_inicio,
         churn_alvo,
       })),
-      sazonalidade: produtos[p.id].sazonalidade,
+      sazonalidade: produtosParaEnviar[p.id].sazonalidade,
     })),
   });
 
@@ -269,6 +287,37 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
       if (r.error) setErro(r.error);
       else setPrevia(r.linhas ?? []);
     });
+
+  /**
+   * O botão único: aplica o índice no ano escolhido — e SÓ nele, os anos seguintes continuam no
+   * mesmo ritmo do cenário de referência, que é o que mantém a proporção sozinha dali pra frente
+   * (ver conversa) — desloca as fases e já busca a prévia real no servidor. Sem isso, a pessoa
+   * precisava de "usar em [ano]" + "Levar metas às fases" + "Ver prévia" em três cliques
+   * separados pra ver QUALQUER número mudar, e cada um deles é reversível/intermediário — dava a
+   * impressão de que nada tinha acontecido.
+   */
+  const aplicarIndice = () => {
+    if (metaDoIndice == null) return;
+    const distribuido = sugerirMetas(
+      metaDoIndice,
+      dados.produtos.map((p) => ({ id: p.id, peso: pesoDe(p.id), fator: fatorDoAno(fasesDoAno(p.id, anoAberto)) })),
+    );
+    const metasNovas = metas.map((m) =>
+      m.ano === anoAberto ? { ...m, crescimento: metaDoIndice, metasProduto: { ...m.metasProduto, ...distribuido } } : m,
+    );
+    const produtosNovos = produtosComMetasNasFases(metasNovas, produtos);
+    setMetas(metasNovas);
+    setProdutos(produtosNovos);
+    setVersao((v) => v + 1);
+    setSujo(true);
+    startTransition(async () => {
+      setErro(null);
+      setOk(false);
+      const r = await previaPlanoReceita(cenarioId, payload(metasNovas, produtosNovos));
+      if (r.error) setErro(r.error);
+      else setPrevia(r.linhas ?? []);
+    });
+  };
   const salvar = () =>
     startTransition(async () => {
       setErro(null);
@@ -343,53 +392,75 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
             </div>
 
             {dados.outrosCenarios.length > 0 && (
-              <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-border-soft bg-bg px-3 py-2">
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] text-text-faint">Quero, em {anoAberto}</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={indice}
-                    onChange={(e) => setIndice(e.target.value)}
-                    placeholder="1"
-                    title="0,5 = metade do resultado do cenário escolhido; 1,2 = 20% a mais; 1 = igual"
-                    className="w-[56px] rounded border border-border-soft bg-transparent px-1 py-0.5 text-right font-mono text-[11px] outline-none focus:border-primary-fill"
-                  />
-                </div>
-                <span className="pb-1 text-[11px] text-text-faint">× do que</span>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] text-text-faint">entrega</span>
-                  <select
-                    value={refId}
-                    onChange={(e) => setRefId(e.target.value)}
-                    className="rounded border border-border-soft bg-transparent px-1.5 py-0.5 text-[11px] outline-none focus:border-primary-fill"
+              <div className="mb-3 rounded-lg border border-dashed border-border-soft bg-bg px-3 py-2.5">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-text-faint">A partir de {anoAberto}, quero</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={indice}
+                      onChange={(e) => setIndice(e.target.value)}
+                      placeholder="1"
+                      title="0,5 = metade do resultado do cenário escolhido; 1,2 = 20% a mais; 1 = igual"
+                      className="w-[56px] rounded border border-border-soft bg-transparent px-1 py-0.5 text-right font-mono text-[11px] outline-none focus:border-primary-fill"
+                    />
+                  </div>
+                  <span className="pb-1 text-[11px] text-text-faint">× do que</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-text-faint">entrega</span>
+                    <select
+                      value={refId}
+                      onChange={(e) => setRefId(e.target.value)}
+                      className="rounded border border-border-soft bg-transparent px-1.5 py-0.5 text-[11px] outline-none focus:border-primary-fill"
+                    >
+                      {dados.outrosCenarios.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={metaDoIndice == null || pendente}
+                    onClick={aplicarIndice}
+                    className="rounded-lg border border-primary-fill px-2.5 py-1 text-[11px] font-medium text-primary-deep disabled:opacity-40"
                   >
-                    {dados.outrosCenarios.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <span className="pb-1 text-[11px] text-text-faint">
-                  {crescRefNoAno == null
-                    ? "— esse cenário não tem dado nesse ano"
-                    : `(${sinalPct(crescRefNoAno)} lá → ${metaDoIndice != null ? sinalPct(metaDoIndice) : "—"} aqui)`}
-                </span>
-                {metaDoIndice != null && (
-                  <span className="pb-1 text-[11px] font-medium text-primary-deep">
-                    ≈ {brl(totalDez(anoAberto - 1) * (1 + metaDoIndice))} de MRR em dez/{anoAberto}
+                    {pendente ? "calculando…" : `aplicar a partir de ${anoAberto}`}
+                  </button>
+                  <span className="pb-1 text-[11px] text-text-faint">
+                    Sozinho, sem mexer em mais nada — {anoAberto} recebe o corte/aumento e os anos seguintes seguem o mesmo ritmo do
+                    cenário escolhido, o que já preserva a proporção sem precisar repetir ano a ano.
                   </span>
+                </div>
+
+                {trajetoriaEstimada.length > 0 && (
+                  <div className="mt-2.5 overflow-x-auto border-t border-border-soft pt-2">
+                    <p className="mb-1 text-[10px] text-text-faint">
+                      Estimativa — como fica cada ano, antes de aplicar (aproximação: usa o ticket médio de hoje pra estimar
+                      clientes; o número exato sai depois de aplicar, na prévia real abaixo).
+                    </p>
+                    <table className="text-[11px]">
+                      <thead>
+                        <tr className="text-left text-text-faint">
+                          <th className="pr-3 font-medium">Dez de</th>
+                          <th className="pr-3 text-right font-medium">MRR estimado</th>
+                          <th className="text-right font-medium">Clientes estimados</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {trajetoriaEstimada.map((l) => (
+                          <tr key={l.ano} className="border-t border-border-soft/60">
+                            <td className="py-0.5 pr-3">{l.ano}</td>
+                            <td className="py-0.5 pr-3 text-right font-mono">{brl(l.mrr)}</td>
+                            <td className="py-0.5 text-right font-mono">{Math.round(l.clientesEstimados).toLocaleString("pt-BR")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
-                <button
-                  type="button"
-                  disabled={metaDoIndice == null}
-                  onClick={usarIndice}
-                  className="rounded-lg border border-primary-fill px-2.5 py-1 text-[11px] font-medium text-primary-deep disabled:opacity-40"
-                  title="Preenche a meta de {anoAberto} com índice × (1 + crescimento do cenário escolhido) − 1 — não é o índice direto no %, crescimento não escala linear."
-                >
-                  usar em {anoAberto}
-                </button>
               </div>
             )}
 
