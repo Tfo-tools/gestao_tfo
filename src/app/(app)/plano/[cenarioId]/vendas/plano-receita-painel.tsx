@@ -169,8 +169,17 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
 
   const usarIndice = () => {
     if (metaDoIndice == null) return;
-    mudarMeta(anoAberto, metaDoIndice);
+    // Preenche o total E já distribui por produto no mesmo clique — antes exigia "usar em [ano]"
+    // + "Usar sugerido" separados, e sem os dois a "Soma ponderada" não batia com a meta.
+    const distribuido = sugerirMetas(
+      metaDoIndice,
+      dados.produtos.map((p) => ({ id: p.id, peso: pesoDe(p.id), fator: fatorDoAno(fasesDoAno(p.id, anoAberto)) })),
+    );
+    setMetas((ms) =>
+      ms.map((m) => (m.ano === anoAberto ? { ...m, crescimento: metaDoIndice, metasProduto: { ...m.metasProduto, ...distribuido } } : m)),
+    );
     setVersao((v) => v + 1);
+    setSujo(true);
   };
 
   const usarSugerido = () => {
@@ -367,6 +376,11 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
                     ? "— esse cenário não tem dado nesse ano"
                     : `(${sinalPct(crescRefNoAno)} lá → ${metaDoIndice != null ? sinalPct(metaDoIndice) : "—"} aqui)`}
                 </span>
+                {metaDoIndice != null && (
+                  <span className="pb-1 text-[11px] font-medium text-primary-deep">
+                    ≈ {brl(totalDez(anoAberto - 1) * (1 + metaDoIndice))} de MRR em dez/{anoAberto}
+                  </span>
+                )}
                 <button
                   type="button"
                   disabled={metaDoIndice == null}
@@ -454,6 +468,16 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-[13px] font-semibold">2 · Por fase de vida do produto</h3>
           <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setProdutoAberto("__consolidado__")}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
+                produtoAberto === "__consolidado__" ? "border-primary-fill bg-primary-soft text-primary-deep" : "border-border-soft text-text-muted"
+              }`}
+              title="Soma dos produtos — só leitura. As curvas em si são sempre por produto, porque cada um tem fases e datas diferentes."
+            >
+              Consolidado
+            </button>
             {dados.produtos.map((p) => (
               <button
                 key={p.id}
@@ -468,6 +492,10 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
             ))}
           </div>
         </div>
+        {produtoAberto === "__consolidado__" ? (
+          <ConsolidadoTabela dados={dados} totalDez={totalDez} crescTotalHoje={crescTotalHoje} />
+        ) : (
+        <>
         <table className="w-full border-collapse text-[12px]">
           <thead>
             <tr className="text-left text-[10.5px] text-text-faint">
@@ -555,7 +583,9 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
           A curva começa onde a fase anterior terminou e cai até o alvo no último mês da fase — mais rápido no começo. Na
           maturidade, taxas anuais; o churn oscila ±5% ao longo do ano. Datas das fases vêm do produto.
         </p>
-        <FimDasFases produto={prodAberto} fases={fasesAbertas} fim={dados.fim} />
+        <FimDasFases produto={prodAberto} fases={fasesAbertas} fim={dados.fim} sujo={sujo} onVerPrevia={verPrevia} />
+        </>
+        )}
       </section>
 
       {/* 3 · Sazonalidade */}
@@ -669,15 +699,68 @@ export function PlanoReceitaPainel({ cenarioId, dados }: { cenarioId: string; da
   );
 }
 
+/** Soma dos produtos, mês de dezembro de cada ano — visão da empresa inteira, só leitura. As
+ *  curvas continuam por produto (cada um tem fases e datas diferentes), isto é um resumo. */
+function ConsolidadoTabela({
+  dados,
+  totalDez,
+  crescTotalHoje,
+}: {
+  dados: DadosPlanoReceita;
+  totalDez: (ano: number) => number;
+  crescTotalHoje: (ano: number) => number | null;
+}) {
+  const clientesDez = (ano: number) =>
+    dados.produtos.reduce((s, p) => s + (p.clientesPorMes[`${ano}-12-01`] ?? 0), 0);
+  const anos = [Number(dados.inicio.slice(0, 4)), ...dados.anos.map((a) => a.ano)];
+  const unicos = [...new Set(anos)].sort();
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-[12px]">
+        <thead>
+          <tr className="text-left text-[10.5px] text-text-faint">
+            <th className="py-1 pr-2 font-medium">Dezembro de</th>
+            <th className="px-2 py-1 text-right font-medium">MRR consolidado</th>
+            <th className="px-2 py-1 text-right font-medium">Crescimento dez/dez</th>
+            <th className="px-2 py-1 text-right font-medium">Clientes (soma dos produtos)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {unicos.map((ano) => {
+            const mrr = totalDez(ano);
+            if (mrr <= 0) return null;
+            const cresc = crescTotalHoje(ano);
+            return (
+              <tr key={ano} className="border-t border-border-soft">
+                <td className="py-1.5 pr-2 font-medium">{ano}</td>
+                <td className="px-2 py-1.5 text-right font-mono">{brl(mrr)}</td>
+                <td className="px-2 py-1.5 text-right font-mono text-text-muted">{cresc != null ? sinalPct(cresc) : "—"}</td>
+                <td className="px-2 py-1.5 text-right font-mono">{Math.round(clientesDez(ano)).toLocaleString("pt-BR")}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-2 text-[10px] text-text-faint">
+        Projeção salva (a soma dos produtos, não editável aqui) — pra mudar, edite a meta na seção 1 ou as fases por produto abaixo.
+      </p>
+    </div>
+  );
+}
+
 /** Clientes e receita no último mês de cada fase, na projeção atual. */
 function FimDasFases({
   produto,
   fases,
   fim,
+  sujo,
+  onVerPrevia,
 }: {
   produto: DadosPlanoReceita["produtos"][number];
   fases: FaseTela[];
   fim: string;
+  sujo: boolean;
+  onVerPrevia: () => void;
 }) {
   const itens = fases
     .map((f) => {
@@ -702,7 +785,17 @@ function FimDasFases({
           <div className="font-mono text-[11px] text-text-muted">{brl(produto.mrrPorMes[mes] ?? 0)} MRR</div>
         </div>
       ))}
-      <p className="col-span-full text-[10px] text-text-faint">Projeção atual — muda depois de salvar e recalcular.</p>
+      {sujo ? (
+        <p className="col-span-full rounded-lg bg-warning-soft px-2.5 py-1.5 text-[11px] font-medium text-warning">
+          ⚠ Estes números ainda são os salvos — não mudam sozinhos quando você edita a meta ou as fases.{" "}
+          <button type="button" onClick={onVerPrevia} className="underline">
+            Ver prévia
+          </button>{" "}
+          mostra o efeito das suas mudanças; só "Salvar e recalcular" aplica de vez.
+        </p>
+      ) : (
+        <p className="col-span-full text-[10px] text-text-faint">Projeção salva — clique em "Ver prévia" acima pra testar mudanças antes de salvar.</p>
+      )}
     </div>
   );
 }
