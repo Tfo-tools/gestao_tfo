@@ -11,7 +11,18 @@ import type { Metricas } from "@/lib/relatorios-cenario";
 
 export type CenarioBasico = { id: string; nome: string; is_base: boolean; data_inicio: string; data_fim: string };
 
-export type PontoMensal = { mes: string; receita: number; ebitda: number; aportes: number };
+export type PontoMensal = {
+  mes: string;
+  receita: number;
+  /** Receita recorrente do mês (sem implantação e serviços) — base do ARR. */
+  recorrente: number;
+  clientes: number;
+  ebitda: number;
+  aportes: number;
+};
+
+/** SOM de confecções (micro e pequenas) do estudo de mercado — denominador da penetração. */
+export const SOM_CONFECCOES = 20230;
 
 export type DadosCenario = {
   id: string;
@@ -53,6 +64,18 @@ export function maiorQueima(meses: PontoMensal[]): number {
   return minimo;
 }
 
+/** ARR ao fim da janela: a receita recorrente do último mês com clientes × 12 — o run rate que o mercado usa pra valuation. */
+export function arrFinal(meses: PontoMensal[]): number | null {
+  const ultimo = [...meses].reverse().find((m) => m.clientes > 0);
+  return ultimo ? ultimo.recorrente * 12 : null;
+}
+
+/** Ponto mais baixo do caixa (EBITDA acumulado + aportes já recebidos): o que sobra intocado no pior mês. */
+export function saldoMinimoCaixa(meses: PontoMensal[]): number | null {
+  if (meses.length === 0) return null;
+  return Math.min(...caixaAcumulado(meses).map((p) => p.valor));
+}
+
 export type Formato = "brl" | "pct" | "num" | "mes" | "meses" | "x" | "pctmes";
 
 export type Indicador = {
@@ -72,9 +95,33 @@ const mesesEntre = (de: string, ate: string) =>
 
 export const INDICADORES_COMPARACAO: Indicador[] = [
   { chave: "receita", rotulo: "Receita no período", valor: (d) => d.metricas.receitaAcumulada, formato: "brl", melhor: "maior" },
+  {
+    chave: "arr",
+    rotulo: "ARR ao fim (run rate)",
+    valor: (d) => arrFinal(d.meses),
+    formato: "brl",
+    melhor: "maior",
+    ajuda: "Receita recorrente do último mês × 12 — o tamanho da empresa no fim da janela, que é o que o mercado usa pra valuation de saída.",
+  },
   { chave: "ebitda", rotulo: "EBITDA no período", valor: (d) => d.metricas.ebitdaAcumulado, formato: "brl", melhor: "maior" },
   { chave: "margem", rotulo: "Margem EBITDA", valor: (d) => d.metricas.margemOperacional, formato: "pct", melhor: "maior" },
   { chave: "clientes", rotulo: "Clientes ao fim", valor: (d) => d.metricas.clientesFinal, formato: "num", melhor: "maior" },
+  {
+    chave: "som",
+    rotulo: "Penetração no SOM",
+    valor: (d) => (d.metricas.clientesFinal > 0 ? (d.metricas.clientesFinal / SOM_CONFECCOES) * 100 : null),
+    formato: "pct",
+    melhor: null,
+    ajuda: `Clientes ao fim ÷ SOM de ${SOM_CONFECCOES.toLocaleString("pt-BR")} confecções (micro e pequenas) do estudo de mercado.`,
+  },
+  {
+    chave: "arpa",
+    rotulo: "ARPA (ticket recorrente/mês)",
+    valor: (d) => d.metricas.arpaRecorrente,
+    formato: "brl",
+    melhor: "maior",
+    ajuda: "MRR ÷ clientes ativos, sem implantação — o ticket mensal que o investidor compara com o preço de tabela.",
+  },
   {
     chave: "break_even",
     rotulo: "Break-even",
@@ -95,6 +142,14 @@ export const INDICADORES_COMPARACAO: Indicador[] = [
     // É negativa: a menos funda (mais perto de zero) é a melhor.
     melhor: "maior",
     ajuda: "O ponto mais baixo do EBITDA acumulado — quanto a operação consome antes de se pagar.",
+  },
+  {
+    chave: "reserva",
+    rotulo: "Saldo mínimo de caixa",
+    valor: (d) => saldoMinimoCaixa(d.meses),
+    formato: "brl",
+    melhor: "maior",
+    ajuda: "O caixa no pior mês: EBITDA acumulado mais os aportes já recebidos até ali. Positivo = a operação nunca consome todo o capital; é o colchão que fica intocado.",
   },
   { chave: "cac", rotulo: "CAC (all-in)", valor: (d) => d.metricas.cacMedio, formato: "brl", melhor: "menor" },
   { chave: "ltv", rotulo: "LTV", valor: (d) => d.metricas.ltvMedio, formato: "brl", melhor: "maior" },
@@ -128,7 +183,7 @@ export function indiceDoMelhor(valores: (number | null)[], direcao: "maior" | "m
   return ordenados[0].i;
 }
 
-/** Diferença contra o Base, em %, pra ler cada cenário em relação ao plano da empresa. */
+/** Diferença contra o cenário de referência, em % — o "+30% de x" que a comparação mostra. */
 export function variacaoContraBase(valor: number | null, base: number | null): number | null {
   if (valor == null || base == null || base === 0) return null;
   return ((valor - base) / Math.abs(base)) * 100;

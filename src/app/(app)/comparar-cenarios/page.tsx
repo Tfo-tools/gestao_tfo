@@ -26,7 +26,7 @@ export const maxDuration = 60;
 export default async function CompararCenariosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ c?: string | string[]; inicio?: string; fim?: string }>;
+  searchParams: Promise<{ c?: string | string[]; ref?: string; inicio?: string; fim?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await createClient();
@@ -58,6 +58,8 @@ export default async function CompararCenariosPage({
         meses: linhas.map((l) => ({
           mes: l.mes_referencia,
           receita: l.receita,
+          recorrente: l.receita - (l.receitaImplementacao ?? 0) - (l.receitaServicos ?? 0),
+          clientes: l.clientes,
           ebitda: l.ebitda,
           aportes: resumo.aportes.porMes.get(l.mes_referencia) ?? 0,
         })),
@@ -65,7 +67,9 @@ export default async function CompararCenariosPage({
     }),
   );
   const comDados = dados.filter((d) => d.meses.length > 0);
-  const base = comDados.find((d) => d.is_base) ?? null;
+  // Referência do "+30% de x": quem o usuário escolheu; senão o plano da empresa; senão o primeiro
+  // da comparação — tirar o Base da seleção não pode deixar a tela sem ponto de comparação.
+  const referencia = comDados.find((d) => d.id === params.ref) ?? comDados.find((d) => d.is_base) ?? comDados[0] ?? null;
 
   const serie = (valor: (d: DadosCenario) => { mes: string; valor: number }[]) =>
     comDados.map((d) => ({ id: d.id, nome: d.nome, cor: corDe.get(d.id)!, traco: tracoDe.get(d.id)!, pontos: valor(d) }));
@@ -88,6 +92,17 @@ export default async function CompararCenariosPage({
                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: corDe.get(c.id) }} />
                 {c.nome}
                 {c.is_base && <span className="text-[10px] text-text-faint">base</span>}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="mb-1.5 block text-[11px] font-medium text-text-muted">Referência (o “vs” de cada coluna)</span>
+          <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+            {cenarios.map((c) => (
+              <label key={c.id} className="flex items-center gap-1.5 text-[12.5px]">
+                <input type="radio" name="ref" value={c.id} defaultChecked={referencia?.id === c.id} />
+                {c.nome}
               </label>
             ))}
           </div>
@@ -127,7 +142,11 @@ export default async function CompararCenariosPage({
                         <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: corDe.get(d.id) }} />
                         {d.nome}
                       </Link>
-                      {d.is_base && <span className="block text-[10px] font-normal text-text-faint">plano da empresa</span>}
+                      {referencia?.id === d.id ? (
+                        <span className="block text-[10px] font-normal text-text-faint">referência{d.is_base ? " · plano da empresa" : ""}</span>
+                      ) : (
+                        d.is_base && <span className="block text-[10px] font-normal text-text-faint">plano da empresa</span>
+                      )}
                     </th>
                   ))}
                 </tr>
@@ -136,7 +155,7 @@ export default async function CompararCenariosPage({
                 {INDICADORES_COMPARACAO.map((ind) => {
                   const valores = comDados.map((d) => ind.valor(d));
                   const melhor = indiceDoMelhor(valores, ind.melhor);
-                  const valorBase = base ? ind.valor(base) : null;
+                  const valorRef = referencia ? ind.valor(referencia) : null;
                   return (
                     <tr key={ind.chave} className="border-t border-border-soft">
                       <td className="px-2 py-2 text-text-muted">
@@ -148,10 +167,10 @@ export default async function CompararCenariosPage({
                       {comDados.map((d, i) => {
                         const v = valores[i];
                         const texto = ind.texto ? ind.texto(d) : formatar(v, ind.formato);
-                        // A diferença contra o Base só faz sentido em valor, não em mês nem em %.
+                        // A diferença contra a referência só faz sentido em valor, não em mês nem em %.
                         const delta =
-                          !d.is_base && ind.formato !== "mes" && ind.formato !== "pct" && ind.formato !== "pctmes"
-                            ? variacaoContraBase(v, valorBase)
+                          referencia && d.id !== referencia.id && ind.formato !== "mes" && ind.formato !== "pct" && ind.formato !== "pctmes"
+                            ? variacaoContraBase(v, valorRef)
                             : null;
                         return (
                           <td key={d.id} className={`px-2 py-2 text-right font-mono ${melhor === i ? "font-semibold" : ""}`}>
@@ -164,7 +183,7 @@ export default async function CompararCenariosPage({
                             {delta != null && Math.abs(delta) >= 0.5 && (
                               <span className="block font-sans text-[10px] font-normal text-text-faint">
                                 {delta > 0 ? "+" : "−"}
-                                {Math.abs(delta).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% vs Base
+                                {Math.abs(delta).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% vs {referencia?.nome}
                               </span>
                             )}
                           </td>
