@@ -4,6 +4,8 @@ import { anthropicConfigurado } from "@/lib/anthropic";
 import { AgendaManager, type ReuniaoAgendada } from "./agenda-manager";
 import { lerEventosIcs } from "@/lib/agenda-icloud";
 import { AtasSemReuniao, type Ata } from "./atas-manager";
+import { FathomCard } from "./fathom-card";
+import { fathomApiConfigurada } from "@/lib/fathom";
 import type { TarefaComPrazo } from "./calendario-semana";
 
 const DIAS_A_FRENTE_LISTAGEM = 30;
@@ -71,6 +73,8 @@ export default async function AgendaPage() {
     user ? supabase.from("profiles").select("ics_pessoal_url").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const icsPessoalUrl = (perfilAtual as { ics_pessoal_url?: string | null } | null)?.ics_pessoal_url ?? null;
+  const { data: fathomIntegracao } = await supabase.from("integracoes").select("valor").eq("chave", "fathom_webhook").maybeSingle();
+  const fathomWebhook = (fathomIntegracao?.valor as { id?: string; created_at?: string } | null) ?? null;
 
   // Só busca no Google depois de saber que tem conta conectada — evita uma chamada de API à toa.
   const [eventosGoogle, eventosPessoaisGoogle, eventosIcloud] = await Promise.all([
@@ -107,8 +111,10 @@ export default async function AgendaPage() {
         </p>
       </div>
 
-      {/* Ata que o Fathom mandou sem reunião pra casar (caso comum no começo): fica visível aqui em
-          cima; as tarefas dela já nasceram sozinhas quando o webhook chegou. */}
+      <FathomCard conectado={Boolean(fathomWebhook?.id)} criadoEm={fathomWebhook?.created_at ?? null} apiConfigurada={fathomApiConfigurada()} />
+
+      {/* Ata que o Fathom mandou sem reunião marcada nem compromisso do Google no horário: fica
+          visível aqui em cima até alguém vincular ou revisar. */}
       <AtasSemReuniao
         atas={((atas ?? []) as Ata[]).filter((a) => !a.reuniao_id && !a.google_event_id)}
         pessoas={pessoas ?? []}

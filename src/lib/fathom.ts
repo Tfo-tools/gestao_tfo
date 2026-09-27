@@ -99,6 +99,54 @@ export function montarAta(payload: FathomPayload): { titulo: string; data_reunia
   return { titulo, data_reuniao, participantes, conteudo: partes.join("\n\n") || "(ata sem conteúdo — o webhook chegou sem transcrição nem resumo)" };
 }
 
+const API_BASE = "https://api.fathom.ai/external/v1";
+
+export function fathomApiConfigurada() {
+  return Boolean(process.env.FATHOM_API_KEY);
+}
+
+export type WebhookFathom = { id: string; url: string; secret: string; created_at: string };
+
+/** O próprio app cria o webhook no Fathom (POST /webhooks) — evita a tela "Manage > Add Webhook" e
+ * devolve o segredo de assinatura, que fica guardado em `integracoes`. Só gravações da própria
+ * conta (plano gratuito não tem times). */
+export async function criarWebhookFathom(destinationUrl: string): Promise<{ webhook: WebhookFathom | null; error: string | null }> {
+  const chave = process.env.FATHOM_API_KEY;
+  if (!chave) return { webhook: null, error: "FATHOM_API_KEY não configurada na Vercel." };
+  const resp = await fetch(`${API_BASE}/webhooks`, {
+    method: "POST",
+    headers: { "X-Api-Key": chave, "content-type": "application/json" },
+    body: JSON.stringify({
+      destination_url: destinationUrl,
+      triggered_for: ["my_recordings"],
+      include_transcript: true,
+      include_summary: true,
+      include_action_items: true,
+      include_crm_matches: false,
+    }),
+  });
+  const texto = await resp.text();
+  if (!resp.ok) {
+    console.error("Fathom: criar webhook falhou", resp.status, texto);
+    return { webhook: null, error: `O Fathom recusou (${resp.status}): ${texto.slice(0, 200)}` };
+  }
+  try {
+    const w = JSON.parse(texto) as WebhookFathom;
+    if (!w.id || !w.secret) return { webhook: null, error: "Resposta do Fathom sem id/segredo." };
+    return { webhook: w, error: null };
+  } catch {
+    return { webhook: null, error: "Resposta do Fathom não é JSON." };
+  }
+}
+
+export async function excluirWebhookFathom(id: string): Promise<{ error: string | null }> {
+  const chave = process.env.FATHOM_API_KEY;
+  if (!chave) return { error: "FATHOM_API_KEY não configurada na Vercel." };
+  const resp = await fetch(`${API_BASE}/webhooks/${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-Api-Key": chave } });
+  if (!resp.ok && resp.status !== 404) return { error: `O Fathom recusou (${resp.status}).` };
+  return { error: null };
+}
+
 /** Só usado quando o webhook vem sem transcrição (config sem "include transcript"). Precisa de FATHOM_API_KEY. */
 export async function buscarTranscricaoFathom(recordingId: string): Promise<FathomPayload["transcript"] | null> {
   const chave = process.env.FATHOM_API_KEY;

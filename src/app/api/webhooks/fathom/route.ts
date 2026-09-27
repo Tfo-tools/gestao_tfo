@@ -68,8 +68,12 @@ async function acharEventoGoogle(inicio: Date, emails: Set<string>): Promise<str
 }
 
 export async function POST(request: NextRequest) {
-  const segredo = process.env.FATHOM_WEBHOOK_SECRET;
-  if (!segredo) return NextResponse.json({ error: "FATHOM_WEBHOOK_SECRET não configurado" }, { status: 503 });
+  // O segredo vem do webhook que o app criou (tela Agenda → "Conectar Fathom"), guardado em
+  // integracoes; FATHOM_WEBHOOK_SECRET na Vercel é só alternativa manual.
+  const adminSegredo = createAdminClient();
+  const { data: integracao } = await adminSegredo.from("integracoes").select("valor").eq("chave", "fathom_webhook").maybeSingle();
+  const segredo = (integracao?.valor as { secret?: string } | null)?.secret || process.env.FATHOM_WEBHOOK_SECRET;
+  if (!segredo) return NextResponse.json({ error: "Fathom não conectado — Agenda → Conectar Fathom" }, { status: 503 });
 
   const corpoCru = await request.text();
   const assinatura = verificarAssinaturaFathom(
