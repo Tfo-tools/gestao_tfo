@@ -37,7 +37,7 @@ export function AtasSemReuniao({ atas, pessoas, iaConfigurada }: { atas: Ata[]; 
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-[13px] font-semibold">Atas do Fathom sem reunião identificada</h2>
         <span className="text-[11px] text-text-muted">
-          {atas.length} ata{atas.length === 1 ? "" : "s"} · as tarefas já foram criadas com a etiqueta “criada-automaticamente”
+          {atas.length} ata{atas.length === 1 ? "" : "s"} · não achei reunião marcada nem compromisso do Google no horário da gravação
         </span>
       </div>
       <ul className="mt-2 flex flex-col gap-1.5">

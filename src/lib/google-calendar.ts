@@ -218,7 +218,13 @@ async function listarEventosBrutos(
 export async function listarProximosEventos(diasAFrente: number, maxResults = 20, profileId: string | null = null): Promise<EventoGoogle[]> {
   const agora = new Date();
   const ate = new Date(agora.getTime() + diasAFrente * 24 * 60 * 60 * 1000);
-  const brutos = await listarEventosBrutos(profileId, agora.toISOString(), ate.toISOString(), maxResults);
+  return listarEventosEntre(agora.toISOString(), ate.toISOString(), profileId, maxResults);
+}
+
+/** Eventos numa janela qualquer (inclusive no passado) — é o que o webhook do Fathom usa pra
+ * achar o compromisso do Google em que a reunião gravada aconteceu. */
+export async function listarEventosEntre(timeMinIso: string, timeMaxIso: string, profileId: string | null = null, maxResults = 50): Promise<EventoGoogle[]> {
+  const brutos = await listarEventosBrutos(profileId, timeMinIso, timeMaxIso, maxResults);
   return brutos.map((ev) => ({
     id: ev.id,
     iCalUID: ev.iCalUID ?? ev.id,
