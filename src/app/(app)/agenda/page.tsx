@@ -3,7 +3,7 @@ import { contaGoogleConectada, listarProximosEventos } from "@/lib/google-calend
 import { anthropicConfigurado } from "@/lib/anthropic";
 import { AgendaManager, type ReuniaoAgendada } from "./agenda-manager";
 import { lerEventosIcs } from "@/lib/agenda-icloud";
-import type { Ata } from "./atas-manager";
+import { AtasSemReuniao, type Ata } from "./atas-manager";
 import type { TarefaComPrazo } from "./calendario-semana";
 
 const DIAS_A_FRENTE_LISTAGEM = 30;
@@ -65,7 +65,7 @@ export default async function AgendaPage() {
     supabase.from("profiles").select("id, nome").order("nome"),
     supabase
       .from("reuniao_atas")
-      .select("id, titulo, data_reuniao, participantes, conteudo, reuniao_id, google_event_id")
+      .select("id, titulo, data_reuniao, participantes, conteudo, reuniao_id, google_event_id, fathom_recording_id")
       .order("data_reuniao", { ascending: false }),
     supabase.from("tarefas").select("id, titulo, prazo, responsavel_id, participantes, status").not("prazo", "is", null),
     user ? supabase.from("profiles").select("ics_pessoal_url").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
@@ -106,6 +106,14 @@ export default async function AgendaPage() {
           Google Calendar da conta conectada, com você e a Emyli como convidadas.
         </p>
       </div>
+
+      {/* Ata que o Fathom mandou sem reunião pra casar (caso comum no começo): fica visível aqui em
+          cima; as tarefas dela já nasceram sozinhas quando o webhook chegou. */}
+      <AtasSemReuniao
+        atas={((atas ?? []) as Ata[]).filter((a) => !a.reuniao_id && !a.google_event_id)}
+        pessoas={pessoas ?? []}
+        iaConfigurada={anthropicConfigurado()}
+      />
 
       <AgendaManager
         tipos={tipos ?? []}

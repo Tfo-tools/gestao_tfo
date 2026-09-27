@@ -6,6 +6,8 @@ import { BotaoRecolherTudo, CardsProvider } from "./cards-contexto";
 import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { RotinasPanel } from "./rotinas-panel";
+import { NotaParaTarefas } from "./nota-para-tarefas";
+import { anthropicConfigurado } from "@/lib/anthropic";
 import { gerarOcorrenciasRotinas, hojeSP, proximaData, type Rotina } from "@/lib/rotinas";
 import { montarArvore, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
 
@@ -90,6 +92,11 @@ export default async function TarefasPage({
   const atrasadas = todas.filter((t) => t.status !== "feito" && t.prazo && t.prazo < hoje).length;
   const hojeCount = todas.filter((t) => t.status !== "feito" && t.prazo === hoje).length;
   const bloqueadas = raizes.flatMap(desce).filter((n) => n.status !== "feito" && n.aguardando.length > 0).length;
+  // Tarefa que chegou de mensagem/ata sem data ou sem dono não aparecia destacada em lugar nenhum —
+  // e a criada pela IA sem revisão (etiqueta criada-automaticamente) pode ter ficado sem responsável.
+  const semPrazo = todas.filter((t) => t.status !== "feito" && !t.parent_id && !t.prazo).length;
+  const semResponsavel = todas.filter((t) => t.status !== "feito" && !t.parent_id && !t.responsavel_id);
+  const { data: programasRaw } = await supabase.from("programas_investimento").select("id, nome").order("nome");
 
   const contagem: Record<string, { total: number; feitas: number }> = {};
   for (const t of todas) {
@@ -157,13 +164,30 @@ export default async function TarefasPage({
           {atrasadas > 0 && hojeCount > 0 && " · "}
           {hojeCount > 0 && <span className="font-semibold text-primary-deep">{hojeCount} vence{hojeCount === 1 ? "" : "m"} hoje</span>}
           {atrasadas === 0 && hojeCount === 0 && "Tudo em dia."}
+          {semPrazo > 0 && <span className="text-text-faint"> · {semPrazo} sem prazo definido</span>}
           {bloqueadas > 0 && <span className="text-text-faint"> · {bloqueadas} aguardando outra tarefa</span>}
         </p>
       </div>
 
+      {semResponsavel.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-900">
+          <span className="font-semibold">Sem responsável ({semResponsavel.length}):</span>{" "}
+          {semResponsavel
+            .slice(0, 6)
+            .map((t) => t.titulo)
+            .join(" · ")}
+          {semResponsavel.length > 6 ? ` · e mais ${semResponsavel.length - 6}` : ""}
+          {semResponsavel.some((t) => t.etiquetas.includes("criada-automaticamente")) && (
+            <span className="text-amber-800"> — inclui tarefas criadas automaticamente de ata do Fathom, ainda não revisadas.</span>
+          )}
+        </div>
+      )}
+
       <ProjetosPanel pills={pills} projetos={projetos} fases={fases} fasesProduto={fasesProduto} contagem={contagem} />
 
       <RotinasPanel rotinas={rotinas} pessoas={pessoas ?? []} proximas={proximas} />
+
+      <NotaParaTarefas pessoas={pessoas ?? []} programas={(programasRaw ?? []) as { id: string; nome: string }[]} iaConfigurada={anthropicConfigurado()} />
 
       <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
         <Pill href={link({ status: undefined })} ativo={!status}>

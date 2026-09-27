@@ -12,10 +12,51 @@ export type Ata = {
   conteudo: string;
   reuniao_id: string | null;
   google_event_id: string | null;
+  fathom_recording_id?: string | null;
 };
 type Pessoa = { id: string; nome: string };
 
 const initialState: ActionState = { error: null };
+
+/** Atas que chegaram pelo webhook do Fathom e não casaram com nenhuma reunião marcada no app nem
+ * compromisso do Google (reuniao_id e google_event_id nulos). Ficam numa seção própria no topo da
+ * Agenda; "Extrair ações (IA)" continua disponível pra reprocessar, embora as tarefas já tenham
+ * sido criadas sozinhas quando a ata entrou. */
+export function AtasSemReuniao({ atas, pessoas, iaConfigurada }: { atas: Ata[]; pessoas: Pessoa[]; iaConfigurada: boolean }) {
+  const [abertas, setAbertas] = useState<Set<string>>(new Set());
+  if (atas.length === 0) return null;
+  const alternar = (id: string) =>
+    setAbertas((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  return (
+    <section className="mb-5 rounded-xl border border-border bg-surface px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-[13px] font-semibold">Atas do Fathom sem reunião identificada</h2>
+        <span className="text-[11px] text-text-muted">
+          {atas.length} ata{atas.length === 1 ? "" : "s"} · as tarefas já foram criadas com a etiqueta “criada-automaticamente”
+        </span>
+      </div>
+      <ul className="mt-2 flex flex-col gap-1.5">
+        {atas.map((ata) => (
+          <li key={ata.id} className="rounded-lg border border-border-soft px-3 py-2">
+            <button type="button" onClick={() => alternar(ata.id)} className="flex w-full items-center justify-between text-left">
+              <span className="text-[12.5px] font-medium">{ata.titulo}</span>
+              <span className="text-[11px] text-text-muted">
+                {ata.data_reuniao.split("-").reverse().join("/")}
+                {ata.participantes ? ` · ${ata.participantes}` : ""} {abertas.has(ata.id) ? "▲" : "▾"}
+              </span>
+            </button>
+            {abertas.has(ata.id) && <AtaConteudo ata={ata} pessoas={pessoas} iaConfigurada={iaConfigurada} onEditar={() => {}} />}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 /** Campo de ata embutido dentro de cada reunião/compromisso (não é mais uma lista separada) — no
  * máximo uma ata por reunião. `chave` identifica de qual reunião é: uma marcada pelo app
