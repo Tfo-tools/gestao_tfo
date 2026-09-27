@@ -111,8 +111,6 @@ export default async function AgendaPage() {
         </p>
       </div>
 
-      <FathomCard conectado={Boolean(fathomWebhook?.id)} criadoEm={fathomWebhook?.created_at ?? null} apiConfigurada={fathomApiConfigurada()} />
-
       {/* Ata que o Fathom mandou sem reunião marcada nem compromisso do Google no horário: fica
           visível aqui em cima até alguém vincular ou revisar. */}
       <AtasSemReuniao
@@ -140,6 +138,9 @@ export default async function AgendaPage() {
         pessoas={pessoas ?? []}
         iaConfigurada={anthropicConfigurado()}
       />
+
+      {/* Conectado, vira uma linha apagada no rodapé; só aparece como card enquanto não está. */}
+      <FathomCard conectado={Boolean(fathomWebhook?.id)} criadoEm={fathomWebhook?.created_at ?? null} apiConfigurada={fathomApiConfigurada()} />
     </div>
   );
 }

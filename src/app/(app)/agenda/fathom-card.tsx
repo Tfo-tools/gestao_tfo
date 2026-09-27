@@ -17,20 +17,11 @@ export function FathomCard({ conectado, criadoEm, apiConfigurada }: { conectado:
     });
   };
 
-  return (
-    <section className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
-      <div>
-        <h2 className="text-[13px] font-semibold">Atas do Fathom</h2>
-        <p className="text-[11.5px] text-text-muted">
-          {conectado
-            ? `Conectado${criadoEm ? ` desde ${criadoEm.slice(0, 10).split("-").reverse().join("/")}` : ""} — cada reunião gravada entra como ata na reunião do horário (ou em “sem reunião identificada”).`
-            : apiConfigurada
-              ? "Ao conectar, o app cria o webhook no Fathom e passa a receber resumo, transcrição e ações de cada gravação sua."
-              : "Falta a FATHOM_API_KEY na Vercel (Fathom → Settings → API Access → Generate API key)."}
-        </p>
-        {erro && <p className="mt-1 text-[11px] text-danger">{erro}</p>}
-      </div>
-      {conectado ? (
+  // Conectado: some da frente. Fica só uma linha apagada no rodapé, pra poder desconectar um dia.
+  if (conectado) {
+    return (
+      <p className="mt-8 text-[10.5px] text-text-faint">
+        Fathom conectado{criadoEm ? ` desde ${criadoEm.slice(0, 10).split("-").reverse().join("/")}` : ""} — cada gravação entra como ata na reunião do horário.{" "}
         <button
           type="button"
           disabled={pendente}
@@ -38,11 +29,27 @@ export function FathomCard({ conectado, criadoEm, apiConfigurada }: { conectado:
             if (!confirm("Desconectar o Fathom? As atas já salvas continuam.")) return;
             agir(desconectarFathom);
           }}
-          className="rounded-lg border border-border px-3.5 py-2 text-[12px] text-text-muted disabled:opacity-60"
+          className="underline disabled:opacity-60"
         >
-          {pendente ? "…" : "Desconectar"}
+          {pendente ? "…" : "desconectar"}
         </button>
-      ) : (
+        {erro && <span className="ml-2 text-danger">{erro}</span>}
+      </p>
+    );
+  }
+
+  return (
+    <section className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+      <div>
+        <h2 className="text-[13px] font-semibold">Atas do Fathom</h2>
+        <p className="text-[11.5px] text-text-muted">
+          {apiConfigurada
+            ? "Ao conectar, o app cria o webhook no Fathom e passa a receber resumo, transcrição e ações de cada gravação sua."
+            : "Falta a FATHOM_API_KEY na Vercel (Fathom → Settings → API Access → Generate API key)."}
+        </p>
+        {erro && <p className="mt-1 text-[11px] text-danger">{erro}</p>}
+      </div>
+      {(
         <button
           type="button"
           disabled={pendente || !apiConfigurada}
