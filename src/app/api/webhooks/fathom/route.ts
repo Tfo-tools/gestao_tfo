@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { anthropicConfigurado, extrairAcoesDaAta } from "@/lib/anthropic";
+import { iaConfigurada, extrairAcoesDaAta } from "@/lib/ia";
 import { listarEventosEntre } from "@/lib/google-calendar";
 import { buscarTranscricaoFathom, extrairRecordingId, montarAta, verificarAssinaturaFathom, type FathomPayload } from "@/lib/fathom";
 
@@ -12,8 +12,9 @@ import { buscarTranscricaoFathom, extrairRecordingId, montarAta, verificarAssina
  *    (±30 min do início da gravação), desempatando por convidado em comum;
  * 3. salva/atualiza a ata em reuniao_atas (chave fathom_recording_id — reenvio não duplica). Se a
  *    reunião já tinha ata escrita à mão, a do Fathom entra abaixo dela, sem apagar nada;
- * 4. criar tarefas pela IA só se FATHOM_TAREFAS_AUTOMATICAS=1 (automação cancelada por custo em
- *    26/09/2026 — sem essa variável e sem ANTHROPIC_API_KEY nada é chamado).
+ * 4. na PRIMEIRA entrada, a IA (Gemini, plano grátis) extrai os próximos passos e cria as tarefas
+ *    direto, com a etiqueta criada-automaticamente (decisão da Vanessa: só reunião pula a revisão).
+ *    FATHOM_TAREFAS_AUTOMATICAS=0 desliga.
  * Roda com o service role porque não há sessão de usuário numa chamada de webhook.
  */
 export const dynamic = "force-dynamic";
@@ -168,7 +169,7 @@ export async function POST(request: NextRequest) {
   // ── Tarefas automáticas (desligadas por padrão) ────────────────────────────────────────────
   let tarefasCriadas = 0;
   let aviso: string | null = null;
-  if (process.env.FATHOM_TAREFAS_AUTOMATICAS === "1" && anthropicConfigurado()) {
+  if (process.env.FATHOM_TAREFAS_AUTOMATICAS !== "0" && iaConfigurada()) {
     const { data: pessoas } = await admin.from("profiles").select("id, nome");
     const lista = (pessoas ?? []) as { id: string; nome: string }[];
     const { error: erroIa, acoes } = await extrairAcoesDaAta(ata.conteudo, lista.map((p) => p.nome));

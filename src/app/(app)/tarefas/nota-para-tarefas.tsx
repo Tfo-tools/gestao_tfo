@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import type { AcaoSugerida } from "@/lib/anthropic";
+import type { AcaoSugerida } from "@/lib/ia";
 import { criarTarefasDeNota, sugerirAcoesDeNota } from "./nota-actions";
 
 type Pessoa = { id: string; nome: string };
@@ -87,7 +87,7 @@ export function NotaParaTarefas({ pessoas, programas, iaConfigurada }: { pessoas
             >
               {sugerindo ? "Lendo a mensagem…" : "Sugerir tarefas (IA)"}
             </button>
-            {!iaConfigurada && <span className="text-[10.5px] text-text-faint">IA não configurada (ANTHROPIC_API_KEY).</span>}
+            {!iaConfigurada && <span className="text-[10.5px] text-text-faint">IA não configurada (GEMINI_API_KEY na Vercel).</span>}
             <span className="text-[10.5px] text-text-faint">Programa vira etiqueta da tarefa — dá pra ver tudo dele em “Ver por: etiqueta”.</span>
           </div>
           {erro && <p className="text-[10.5px] text-danger">{erro}</p>}

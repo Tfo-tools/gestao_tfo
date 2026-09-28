@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { contaGoogleConectada, listarProximosEventos } from "@/lib/google-calendar";
-import { anthropicConfigurado } from "@/lib/anthropic";
+import { iaConfigurada } from "@/lib/ia";
 import { AgendaManager, type ReuniaoAgendada } from "./agenda-manager";
 import { lerEventosIcs } from "@/lib/agenda-icloud";
 import { AtasSemReuniao, type Ata } from "./atas-manager";
@@ -116,7 +116,7 @@ export default async function AgendaPage() {
       <AtasSemReuniao
         atas={((atas ?? []) as Ata[]).filter((a) => !a.reuniao_id && !a.google_event_id)}
         pessoas={pessoas ?? []}
-        iaConfigurada={anthropicConfigurado()}
+        iaConfigurada={iaConfigurada()}
       />
 
       <AgendaManager
@@ -136,7 +136,7 @@ export default async function AgendaPage() {
         icsPessoalUrl={icsPessoalUrl}
         atas={(atas ?? []) as Ata[]}
         pessoas={pessoas ?? []}
-        iaConfigurada={anthropicConfigurado()}
+        iaConfigurada={iaConfigurada()}
       />
 
       {/* Conectado, vira uma linha apagada no rodapé; só aparece como card enquanto não está. */}

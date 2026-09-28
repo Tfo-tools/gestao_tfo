@@ -7,7 +7,7 @@ import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { RotinasPanel } from "./rotinas-panel";
 import { NotaParaTarefas } from "./nota-para-tarefas";
-import { anthropicConfigurado } from "@/lib/anthropic";
+import { iaConfigurada } from "@/lib/ia";
 import { gerarOcorrenciasRotinas, hojeSP, proximaData, type Rotina } from "@/lib/rotinas";
 import { montarArvore, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
 
@@ -187,7 +187,7 @@ export default async function TarefasPage({
 
       <RotinasPanel rotinas={rotinas} pessoas={pessoas ?? []} proximas={proximas} />
 
-      <NotaParaTarefas pessoas={pessoas ?? []} programas={(programasRaw ?? []) as { id: string; nome: string }[]} iaConfigurada={anthropicConfigurado()} />
+      <NotaParaTarefas pessoas={pessoas ?? []} programas={(programasRaw ?? []) as { id: string; nome: string }[]} iaConfigurada={iaConfigurada()} />
 
       <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
         <Pill href={link({ status: undefined })} ativo={!status}>

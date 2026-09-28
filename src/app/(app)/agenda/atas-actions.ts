@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { extrairAcoesDaAta, type AcaoSugerida } from "@/lib/anthropic";
+import { extrairAcoesDaAta, type AcaoSugerida } from "@/lib/ia";
 
 export type ActionState = { error: string | null; success?: boolean };
 

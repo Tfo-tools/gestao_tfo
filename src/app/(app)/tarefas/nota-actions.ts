@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { extrairAcoesDeTexto, type AcaoSugerida } from "@/lib/anthropic";
+import { extrairAcoesDeTexto, type AcaoSugerida } from "@/lib/ia";
 
 /** Etiqueta pela qual a tela agrupa/filtra: nome do programa em minúsculas, sem acentos nem espaços
  * ("Centelha III" → "centelha-iii"). Vínculo a programa é por etiqueta, não coluna nova — "Ver por:

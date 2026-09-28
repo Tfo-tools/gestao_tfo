@@ -2,7 +2,7 @@
 
 import { useActionState, useRef, useState, useTransition } from "react";
 import { salvarAta, excluirAta, sugerirAcoesDaAta, criarTarefasDaAta, type ActionState } from "./atas-actions";
-import type { AcaoSugerida } from "@/lib/anthropic";
+import type { AcaoSugerida } from "@/lib/ia";
 
 export type Ata = {
   id: string;
