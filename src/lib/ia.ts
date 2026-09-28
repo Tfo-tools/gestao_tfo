@@ -8,7 +8,10 @@
 
 export type AcaoSugerida = { titulo: string; responsavel_sugerido: string | null; prazo_sugerido: string | null };
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+/** Ordem de tentativa: o mais barato primeiro; se a chave/conta não tiver o modelo (404/400), cai pro próximo. */
+const GEMINI_MODELOS = [process.env.GEMINI_MODEL, "gemini-2.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-3.8-flash"].filter(
+  (m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i,
+);
 const CLAUDE_MODEL = "claude-haiku-4-5";
 
 export function iaConfigurada() {
@@ -69,25 +72,40 @@ async function extrairAcoes(prompt: string): Promise<{ error: string | null; aco
   try {
     texto = provedor === "gemini" ? await chamarGemini(prompt) : await chamarClaude(prompt);
   } catch (e) {
-    console.error(`Erro na IA (${provedor}):`, e);
-    return { error: "Não foi possível extrair as ações agora — tente de novo.", acoes: [] };
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.error(`Erro na IA (${provedor}):`, motivo);
+    // O motivo vai pra tela (sem chave nenhuma nele) — é o que permite diagnosticar sem abrir log.
+    return { error: `A IA (${provedor}) não respondeu: ${motivo.slice(0, 260)}`, acoes: [] };
   }
   return interpretar(texto);
 }
 
-/** Gemini API (Google AI Studio) — pede JSON direto pelo responseMimeType. */
+/** Gemini API (Google AI Studio) — pede JSON direto pelo responseMimeType. Tenta os modelos em ordem
+ * quando o erro é de modelo indisponível; erro de chave/permissão para na hora. */
 async function chamarGemini(prompt: string): Promise<string> {
-  const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!, "content-type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 2000 },
-    }),
-  });
-  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
-  const dados = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  return (dados.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+  let ultimoErro = "";
+  for (const modelo of GEMINI_MODELOS) {
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!, "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 2000 },
+      }),
+    });
+    if (resp.ok) {
+      const dados = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; promptFeedback?: { blockReason?: string } };
+      const saida = (dados.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+      if (!saida && dados.promptFeedback?.blockReason) throw new Error(`Gemini bloqueou o conteúdo (${dados.promptFeedback.blockReason})`);
+      return saida;
+    }
+    const corpo = (await resp.text()).slice(0, 300);
+    ultimoErro = `Gemini ${modelo} → HTTP ${resp.status}: ${corpo}`;
+    // 404 = modelo não existe pra essa chave; 400 com "model" = idem. Outros erros (401/403/429) não mudam com o modelo.
+    const erroDeModelo = resp.status === 404 || (resp.status === 400 && /model/i.test(corpo));
+    if (!erroDeModelo) break;
+  }
+  throw new Error(ultimoErro || "Gemini sem resposta");
 }
 
 async function chamarClaude(prompt: string): Promise<string> {
