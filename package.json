@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "backup:drive": "bash scripts/backup-drive.sh"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
