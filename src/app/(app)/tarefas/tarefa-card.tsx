@@ -106,7 +106,9 @@ export function NovaTarefaCard({
         action={async (fd) => {
           await formAction(fd);
           formRef.current?.reset();
-          if (parentId) fechar();
+          // Subtarefa: o formulário fica aberto pra escrever a próxima em seguida (uma atividade por
+          // "Adicionar"); fecha só no botão. Antes fechava a cada uma — parecia que só 1 tinha entrado.
+          formRef.current?.querySelector<HTMLInputElement>("input[name=titulo]")?.focus();
         }}
         className="flex flex-col gap-2"
       >
@@ -121,10 +123,13 @@ export function NovaTarefaCard({
           faseInicial={faseInicial}
           fixarProjeto={!!parentId}
           comSubtarefas={!parentId}
+          // Subtarefa é item de checklist: só título + quem faz. Sem a lista "depende de" (que é
+          // entre tarefas e listava todas as do projeto embaixo do campo).
+          modoSubtarefa={!!parentId}
         />
         <div className="flex items-center gap-2">
           <button type="submit" disabled={pending} className={botaoPrimario}>
-            {pending ? "…" : parentId ? "Adicionar subtarefa" : "Adicionar"}
+            {pending ? "…" : parentId ? "Adicionar atividade" : "Adicionar"}
           </button>
           <button type="button" onClick={fechar} className={botaoSecundario}>
             Fechar
