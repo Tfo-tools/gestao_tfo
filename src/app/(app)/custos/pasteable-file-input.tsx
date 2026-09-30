@@ -78,7 +78,9 @@ export function PasteableFileInput({ name, label, hint }: { name: string; label:
     <div>
       <label className="mb-1 block text-[10.5px] text-text-faint">{label}</label>
       <div tabIndex={0} onPaste={handlePaste} className="rounded-lg border border-dashed border-border bg-bg px-3 py-2.5 text-[11.5px] focus:border-primary-fill focus:outline-none">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* No celular tudo empilha (o input de arquivo nativo é largo e passava por cima do botão);
+            no computador fica lado a lado. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
             ref={inputRef}
             name={name}
@@ -88,13 +90,13 @@ export function PasteableFileInput({ name, label, hint }: { name: string; label:
               setFileName(e.target.files?.[0]?.name ?? null);
               setAviso(null);
             }}
-            className="min-w-0 flex-1 text-[11.5px]"
+            className="block w-full min-w-0 max-w-full overflow-hidden text-[11.5px] sm:flex-1"
           />
           <button
             type="button"
             disabled={colando}
             onClick={colarPeloBotao}
-            className="shrink-0 rounded-lg border border-primary-fill px-2.5 py-1 text-[11px] font-medium text-primary-deep disabled:opacity-50"
+            className="w-full shrink-0 rounded-lg border border-primary-fill px-2.5 py-1.5 text-[11.5px] font-medium text-primary-deep disabled:opacity-50 sm:w-auto"
           >
             {colando ? "…" : "Colar da área de transferência"}
           </button>
@@ -102,18 +104,17 @@ export function PasteableFileInput({ name, label, hint }: { name: string; label:
         <input
           type="text"
           inputMode="none"
-          readOnly={false}
           value=""
           onChange={() => {}}
           onPaste={handlePaste}
-          placeholder="ou toque aqui e escolha “Colar” no menu do celular"
+          placeholder="ou toque aqui e use “Colar”"
           aria-label="Campo para colar o comprovante"
-          className="mt-1.5 w-full rounded border border-border-soft bg-surface px-2 py-1 text-[11px] text-text-muted placeholder:text-text-faint"
+          className="mt-2 block w-full rounded border border-border-soft bg-surface px-2 py-1.5 text-[11.5px] text-text-muted placeholder:text-text-faint"
         />
-        <p className="mt-1 text-[10px] text-text-faint">
-          {fileName ? `Selecionado: ${fileName}` : "No computador, clique aqui dentro e cole (Ctrl/Cmd+V) o print do comprovante."}
+        <p className="mt-1.5 break-words text-[10.5px] leading-snug text-text-faint">
+          {fileName ? `Selecionado: ${fileName}` : "No computador: clique aqui dentro e cole (Ctrl/Cmd+V)."}
         </p>
-        {aviso && <p className="mt-1 text-[10.5px] text-danger">{aviso}</p>}
+        {aviso && <p className="mt-1 break-words text-[10.5px] leading-snug text-danger">{aviso}</p>}
       </div>
       {hint && <p className="mt-1 text-[10.5px] text-text-faint">{hint}</p>}
     </div>
