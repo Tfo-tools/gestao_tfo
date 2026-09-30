@@ -2,32 +2,48 @@ import { FASES } from "@/lib/fases";
 import { createClient } from "@/lib/supabase/server";
 import { LinhaDoTempo, DIVIDIR_LABEL, type DividirPor } from "./linha-do-tempo";
 import { ProjetosPanel, type PillProjeto } from "./projetos-panel";
-import { BotaoRecolherTudo, CardsProvider } from "./cards-contexto";
+import { CardsProvider } from "./cards-contexto";
+import { GrupoRecolhivel } from "./grupo-recolhivel";
+import { FerramentasBarra } from "./ferramentas-barra";
 import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { RotinasPanel } from "./rotinas-panel";
 import { NotaParaTarefas } from "./nota-para-tarefas";
 import { iaConfigurada } from "@/lib/ia";
 import { gerarOcorrenciasRotinas, hojeSP, proximaData, type Rotina } from "@/lib/rotinas";
-import { montarArvore, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
+import { montarArvore, STATUS_LABEL, STATUS_ORDEM, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
 
-type Agrupar = "nenhum" | "tema" | "fase" | "etiqueta";
-type Visao = "lista" | "linha";
+type Visao = "projeto" | "situacao" | "quadro" | "linha";
+const VISOES: { valor: Visao; rotulo: string }[] = [
+  { valor: "projeto", rotulo: "Projeto" },
+  { valor: "situacao", rotulo: "Situação" },
+  { valor: "quadro", rotulo: "Quadro" },
+  { valor: "linha", rotulo: "Linha do tempo" },
+];
 
 const LABEL_FASE_PRODUTO: Record<string, string> = Object.fromEntries(FASES.map((f) => [f.value, f.label]));
 
 export default async function TarefasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string; agrupar?: string; visao?: string; dividir?: string }>;
+  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string; visao?: string; dividir?: string }>;
 }) {
   const sp = await searchParams;
-  const { status, responsavel } = sp;
+  const { status } = sp;
   const projetoSel = sp.projeto ?? "";
-  const agrupar = (["tema", "fase", "etiqueta"].includes(sp.agrupar ?? "") ? sp.agrupar : "nenhum") as Agrupar;
   const dividir = (["etiqueta", "produto", "pessoa"].includes(sp.dividir ?? "") ? sp.dividir : "nenhum") as DividirPor;
-  const visao: Visao = sp.visao === "linha" ? "linha" : "lista";
   const supabase = await createClient();
+  // Preferência por pessoa (Configurações → Tarefas): visão com que a tela abre e "só as minhas".
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: prefs } = user
+    ? await supabase.from("profiles").select("tarefas_visao_padrao, tarefas_so_minhas").eq("id", user.id).maybeSingle()
+    : { data: null };
+  const visaoPadrao = (["projeto", "situacao", "quadro"].includes(prefs?.tarefas_visao_padrao ?? "") ? prefs!.tarefas_visao_padrao : "projeto") as Visao;
+  const visao: Visao = (VISOES.some((v) => v.valor === sp.visao) ? (sp.visao as Visao) : visaoPadrao);
+  // "responsavel=todas" na URL desliga o "só as minhas" só nesta abertura.
+  const responsavel = sp.responsavel === "todas" ? undefined : (sp.responsavel ?? (prefs?.tarefas_so_minhas && user ? user.id : undefined));
 
   // Rotina de gestão: cria as ocorrências que faltam antes de carregar as tarefas, pra próxima já
   // aparecer. Idempotente — o cron diário faz o mesmo quando ninguém abre a tela.
@@ -48,7 +64,7 @@ export default async function TarefasPage({
       supabase.from("anexos_tarefa").select("id, tarefa_id, nome_arquivo, caminho_arquivo, tamanho_bytes").order("criado_em"),
       supabase
         .from("tarefas")
-        .select("id, titulo, descricao, responsavel_id, prazo, data_inicio, status, produtos, area, projeto_id, fase_id, parent_id, etiquetas, participantes, ordem")
+        .select("id, titulo, descricao, responsavel_id, prazo, data_inicio, status, produtos, area, projeto_id, fase_id, parent_id, etiquetas, participantes, ordem, updated_at")
         .order("created_at", { ascending: true }),
     ]);
 
@@ -88,6 +104,12 @@ export default async function TarefasPage({
   }
   // Dependências consideram TODAS as tarefas (uma pendência fora do filtro ainda bloqueia).
   const raizes = montarArvore(recorte, deps);
+  // Quadro: a coluna "Feito" mostra o que foi concluído nos últimos 14 dias, mesmo na aba "abertas".
+  const corte14 = new Date(new Date(hoje + "T00:00:00").getTime() - 14 * 86400000).toISOString().slice(0, 10);
+  const todasParaQuadro = montarArvore(
+    todas.filter((t) => t.status === "feito" && !t.parent_id && (t.updated_at ?? "9999") >= corte14 && (!responsavel || t.responsavel_id === responsavel || t.participantes.includes(responsavel)) && (projetoSel === "sem" ? !t.projeto_id : !projetoSel || t.projeto_id === projetoSel)),
+    deps,
+  );
 
   const atrasadas = todas.filter((t) => t.status !== "feito" && t.prazo && t.prazo < hoje).length;
   const hojeCount = todas.filter((t) => t.status !== "feito" && t.prazo === hoje).length;
@@ -128,13 +150,10 @@ export default async function TarefasPage({
 
   const projetoAtual = projetos.find((p) => p.id === projetoSel);
   const fasesDoProjeto = projetoAtual ? fases.filter((f) => f.projeto_id === projetoAtual.id) : [];
-  // Com projeto selecionado e sem agrupamento escolhido, a visão é o WBS por fase.
-  const wbs = !!projetoAtual && agrupar === "nenhum" && visao === "lista";
-  const grupos = agruparRaizes(raizes, agrupar, fases, projetos);
 
   const link = (mudancas: Record<string, string | undefined>) => {
     const q = new URLSearchParams();
-    const base = { status, responsavel, projeto: projetoSel || undefined, agrupar: agrupar === "nenhum" ? undefined : agrupar, visao: visao === "lista" ? undefined : visao, dividir: dividir === "nenhum" ? undefined : dividir, ...mudancas };
+    const base = { status, responsavel: sp.responsavel, projeto: projetoSel || undefined, visao: visao === visaoPadrao ? undefined : visao, dividir: dividir === "nenhum" ? undefined : dividir, ...mudancas };
     for (const [k, v] of Object.entries(base)) if (v !== undefined && v !== "") q.set(k, v);
     const s = q.toString();
     return s ? `/tarefas?${s}` : "/tarefas";
@@ -149,121 +168,184 @@ export default async function TarefasPage({
   ];
 
   const projetoInicial = projetoSel && projetoSel !== "sem" ? projetoSel : null;
-  // Até 12 caixinhas na tela, abertas; acima disso, recolhidas (clique abre).
-  const abertoInicial = raizes.length <= 12;
-  const gradeCards = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] items-start gap-2";
+  // Linhas recolhidas: cada uma abre no clique, só ela.
+  const abertoInicial = false;
+  const rotinasAtivas = rotinas.filter((r) => r.ativo).length;
+  const atrasadaNo = (n: TarefaNo) => n.status !== "feito" && !!n.prazo && n.prazo < hoje;
+  const gruposSituacao = agruparPorSituacao(raizes, hoje);
+  const gruposProjeto = agruparPorProjeto(raizes, projetos, fases, hoje);
+  const listaLinhas = (nos: TarefaNo[], mostrarProjeto: boolean) =>
+    nos.map((n) => <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} mostrarProjeto={mostrarProjeto} />);
 
   return (
     <CardsProvider abertoInicial={abertoInicial}>
       <div className="flex flex-col gap-3">
       <RealceDependencias />
-      <div className="flex flex-wrap items-baseline gap-x-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="font-heading text-[22px] font-semibold">Tarefas</h1>
+        {atrasadas > 0 && (
+          <a href={link({ visao: "situacao" })} className="rounded-full bg-danger-soft px-2 py-0.5 text-[11.5px] font-semibold text-danger" title="Ver as atrasadas">
+            {atrasadas} atrasada{atrasadas === 1 ? "" : "s"}
+          </a>
+        )}
         <p className="text-[12px] text-text-muted">
-          {atrasadas > 0 && <span className="font-semibold text-danger">{atrasadas} atrasada{atrasadas === 1 ? "" : "s"}</span>}
-          {atrasadas > 0 && hojeCount > 0 && " · "}
           {hojeCount > 0 && <span className="font-semibold text-primary-deep">{hojeCount} vence{hojeCount === 1 ? "" : "m"} hoje</span>}
-          {atrasadas === 0 && hojeCount === 0 && "Tudo em dia."}
-          {semPrazo > 0 && <span className="text-text-faint"> · {semPrazo} sem prazo definido</span>}
-          {bloqueadas > 0 && <span className="text-text-faint"> · {bloqueadas} aguardando outra tarefa</span>}
+          {hojeCount > 0 && (semPrazo > 0 || bloqueadas > 0 || semResponsavel.length > 0) && " · "}
+          {semPrazo > 0 && `${semPrazo} sem prazo`}
+          {semPrazo > 0 && semResponsavel.length > 0 && " · "}
+          {semResponsavel.length > 0 && <span className="text-amber-700">{semResponsavel.length} sem responsável</span>}
+          {bloqueadas > 0 && <span className="text-text-faint"> · {bloqueadas} aguardando outra</span>}
+          {atrasadas === 0 && hojeCount === 0 && semPrazo === 0 && semResponsavel.length === 0 && "Tudo em dia."}
         </p>
       </div>
 
-      {semResponsavel.length > 0 && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-900">
-          <span className="font-semibold">Sem responsável ({semResponsavel.length}):</span>{" "}
-          {semResponsavel
-            .slice(0, 6)
-            .map((t) => t.titulo)
-            .join(" · ")}
-          {semResponsavel.length > 6 ? ` · e mais ${semResponsavel.length - 6}` : ""}
-          {semResponsavel.some((t) => t.etiquetas.includes("criada-automaticamente")) && (
-            <span className="text-amber-800"> — inclui tarefas criadas automaticamente de ata do Fathom, ainda não revisadas.</span>
-          )}
-        </div>
-      )}
-
-      <ProjetosPanel pills={pills} projetos={projetos} fases={fases} fasesProduto={fasesProduto} contagem={contagem} />
-
-      <RotinasPanel rotinas={rotinas} pessoas={pessoas ?? []} proximas={proximas} />
-
-      <NotaParaTarefas pessoas={pessoas ?? []} programas={(programasRaw ?? []) as { id: string; nome: string }[]} iaConfigurada={iaConfigurada()} />
-
+      {/* Barra: visão · status · quem · ferramentas · nova tarefa. Uma linha (quebra no celular). */}
       <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
-        <Pill href={link({ status: undefined })} ativo={!status}>
-          Abertas
-        </Pill>
-        <Pill href={link({ status: "feito" })} ativo={status === "feito"}>
-          Feitas
-        </Pill>
-        <Pill href={link({ status: "todas" })} ativo={status === "todas"}>
-          Todas
-        </Pill>
-
-        <span className="mx-1 h-4 w-px bg-border" />
-
-        <span className="text-[11px] text-text-faint">Ver por:</span>
-        {(["nenhum", "fase", "etiqueta", "tema"] as Agrupar[]).map((g) => (
-          <a key={g} href={link({ agrupar: g === "nenhum" ? undefined : g, visao: undefined })} className={agrupar === g && visao === "lista" ? "font-semibold text-text" : "text-text-muted underline"}>
-            {g === "nenhum" ? (projetoAtual ? "WBS" : "tudo") : g}
-          </a>
-        ))}
-        <a href={link({ visao: "linha" })} className={visao === "linha" ? "font-semibold text-text" : "text-text-muted underline"}>
-          linha do tempo
-        </a>
+        <span className="inline-flex overflow-hidden rounded-lg border border-border">
+          {VISOES.map((v) => (
+            <a key={v.valor} href={link({ visao: v.valor })} className={`px-2.5 py-1 ${visao === v.valor ? "bg-wine-deep text-white" : "text-text-muted hover:text-text"}`}>
+              {v.rotulo}
+            </a>
+          ))}
+        </span>
+        <span className="inline-flex overflow-hidden rounded-lg border border-border">
+          <a href={link({ status: undefined })} className={`px-2.5 py-1 ${!status ? "bg-bg font-semibold text-text" : "text-text-muted"}`}>Abertas</a>
+          <a href={link({ status: "feito" })} className={`px-2.5 py-1 ${status === "feito" ? "bg-bg font-semibold text-text" : "text-text-muted"}`}>Feitas</a>
+          <a href={link({ status: "todas" })} className={`px-2.5 py-1 ${status === "todas" ? "bg-bg font-semibold text-text" : "text-text-muted"}`}>Todas</a>
+        </span>
+        <span className="inline-flex overflow-hidden rounded-lg border border-border">
+          <a href={link({ responsavel: "todas" })} className={`px-2.5 py-1 ${!responsavel ? "bg-bg font-semibold text-text" : "text-text-muted"}`}>Todas as pessoas</a>
+          {(pessoas ?? []).map((p) => (
+            <a key={p.id} href={link({ responsavel: p.id })} className={`px-2.5 py-1 ${responsavel === p.id ? "bg-bg font-semibold text-text" : "text-text-muted"}`}>
+              {p.nome.split(" ")[0]}
+            </a>
+          ))}
+        </span>
+        <FerramentasBarra
+          rotinasAtivas={rotinasAtivas}
+          rotinas={<RotinasPanel rotinas={rotinas} pessoas={pessoas ?? []} proximas={proximas} />}
+          nota={<NotaParaTarefas pessoas={pessoas ?? []} programas={(programasRaw ?? []) as { id: string; nome: string }[]} iaConfigurada={iaConfigurada()} />}
+        />
         {visao === "linha" && (
           <>
-            <span className="mx-1 h-4 w-px bg-border" />
             <span className="text-[11px] text-text-faint">Dividir por:</span>
             {(["nenhum", "etiqueta", "produto", "pessoa"] as DividirPor[]).map((d) => (
-              <a
-                key={d}
-                href={link({ dividir: d === "nenhum" ? undefined : d })}
-                className={dividir === d ? "font-semibold text-text" : "text-text-muted underline"}
-              >
+              <a key={d} href={link({ dividir: d === "nenhum" ? undefined : d })} className={dividir === d ? "font-semibold text-text" : "text-text-muted underline"}>
                 {DIVIDIR_LABEL[d]}
               </a>
             ))}
           </>
         )}
-        {visao === "lista" && (
-          <>
-            <span className="mx-1 h-4 w-px bg-border" />
-            <BotaoRecolherTudo />
-          </>
-        )}
+        <a href="/configuracoes" className="ml-auto text-[11px] text-text-faint underline" title="Escolher a visão padrão e 'só as minhas'">
+          preferências
+        </a>
       </div>
 
-      {visao === "linha" ? (
-        <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} produtos={produtos ?? []} dividir={dividir} />
-      ) : wbs && projetoAtual ? (
-        <Wbs projeto={projetoAtual} fases={fasesDoProjeto} raizes={raizes} dados={dados} dependeDe={dependeDe} contagem={contagem[projetoAtual.id]} />
-      ) : (
-        <div className="flex flex-col gap-4">
-          {grupos.map((g, i) => (
-            <div key={g.chave} className="flex flex-col gap-1.5">
-              {(grupos.length > 1 || g.chave !== "_") && (
-                <h2 className="flex items-center gap-2 font-heading text-[12px] font-semibold text-text-muted">
-                  {g.titulo}
-                  <span className="font-normal text-text-faint">
-                    {g.nos.filter((n) => n.status === "feito").length}/{g.nos.length}
-                  </span>
-                  {g.periodo && <span className="font-normal text-text-faint">· {g.periodo}</span>}
-                </h2>
-              )}
-              <div className={gradeCards}>
-                {i === 0 && <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} />}
-                {g.nos.map((n) => (
-                  <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={agrupar !== "fase"} mostrarProjeto={!projetoAtual && agrupar !== "fase"} />
-                ))}
-              </div>
-            </div>
+      {/* Projetos: filtro em pílulas + cadastro (recolhido). Só na visão por projeto e na linha do tempo. */}
+      {(visao === "projeto" || visao === "linha") && <ProjetosPanel pills={pills} projetos={projetos} fases={fases} fasesProduto={fasesProduto} contagem={contagem} />}
+
+      <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} />
+
+      {visao === "linha" && <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} produtos={produtos ?? []} dividir={dividir} />}
+
+      {visao === "situacao" && (
+        <div className="flex flex-col gap-2">
+          {gruposSituacao.map((g) => (
+            <GrupoRecolhivel
+              key={g.chave}
+              tom={g.chave === "atrasadas" ? "atrasadas" : "normal"}
+              abertoInicial={g.abertoInicial}
+              titulo={<span>{g.titulo} · {g.nos.length}</span>}
+              resumo={g.chave === "sem_prazo" && g.nos.some((n) => !n.responsavel_id) ? <span className="text-amber-700">{g.nos.filter((n) => !n.responsavel_id).length} sem responsável</span> : undefined}
+            >
+              {listaLinhas(g.nos, true)}
+            </GrupoRecolhivel>
           ))}
-          {grupos.length === 0 && (
-            <div className={gradeCards}>
-              <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} />
-            </div>
-          )}
+          {gruposSituacao.length === 0 && <p className="text-[12px] text-text-muted">Nenhuma tarefa nesse recorte.</p>}
+        </div>
+      )}
+
+      {visao === "projeto" && (
+        <div className="flex flex-col gap-2">
+          {gruposProjeto.map((g) => {
+            const feitas = g.nos.filter((n) => n.status === "feito").length;
+            const pct = g.total > 0 ? Math.round((g.feitas / g.total) * 100) : null;
+            const atrasadasDoGrupo = g.nos.filter(atrasadaNo);
+            const pendentes = g.nos.filter((n) => !atrasadaNo(n));
+            return (
+              <GrupoRecolhivel
+                key={g.chave}
+                abertoInicial={g.abertoInicial}
+                titulo={
+                  <>
+                    <span className="text-text">{g.titulo}</span>
+                    {atrasadasDoGrupo.length > 0 && <span className="rounded-full bg-danger-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-danger">{atrasadasDoGrupo.length} atrasada{atrasadasDoGrupo.length === 1 ? "" : "s"}</span>}
+                  </>
+                }
+                resumo={
+                  <>
+                    {g.total > 0 && <span className="text-[11px] text-text-faint">{g.feitas}/{g.total}</span>}
+                    {pct !== null && (
+                      <span className="hidden h-1 w-20 overflow-hidden rounded-full bg-bg sm:block">
+                        <span className="block h-full rounded-full bg-success" style={{ width: `${pct}%` }} />
+                      </span>
+                    )}
+                    {g.prazoFinal && <span className="hidden text-[11px] text-text-faint sm:inline">até {fmtCurto(g.prazoFinal)}</span>}
+                  </>
+                }
+              >
+                {atrasadasDoGrupo.length > 0 && listaLinhas(atrasadasDoGrupo, false)}
+                {g.fases.map((f) => {
+                  const nosDaFase = pendentes.filter((n) => n.fase_id === f.id);
+                  if (nosDaFase.length === 0) return null;
+                  return (
+                    <div key={f.id} className="flex flex-col gap-1">
+                      <p className="px-2 pt-1 text-[10.5px] text-text-faint">
+                        {f.nome}
+                        {(f.data_inicio || f.data_fim) && ` · ${fmtCurto(f.data_inicio)}${f.data_inicio && f.data_fim ? " – " : ""}${fmtCurto(f.data_fim)}`}
+                      </p>
+                      {listaLinhas(nosDaFase, false)}
+                    </div>
+                  );
+                })}
+                {(() => {
+                  const semFase = pendentes.filter((n) => !g.fases.some((f) => f.id === n.fase_id));
+                  if (semFase.length === 0) return null;
+                  return (
+                    <div className="flex flex-col gap-1">
+                      {g.fases.length > 0 && <p className="px-2 pt-1 text-[10.5px] text-text-faint">Sem fase</p>}
+                      {listaLinhas(semFase, g.chave === "_sem")}
+                    </div>
+                  );
+                })()}
+                {g.projetoId && (
+                  <div className="px-1 pt-0.5">
+                    <NovaTarefaCard dados={dados} projetoInicial={g.projetoId} rotulo="+ tarefa neste projeto" />
+                  </div>
+                )}
+                {feitas > 0 && status === "todas" && <p className="px-2 text-[10.5px] text-text-faint">{feitas} feita{feitas === 1 ? "" : "s"} neste recorte</p>}
+              </GrupoRecolhivel>
+            );
+          })}
+          {gruposProjeto.length === 0 && <p className="text-[12px] text-text-muted">Nenhuma tarefa nesse recorte.</p>}
+        </div>
+      )}
+
+      {visao === "quadro" && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {STATUS_ORDEM.map((st) => {
+            const nos = (st === "feito" ? todasParaQuadro : raizes).filter((n) => n.status === st);
+            return (
+              <div key={st} className="flex flex-col gap-1.5">
+                <p className="flex items-center justify-between px-1 text-[11.5px] text-text-muted">
+                  <span>{STATUS_LABEL[st]}{st === "feito" ? " · últimos 14 dias" : ""}</span>
+                  <span>{nos.length}</span>
+                </p>
+                {listaLinhas(nos, true)}
+                {nos.length === 0 && <p className="px-1 text-[11px] text-text-faint">—</p>}
+              </div>
+            );
+          })}
         </div>
       )}
       </div>
@@ -271,131 +353,63 @@ export default async function TarefasPage({
   );
 }
 
-/**
- * WBS do projeto: caixa do projeto no topo, uma coluna por fase (com "+ tarefa" no pé) e, se
- * houver, uma coluna "Sem fase". Rola na horizontal quando as fases não cabem.
- */
-function Wbs({
-  projeto,
-  fases,
-  raizes,
-  dados,
-  dependeDe,
-  contagem,
-}: {
-  projeto: Projeto;
-  fases: FaseProjeto[];
-  raizes: TarefaNo[];
-  dados: DadosFormulario;
-  dependeDe: Map<string, string[]>;
-  contagem?: { total: number; feitas: number };
-}) {
-  const colunas: { chave: string; fase: FaseProjeto | null; nos: TarefaNo[] }[] = fases.map((f) => ({ chave: f.id, fase: f, nos: raizes.filter((r) => r.fase_id === f.id) }));
-  const semFase = raizes.filter((r) => !fases.some((f) => f.id === r.fase_id));
-  if (semFase.length > 0 || fases.length === 0) colunas.push({ chave: "_sem", fase: null, nos: semFase });
-  const pct = contagem && contagem.total > 0 ? Math.round((contagem.feitas / contagem.total) * 100) : null;
-  const estilos = ["bg-primary text-white", "bg-cream text-wine", "bg-wine text-cream"];
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="rounded-lg border border-wine bg-wine-soft px-3 py-2">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-          <span className="font-heading text-[13px] font-semibold text-wine">{projeto.nome}</span>
-          {contagem && (
-            <span className="text-[11px] text-text-muted">
-              {contagem.feitas}/{contagem.total} feitas{pct !== null && ` · ${pct}%`}
-            </span>
-          )}
-        </div>
-        {projeto.objetivo && <p className="text-[11.5px] text-text-muted">{projeto.objetivo}</p>}
-      </div>
-
-      {fases.length === 0 && (
-        <p className="text-[11px] text-text-faint">Esse projeto ainda não tem fases — crie em “gerenciar projetos e fases” pra organizar as tarefas em colunas.</p>
-      )}
-
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {colunas.map((c, i) => {
-          const feitas = c.nos.filter((n) => n.status === "feito").length;
-          return (
-            <div key={c.chave} className="flex w-[260px] shrink-0 flex-col gap-2">
-              <div className={`rounded-lg px-3 py-1.5 ${c.fase ? estilos[i % 3] : "border border-dashed border-border text-text-muted"}`}>
-                <div className="flex items-center justify-between gap-2 text-[12px] font-semibold">
-                  <span className="truncate">{c.fase ? `${i + 1}. ${c.fase.nome}` : "Sem fase"}</span>
-                  <span className="shrink-0 text-[10.5px] font-normal opacity-80">
-                    {feitas}/{c.nos.length}
-                  </span>
-                </div>
-                {c.fase && (c.fase.data_inicio || c.fase.data_fim) && (
-                  <div className="text-[10px] opacity-80">
-                    {fmtCurto(c.fase.data_inicio)}
-                    {c.fase.data_inicio && c.fase.data_fim ? " – " : ""}
-                    {fmtCurto(c.fase.data_fim)}
-                  </div>
-                )}
-              </div>
-              {c.nos.map((n) => (
-                <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} />
-              ))}
-              <NovaTarefaCard dados={dados} projetoInicial={projeto.id} faseInicial={c.fase?.id ?? null} rotulo="+ tarefa" />
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function desce(n: TarefaNo): TarefaNo[] {
   return [n, ...n.filhas.flatMap(desce)];
 }
 
-type Grupo = { chave: string; titulo: string; periodo?: string; nos: TarefaNo[] };
+/** Visão Situação: a urgência decide a seção. "Depois" e "Sem prazo" nascem recolhidas. */
+function agruparPorSituacao(raizes: TarefaNo[], hoje: string): { chave: string; titulo: string; nos: TarefaNo[]; abertoInicial: boolean }[] {
+  const dia = (n: number) => new Date(new Date(hoje + "T00:00:00").getTime() + n * 86400000).toISOString().slice(0, 10);
+  const amanha = dia(1);
+  const semana = dia(7);
+  const grupos = [
+    { chave: "atrasadas", titulo: "Atrasadas", nos: raizes.filter((n) => n.status !== "feito" && !!n.prazo && n.prazo < hoje), abertoInicial: true },
+    { chave: "hoje", titulo: "Vence hoje", nos: raizes.filter((n) => n.status !== "feito" && n.prazo === hoje), abertoInicial: true },
+    { chave: "amanha", titulo: "Vence amanhã", nos: raizes.filter((n) => n.status !== "feito" && n.prazo === amanha), abertoInicial: true },
+    { chave: "semana", titulo: "Próximos 7 dias", nos: raizes.filter((n) => n.status !== "feito" && !!n.prazo && n.prazo > amanha && n.prazo <= semana), abertoInicial: true },
+    { chave: "depois", titulo: "Depois", nos: raizes.filter((n) => n.status !== "feito" && !!n.prazo && n.prazo > semana), abertoInicial: false },
+    { chave: "sem_prazo", titulo: "Sem prazo", nos: raizes.filter((n) => n.status !== "feito" && !n.prazo), abertoInicial: false },
+    { chave: "feitas", titulo: "Feitas", nos: raizes.filter((n) => n.status === "feito"), abertoInicial: false },
+  ];
+  return grupos.filter((g) => g.nos.length > 0);
+}
+
+/** Visão Projeto: um grupo por projeto (na ordem dos projetos ativos), "Sem projeto" por último.
+ * O total conta subtarefas também (é o progresso do projeto); o prazo final é o fim da última fase. */
+function agruparPorProjeto(
+  raizes: TarefaNo[],
+  projetos: Projeto[],
+  fases: FaseProjeto[],
+  hoje: string,
+): { chave: string; projetoId: string | null; titulo: string; nos: TarefaNo[]; fases: FaseProjeto[]; total: number; feitas: number; prazoFinal: string | null; abertoInicial: boolean }[] {
+  const grupos = [];
+  for (const p of projetos) {
+    const nos = raizes.filter((r) => r.projeto_id === p.id);
+    if (nos.length === 0) continue;
+    const todas = nos.flatMap(desce);
+    const fasesDoProjeto = fases.filter((f) => f.projeto_id === p.id);
+    const prazoFinal = fasesDoProjeto.map((f) => f.data_fim).filter((d): d is string => !!d).sort().at(-1) ?? null;
+    grupos.push({
+      chave: p.id,
+      projetoId: p.id,
+      titulo: p.nome,
+      nos,
+      fases: fasesDoProjeto,
+      total: todas.length,
+      feitas: todas.filter((t) => t.status === "feito").length,
+      prazoFinal,
+      // Projeto concluído/arquivado nasce recolhido; os ativos, abertos.
+      abertoInicial: p.status === "ativo" || nos.some((n) => n.status !== "feito" && !!n.prazo && n.prazo < hoje),
+    });
+  }
+  const semProjeto = raizes.filter((r) => !r.projeto_id || !projetos.some((p) => p.id === r.projeto_id));
+  if (semProjeto.length > 0) {
+    const todas = semProjeto.flatMap(desce);
+    grupos.push({ chave: "_sem", projetoId: null, titulo: "Sem projeto", nos: semProjeto, fases: [], total: todas.length, feitas: todas.filter((t) => t.status === "feito").length, prazoFinal: null, abertoInicial: true });
+  }
+  return grupos;
+}
 
 function fmtCurto(iso: string | null) {
   return iso ? new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "";
-}
-
-/**
- * Agrupa só as raízes — subtarefas seguem a mãe. Por fase, o título é "Projeto · Fase" (vale pra
- * "Todas" com vários projetos). Por etiqueta, a tarefa pode aparecer em mais de um grupo.
- */
-function agruparRaizes(raizes: TarefaNo[], modo: Agrupar, fases: FaseProjeto[], projetos: Projeto[]): Grupo[] {
-  if (modo === "nenhum") return [{ chave: "_", titulo: "", nos: raizes }];
-
-  if (modo === "fase") {
-    const grupos: Grupo[] = [];
-    for (const p of projetos) {
-      for (const f of fases.filter((f) => f.projeto_id === p.id)) {
-        const nos = raizes.filter((r) => r.fase_id === f.id);
-        if (nos.length === 0) continue;
-        grupos.push({
-          chave: f.id,
-          titulo: `${p.nome} · ${f.nome}`,
-          periodo: f.data_inicio || f.data_fim ? `${fmtCurto(f.data_inicio)}${f.data_inicio && f.data_fim ? " – " : ""}${fmtCurto(f.data_fim)}` : undefined,
-          nos,
-        });
-      }
-    }
-    const semFase = raizes.filter((r) => !r.fase_id || !fases.some((f) => f.id === r.fase_id));
-    if (semFase.length > 0) grupos.push({ chave: "_sem", titulo: "Sem fase", nos: semFase });
-    return grupos;
-  }
-
-  const mapa = new Map<string, TarefaNo[]>();
-  for (const r of raizes) {
-    const chaves = modo === "tema" ? [r.area?.trim() || ""] : r.etiquetas.length > 0 ? r.etiquetas : [""];
-    for (const c of chaves) mapa.set(c, [...(mapa.get(c) ?? []), r]);
-  }
-  return [...mapa.entries()]
-    .sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)))
-    .map(([c, nos]) => ({ chave: c || "_sem", titulo: c ? (modo === "etiqueta" ? `#${c}` : c) : modo === "tema" ? "Sem tema" : "Sem etiqueta", nos }));
-}
-
-function Pill({ href, ativo, children }: { href: string; ativo: boolean; children: React.ReactNode }) {
-  return (
-    <a href={href} className={`rounded-lg px-2.5 py-1 text-[11.5px] font-medium ${ativo ? "bg-wine-deep text-white" : "border border-border text-text-muted"}`}>
-      {children}
-    </a>
-  );
 }

@@ -5,7 +5,7 @@ import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, type TarefaFormState } from "./actions";
 import { CamposTarefa } from "./campos-tarefa";
 import { useCardAberto } from "./cards-contexto";
-import { STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type FaseProjeto, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
+import { achatar, STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type FaseProjeto, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
 import { AnexosTarefa } from "./anexos-tarefa";
 
 export type DadosFormulario = {
@@ -247,9 +247,12 @@ export function TarefaCard({
   }
 
   const corPrazo = atrasada ? "font-semibold text-danger" : hojeVence ? "font-semibold text-primary-deep" : "text-text-faint";
-  const textoPrazo = no.prazo ? (atrasada ? `atrasada ${fmt(no.prazo)}` : hojeVence ? "vence hoje" : fmt(no.prazo)) : "";
+  const diasAtraso = atrasada && no.prazo ? Math.round((new Date(hoje + "T00:00:00").getTime() - new Date(no.prazo + "T00:00:00").getTime()) / 86400000) : 0;
+  const textoPrazo = no.prazo ? (atrasada ? `${diasAtraso} dia${diasAtraso === 1 ? "" : "s"} atrás` : hojeVence ? "hoje" : fmt(no.prazo)) : "";
 
   const libera = feita ? [] : no.libera;
+  const todasFilhas = achatar(no.filhas).map((f) => f.no);
+  const contagemFilhas = todasFilhas.length > 0 ? `${todasFilhas.filter((f) => f.status === "feito").length}/${todasFilhas.length}` : null;
 
   return (
     <div
@@ -258,32 +261,36 @@ export function TarefaCard({
       data-libera={libera.map((l) => l.id).join(",")}
       className={`card-tarefa flex flex-col rounded-lg border ${
         feita ? "border-border-soft bg-bg opacity-60" : bloqueada ? "border-warning bg-warning-soft/40" : no.status === "fazendo" ? "border-primary-fill bg-surface" : "border-border-soft bg-surface"
-      }`}
+      } ${atrasada ? "border-l-[3px] border-l-danger" : ""}`}
     >
-      {/* Cabeçalho — sempre visível, clicável */}
-      <button type="button" onClick={alternarAberto} className="flex w-full flex-col gap-1 px-3 py-2 text-left">
-        <span className="flex w-full items-start justify-between gap-2">
-          <span className={`text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`}>
+      {/* Cabeçalho: UMA linha — caixa de feito, título, projeto, quem, prazo. Clicar no título abre
+          o detalhe (só desta tarefa). Atrasada ganha a faixa vermelha na borda esquerda. */}
+      <div className="flex w-full items-center gap-2 px-2.5 py-1.5">
+        <input
+          type="checkbox"
+          checked={feita}
+          disabled={isPending}
+          title={feita ? "Reabrir" : "Marcar como feita"}
+          onChange={(e) => {
+            const novo = e.target.checked ? "feito" : "a_fazer";
+            startTransition(async () => {
+              await mudarStatusTarefa(no.id, novo);
+            });
+          }}
+          className="accent-wine"
+        />
+        <button type="button" onClick={alternarAberto} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <span className={`min-w-0 flex-1 truncate text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`} title={no.titulo}>
             {no.titulo}
             {bloqueada && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
             {libera.length > 0 && <span title={`Libera: ${libera.map((l) => l.titulo).join(", ")}`}> 🔓</span>}
+            {contagemFilhas && <span className="font-normal text-text-faint"> · {contagemFilhas}</span>}
           </span>
-          <span className="flex shrink-0 flex-col items-end text-[10.5px] leading-tight">
-            {textoPrazo && <span className={corPrazo}>{textoPrazo}</span>}
-            {quem && <span className="text-text-faint">{quem}</span>}
-          </span>
-        </span>
-        {/* Progresso é DA TAREFA: quanto das atividades dela já foi feito. Tarefa sem lista não tem
-            barra — o que ela tem é status (a fazer / fazendo / feito). */}
-        {no.progresso !== null && (
-          <span className="flex w-full items-center gap-1.5">
-            <span className="h-1 flex-1 overflow-hidden rounded-full bg-bg">
-              <span className="block h-full rounded-full bg-primary-fill" style={{ width: `${Math.round(no.progresso * 100)}%` }} />
-            </span>
-            <span className="shrink-0 text-[10px] text-text-faint">{Math.round(no.progresso * 100)}%</span>
-          </span>
-        )}
-      </button>
+          {mostrarProjeto && projeto && <span className="hidden shrink-0 rounded-full bg-wine-soft px-1.5 py-0.5 text-[10px] text-wine sm:inline">{projeto.nome}</span>}
+          {quem && <span className="hidden shrink-0 text-[10.5px] text-text-faint sm:inline">{quem}</span>}
+          {textoPrazo && <span className={`w-[76px] shrink-0 text-right text-[10.5px] ${corPrazo}`}>{textoPrazo}</span>}
+        </button>
+      </div>
 
       {aberto && (
         <div className="flex flex-col gap-1.5 border-t border-border-soft px-3 pb-2.5 pt-2">

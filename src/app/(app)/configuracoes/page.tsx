@@ -7,6 +7,8 @@ import { NotificacoesPush } from "./notificacoes-push";
 import { PlanoContasManager } from "./plano-contas-manager";
 import { UsuarioPapelSelect } from "./usuario-papel-select";
 import { ParametrosTributariosCard } from "./parametros-tributarios";
+import { PreferenciasTarefas } from "./preferencias-tarefas";
+import type { VisaoTarefas } from "./preferencias-tarefas-actions";
 import { parametrosTributariosDe } from "@/lib/impostos";
 
 function formatDate(iso: string) {
@@ -42,6 +44,9 @@ export default async function ConfiguracoesPage() {
   const {
     data: { user: usuarioAtual },
   } = await supabase.auth.getUser();
+  const { data: prefs } = usuarioAtual
+    ? await supabase.from("profiles").select("tarefas_visao_padrao, tarefas_so_minhas").eq("id", usuarioAtual.id).maybeSingle()
+    : { data: null };
 
   return (
     <div>
@@ -56,6 +61,10 @@ export default async function ConfiguracoesPage() {
 
       <div className="mb-6">
         <NotificacoesPush />
+      </div>
+
+      <div className="mb-6">
+        <PreferenciasTarefas visao={((prefs?.tarefas_visao_padrao as VisaoTarefas) ?? "projeto")} soMinhas={Boolean(prefs?.tarefas_so_minhas)} />
       </div>
 
       <div className="mb-6">

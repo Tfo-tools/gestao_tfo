@@ -40,6 +40,8 @@ export type Tarefa = {
   /** Quem faz junto (profiles.id), além do responsável. */
   participantes: string[];
   ordem: number;
+  /** Última alteração — o Quadro usa pra mostrar só as feitas recentes. */
+  updated_at?: string | null;
 };
 
 export type AnexoTarefa = {
