@@ -2,7 +2,7 @@
 
 import { useActionState, useRef, useState, useTransition } from "react";
 import { useAcaoEdicao } from "@/lib/use-acao-edicao";
-import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, type TarefaFormState } from "./actions";
+import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, tornarAtividadeDe, type TarefaFormState } from "./actions";
 import { CamposTarefa } from "./campos-tarefa";
 import { useCardAberto } from "./cards-contexto";
 import { achatar, STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type FaseProjeto, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
@@ -239,6 +239,8 @@ export function TarefaCard({
   const [aberto, alternarAberto] = useCardAberto();
   const [editando, setEditando] = useState(false);
   const [novaSub, setNovaSub] = useState(false);
+  const [movendo, setMovendo] = useState(false);
+  const [erroLinha, setErroLinha] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const responsavel = dados.pessoas.find((p) => p.id === no.responsavel_id);
@@ -306,7 +308,76 @@ export function TarefaCard({
           {quem && <span className="hidden shrink-0 text-[10.5px] text-text-faint sm:inline">{quem}</span>}
           {textoPrazo && <span className={`w-[76px] shrink-0 text-right text-[10.5px] ${corPrazo}`}>{textoPrazo}</span>}
         </button>
+        {/* Ações rápidas, sem abrir o detalhe: a IA cria tarefa redundante ou que é só etapa de
+            outra — daqui dá pra excluir ou rebaixar a atividade em dois cliques. */}
+        {!feita && no.filhas.length === 0 && !no.parent_id && (
+          <button
+            type="button"
+            disabled={isPending}
+            title="Virar atividade de outra tarefa"
+            aria-label="Virar atividade de outra tarefa"
+            onClick={() => {
+              setErroLinha(null);
+              setMovendo((v) => !v);
+            }}
+            className="shrink-0 rounded px-1 text-[12px] text-text-faint hover:bg-bg hover:text-primary-deep"
+          >
+            ↳
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={isPending}
+          title="Excluir tarefa"
+          aria-label="Excluir tarefa"
+          onClick={() => {
+            const aviso = no.filhas.length > 0 ? `Excluir “${no.titulo}” e suas ${no.filhas.length} atividade(s)?` : `Excluir “${no.titulo}”?`;
+            if (!confirm(aviso)) return;
+            setErroLinha(null);
+            startTransition(async () => {
+              const r = await excluirTarefa(no.id);
+              if (r.error) setErroLinha(r.error);
+            });
+          }}
+          className="shrink-0 rounded px-1 text-[13px] leading-none text-text-faint hover:bg-danger-soft hover:text-danger"
+        >
+          ×
+        </button>
       </div>
+      {movendo && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border-soft bg-bg px-3 py-1.5 text-[11.5px]">
+          <span className="text-text-muted">Virar atividade de:</span>
+          <select
+            defaultValue=""
+            disabled={isPending}
+            onChange={(e) => {
+              const maeId = e.target.value;
+              if (!maeId) return;
+              startTransition(async () => {
+                const r = await tornarAtividadeDe(no.id, maeId);
+                if (r.error) setErroLinha(r.error);
+                else setMovendo(false);
+              });
+            }}
+            className="input input-compacto min-w-[220px] flex-1"
+          >
+            <option value="">escolha a tarefa principal…</option>
+            {[...dados.candidatasDependencia]
+              .filter((c) => c.id !== no.id && c.status !== "feito")
+              .sort((a, b) => Number((b.projeto_id ?? "") === (no.projeto_id ?? "")) - Number((a.projeto_id ?? "") === (no.projeto_id ?? "")) || a.titulo.localeCompare(b.titulo))
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {(c.projeto_id ?? "") === (no.projeto_id ?? "") ? "" : "(outro projeto) "}
+                  {c.titulo}
+                </option>
+              ))}
+          </select>
+          <button type="button" onClick={() => setMovendo(false)} className="text-text-muted">
+            cancelar
+          </button>
+        </div>
+      )}
+      {erroLinha && <p className="px-3 pb-1 text-[10.5px] text-danger">{erroLinha}</p>}
 
       {aberto && (
         <div className="flex flex-col gap-1.5 border-t border-border-soft px-3 pb-2.5 pt-2">

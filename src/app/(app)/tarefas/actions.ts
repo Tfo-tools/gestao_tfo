@@ -281,3 +281,20 @@ export async function urlAnexoTarefa(caminho: string): Promise<string | null> {
   const { data, error } = await supabase.storage.from("comprovantes").createSignedUrl(caminho, 60 * 10);
   return error ? null : data.signedUrl;
 }
+
+/** A IA às vezes cria como tarefa o que é só uma etapa de outra: isto rebaixa a tarefa pra
+ * atividade (subtarefa) da escolhida, herdando projeto e fase dela. As atividades que ela já
+ * tinha sobem junto (ficam na mesma lista plana da nova mãe). */
+export async function tornarAtividadeDe(id: string, maeId: string): Promise<{ error: string | null }> {
+  if (!id || !maeId || id === maeId) return { error: "Escolha outra tarefa." };
+  const supabase = await createClient();
+  const { data: mae } = await supabase.from("tarefas").select("id, projeto_id, fase_id, parent_id").eq("id", maeId).maybeSingle();
+  if (!mae) return { error: "Tarefa de destino não encontrada." };
+  if (mae.parent_id) return { error: "A tarefa escolhida já é uma atividade — escolha uma tarefa principal." };
+  const { error } = await supabase.from("tarefas").update({ parent_id: maeId, projeto_id: mae.projeto_id, fase_id: mae.fase_id, prazo: null }).eq("id", id);
+  if (error) return { error: "Não foi possível mover." };
+  await supabase.from("tarefas").update({ parent_id: maeId, projeto_id: mae.projeto_id, fase_id: mae.fase_id }).eq("parent_id", id);
+  await supabase.from("tarefa_dependencias").delete().or(`tarefa_id.eq.${id},depende_de_id.eq.${id}`);
+  revalidatePath("/tarefas");
+  return { error: null };
+}
