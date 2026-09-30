@@ -181,7 +181,7 @@ export default async function TarefasPage({
     <CardsProvider abertoInicial={abertoInicial}>
       <div className="flex flex-col gap-3">
       <RealceDependencias />
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="font-heading text-[22px] font-semibold">Tarefas</h1>
         {atrasadas > 0 && (
           <a href={link({ visao: "situacao" })} className="rounded-full bg-danger-soft px-2 py-0.5 text-[11.5px] font-semibold text-danger" title="Ver as atrasadas">
@@ -197,6 +197,9 @@ export default async function TarefasPage({
           {bloqueadas > 0 && <span className="text-text-faint"> · {bloqueadas} aguardando outra</span>}
           {atrasadas === 0 && hojeCount === 0 && semPrazo === 0 && semResponsavel.length === 0 && "Tudo em dia."}
         </p>
+        <span className="ml-auto">
+          <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} compacto />
+        </span>
       </div>
 
       {/* Barra: visão · status · quem · ferramentas · nova tarefa. Uma linha (quebra no celular). */}
@@ -243,8 +246,6 @@ export default async function TarefasPage({
 
       {/* Projetos: filtro em pílulas + cadastro (recolhido). Só na visão por projeto e na linha do tempo. */}
       {(visao === "projeto" || visao === "linha") && <ProjetosPanel pills={pills} projetos={projetos} fases={fases} fasesProduto={fasesProduto} contagem={contagem} />}
-
-      <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} />
 
       {visao === "linha" && <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} produtos={produtos ?? []} dividir={dividir} />}
 

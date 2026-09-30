@@ -70,6 +70,7 @@ export function NovaTarefaCard({
   parentId,
   rotulo = "+ Nova tarefa",
   aoConcluir,
+  compacto = false,
 }: {
   dados: DadosFormulario;
   projetoInicial?: string | null;
@@ -77,6 +78,8 @@ export function NovaTarefaCard({
   parentId?: string;
   rotulo?: string;
   aoConcluir?: () => void;
+  /** Ícone pequeno (+) no canto da tela, em vez do botão largo na lista. */
+  compacto?: boolean;
 }) {
   const [aberto, setAberto] = useState(!!parentId);
   const [state, formAction, pending] = useActionState(criarTarefa, initialState);
@@ -88,6 +91,19 @@ export function NovaTarefaCard({
   };
 
   if (!aberto) {
+    if (compacto) {
+      return (
+        <button
+          type="button"
+          onClick={() => setAberto(true)}
+          title="Nova tarefa"
+          aria-label="Nova tarefa"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-wine-deep text-[18px] leading-none text-white hover:opacity-90"
+        >
+          +
+        </button>
+      );
+    }
     return (
       <button
         type="button"
@@ -100,7 +116,7 @@ export function NovaTarefaCard({
   }
 
   return (
-    <div className="rounded-lg border border-primary-fill bg-surface p-3">
+    <div className={`rounded-lg border border-primary-fill bg-surface p-3 ${compacto ? "basis-full" : ""}`}>
       <form
         ref={formRef}
         action={async (fd) => {
