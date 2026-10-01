@@ -105,9 +105,9 @@ export function LinhaDoTempo({
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10.5px] text-text-muted">
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-soft" /> a fazer</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-fill" /> fazendo</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-warning-soft" /> aguardando outra tarefa (dependência ainda aberta)</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full border border-danger bg-danger-soft" /> atrasada</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-success-soft" /> feita</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-soft ring-1 ring-danger" /> atrasada (borda vermelha)</span>
+        <span className="flex items-center gap-1.5">⏳ aguardando outra tarefa</span>
         <span className="flex items-center gap-1.5"><span className="h-3 w-px bg-danger/60" /> hoje</span>
       </div>
       <div className="min-w-[640px]">
@@ -165,11 +165,15 @@ export function LinhaDoTempo({
                 <span className="w-[200px] shrink-0 truncate" style={{ paddingLeft: `${nivel * 12}px` }} title={no.titulo}>
                   {nivel > 0 && <span className="text-text-faint">↳ </span>}
                   <span className={feita ? "text-text-faint line-through" : ""}>{no.titulo}</span>
+                  {!feita && no.aguardando.length > 0 && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
+                  {atrasada && <span className="text-danger" title="Atrasada"> !</span>}
                 </span>
                 <div className="relative h-5 flex-1">
                   <div
                     className={`absolute top-0.5 h-4 rounded-sm ${
-                      feita ? "bg-success-soft" : atrasada ? "bg-danger-soft border border-danger" : no.aguardando.length > 0 ? "bg-warning-soft" : no.status === "fazendo" ? "bg-primary-fill" : "bg-primary-soft"
+                      // Cor = status; atrasada ganha só a borda vermelha, dependência fica no ⏳ do título.
+                      feita ? "bg-success-soft" : no.status === "fazendo" ? "bg-primary-fill" : "bg-primary-soft"
+                    } ${atrasada ? "ring-1 ring-danger" : ""
                     }`}
                     style={{ left: `${pos(iniT)}%`, width: `${Math.max(0.6, pos(fimT) - pos(iniT))}%` }}
                     title={`${no.titulo}${resp ? ` · ${resp.nome}` : ""}`}
