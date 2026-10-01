@@ -70,7 +70,7 @@ async function extrairAcoes(prompt: string): Promise<{ error: string | null; aco
 
   let texto: string;
   try {
-    texto = provedor === "gemini" ? await chamarGemini(prompt) : await chamarClaude(prompt);
+    texto = provedor === "gemini" ? await chamarGemini(prompt, 8000) : await chamarClaude(prompt, 8000);
   } catch (e) {
     const motivo = e instanceof Error ? e.message : String(e);
     console.error(`Erro na IA (${provedor}):`, motivo);
@@ -82,7 +82,7 @@ async function extrairAcoes(prompt: string): Promise<{ error: string | null; aco
 
 /** Gemini API (Google AI Studio) — pede JSON direto pelo responseMimeType. Tenta os modelos em ordem
  * quando o erro é de modelo indisponível; erro de chave/permissão para na hora. */
-async function chamarGemini(prompt: string): Promise<string> {
+async function chamarGemini(prompt: string, maxTokens = 2000): Promise<string> {
   let ultimoErro = "";
   for (const modelo of GEMINI_MODELOS) {
     const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
@@ -90,7 +90,7 @@ async function chamarGemini(prompt: string): Promise<string> {
       headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!, "content-type": "application/json" },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 2000 },
+        generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: maxTokens },
       }),
     });
     if (resp.ok) {
@@ -108,11 +108,11 @@ async function chamarGemini(prompt: string): Promise<string> {
   throw new Error(ultimoErro || "Gemini sem resposta");
 }
 
-async function chamarClaude(prompt: string): Promise<string> {
+async function chamarClaude(prompt: string, maxTokens = 2000): Promise<string> {
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 2000, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
   });
   if (!resp.ok) throw new Error(`Anthropic ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
   const dados = (await resp.json()) as { content?: { type: string; text?: string }[] };
@@ -136,5 +136,90 @@ function interpretar(texto: string): { error: string | null; acoes: AcaoSugerida
     };
   } catch {
     return { error: "Resposta da IA veio num formato inesperado.", acoes: [] };
+  }
+}
+
+// ── Plano estruturado (projeto → tarefa → atividade) ─────────────────────────────────────────
+
+export type SubtarefaPlano = { titulo: string; responsavel: string | null; prazo: string | null };
+export type TarefaPlano = {
+  codigo: string | null;
+  titulo: string;
+  descricao: string | null;
+  responsaveis: string[];
+  inicio: string | null;
+  prazo: string | null;
+  depende_de: string[];
+  subtarefas: SubtarefaPlano[];
+};
+export type ProjetoPlano = { nome: string; descricao: string | null; prazo: string | null; tarefas: TarefaPlano[] };
+export type PlanoImportado = { projetos: ProjetoPlano[] };
+
+/** Texto de plano (projetos com tarefas numeradas, "Subtarefas:", "RESPONSÁVEL:", "Depende de:",
+ * "Início · Prazo") → árvore. É o que a tela "Importar como plano" usa; a lista plana não serve
+ * porque achata atividade em tarefa. */
+export async function extrairPlanoDeTexto(texto: string, nomesConhecidos: string[], hoje: string): Promise<{ error: string | null; plano: PlanoImportado | null }> {
+  const provedor = provedorIa();
+  if (!provedor) return { error: "IA não configurada (GEMINI_API_KEY ou ANTHROPIC_API_KEY na Vercel).", plano: null };
+  const ano = hoje.slice(0, 4);
+  const prompt = `Você vai converter um plano de trabalho em JSON estruturado. O texto tem projetos ("Projeto 1: ..."), tarefas numeradas ("1.1 Título"), e dentro de cada tarefa pode haver "Obs.", "Subtarefas:" (itens com * ou •), "RESPONSÁVEL:", "Depende de:" e "Início: dd/mm · Prazo: dd/mm". Pode haver um projeto só, sem o cabeçalho "Projeto".
+
+Regras:
+- Cada item de "Subtarefas:" é uma ATIVIDADE dentro da tarefa — nunca vira tarefa.
+- "codigo" é o número da tarefa como está no texto ("1.1", "2.8"); null se não houver.
+- "responsaveis": nomes das pessoas (podem ser vários). Pessoas da equipe: ${nomesConhecidos.join(", ") || "(nenhuma cadastrada)"}. Use o nome como aparece na lista quando bater; "(inclusão Vanessa)" não é responsável, é observação.
+- "depende_de": lista dos códigos citados em "Depende de" (só o código, ex.: "2.8"); inclua os marcados "(sugerida)". Vazio se não houver.
+- Datas: devolva YYYY-MM-DD. Datas "dd/mm" sem ano pertencem a ${ano} (hoje é ${hoje}); se o texto trouxer o ano, use-o. Atividade com data entre parênteses no fim do item, ex. "(23/10)", recebe esse prazo; se o parêntese tiver um nome, é o responsável da atividade.
+- "descricao" da tarefa = o texto de "Obs.:"/"Objetivo:" (null se não houver). "descricao" do projeto = a linha "Descrição:"; "prazo" do projeto = a data de finalização citada, se houver.
+- Não invente nada que não esteja no texto. Não resuma títulos.
+
+Responda APENAS com JSON, sem markdown, exatamente neste formato:
+{"projetos":[{"nome":"...","descricao":"...|null","prazo":"YYYY-MM-DD|null","tarefas":[{"codigo":"1.1|null","titulo":"...","descricao":"...|null","responsaveis":["Nome"],"inicio":"YYYY-MM-DD|null","prazo":"YYYY-MM-DD|null","depende_de":["1.2"],"subtarefas":[{"titulo":"...","responsavel":"Nome|null","prazo":"YYYY-MM-DD|null"}]}]}]}
+
+Texto:
+"""
+${texto}
+"""`;
+  let bruto: string;
+  try {
+    bruto = provedor === "gemini" ? await chamarGemini(prompt, 16000) : await chamarClaude(prompt, 16000);
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.error(`Erro na IA (${provedor}):`, motivo);
+    return { error: `A IA (${provedor}) não respondeu: ${motivo.slice(0, 260)}`, plano: null };
+  }
+  const limpo = bruto.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  try {
+    const dados = JSON.parse(limpo) as Partial<PlanoImportado>;
+    if (!dados || !Array.isArray(dados.projetos)) return { error: "Resposta da IA veio num formato inesperado.", plano: null };
+    const data = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    const plano: PlanoImportado = {
+      projetos: dados.projetos
+        .filter((p) => p && str(p.nome))
+        .map((p) => ({
+          nome: str(p.nome)!,
+          descricao: str(p.descricao),
+          prazo: data(p.prazo),
+          tarefas: (Array.isArray(p.tarefas) ? p.tarefas : [])
+            .filter((t) => t && str(t.titulo))
+            .map((t) => ({
+              codigo: str(t.codigo),
+              titulo: str(t.titulo)!,
+              descricao: str(t.descricao),
+              responsaveis: (Array.isArray(t.responsaveis) ? t.responsaveis : []).map(str).filter((n): n is string => !!n),
+              inicio: data(t.inicio),
+              prazo: data(t.prazo),
+              depende_de: (Array.isArray(t.depende_de) ? t.depende_de : []).map(str).filter((c): c is string => !!c),
+              subtarefas: (Array.isArray(t.subtarefas) ? t.subtarefas : [])
+                .filter((s) => s && str(s.titulo))
+                .map((s) => ({ titulo: str(s.titulo)!, responsavel: str(s.responsavel), prazo: data(s.prazo) })),
+            })),
+        })),
+    };
+    if (plano.projetos.length === 0) return { error: "Não encontrei projeto nem tarefa nesse texto.", plano: null };
+    return { error: null, plano };
+  } catch {
+    return { error: "Resposta da IA veio num formato inesperado (JSON cortado ou inválido) — tente colar um projeto por vez.", plano: null };
   }
 }
