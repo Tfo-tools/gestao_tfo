@@ -26,11 +26,14 @@ const LABEL_FASE_PRODUTO: Record<string, string> = Object.fromEntries(FASES.map(
 export default async function TarefasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string; visao?: string; dividir?: string }>;
+  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string | string[]; visao?: string; dividir?: string }>;
 }) {
   const sp = await searchParams;
   const { status } = sp;
-  const projetoSel = sp.projeto ?? "";
+  // Vários projetos ao mesmo tempo: ?projeto=a&projeto=b ("sem" = sem projeto). Vazio = todos.
+  const projetosSel = [...new Set((Array.isArray(sp.projeto) ? sp.projeto : sp.projeto ? [sp.projeto] : []).filter(Boolean))];
+  const projetoSel = projetosSel.length === 1 ? projetosSel[0] : "";
+  const dentroDaSelecao = (projetoId: string | null) => projetosSel.length === 0 || (projetoId ? projetosSel.includes(projetoId) : projetosSel.includes("sem"));
   const dividir = (["etiqueta", "produto", "pessoa"].includes(sp.dividir ?? "") ? sp.dividir : "nenhum") as DividirPor;
   const supabase = await createClient();
   // Preferência por pessoa (Configurações → Tarefas): visão com que a tela abre e "só as minhas".
@@ -82,8 +85,7 @@ export default async function TarefasPage({
   const hoje = new Date().toISOString().slice(0, 10);
   const abaAtual = status ?? "abertas";
   let recorte = todas;
-  if (projetoSel === "sem") recorte = recorte.filter((t) => !t.projeto_id);
-  else if (projetoSel) recorte = recorte.filter((t) => t.projeto_id === projetoSel);
+  if (projetosSel.length > 0) recorte = recorte.filter((t) => dentroDaSelecao(t.projeto_id));
   if (responsavel) recorte = recorte.filter((t) => t.responsavel_id === responsavel || t.participantes.includes(responsavel));
   if (abaAtual === "abertas") recorte = recorte.filter((t) => t.status !== "feito");
   else if (abaAtual !== "todas") recorte = recorte.filter((t) => t.status === abaAtual);
@@ -107,7 +109,7 @@ export default async function TarefasPage({
   // Quadro: a coluna "Feito" mostra o que foi concluído nos últimos 14 dias, mesmo na aba "abertas".
   const corte14 = new Date(new Date(hoje + "T00:00:00").getTime() - 14 * 86400000).toISOString().slice(0, 10);
   const todasParaQuadro = montarArvore(
-    todas.filter((t) => t.status === "feito" && !t.parent_id && (t.updated_at ?? "9999") >= corte14 && (!responsavel || t.responsavel_id === responsavel || t.participantes.includes(responsavel)) && (projetoSel === "sem" ? !t.projeto_id : !projetoSel || t.projeto_id === projetoSel)),
+    todas.filter((t) => t.status === "feito" && !t.parent_id && (t.updated_at ?? "9999") >= corte14 && (!responsavel || t.responsavel_id === responsavel || t.participantes.includes(responsavel)) && dentroDaSelecao(t.projeto_id)),
     deps,
   );
 
@@ -148,23 +150,36 @@ export default async function TarefasPage({
     anexos: anexosPorTarefa,
   };
 
-  const projetoAtual = projetos.find((p) => p.id === projetoSel);
-  const fasesDoProjeto = projetoAtual ? fases.filter((f) => f.projeto_id === projetoAtual.id) : [];
+  // Fases na linha do tempo: as dos projetos escolhidos (um só mostra as faixas; vários, todas as deles).
+  const fasesDoProjeto = projetosSel.length > 0 ? fases.filter((f) => projetosSel.includes(f.projeto_id)) : [];
 
-  const link = (mudancas: Record<string, string | undefined>) => {
+  const link = (mudancas: Record<string, string | string[] | undefined>) => {
     const q = new URLSearchParams();
-    const base = { status, responsavel: sp.responsavel, projeto: projetoSel || undefined, visao: visao === visaoPadrao ? undefined : visao, dividir: dividir === "nenhum" ? undefined : dividir, ...mudancas };
-    for (const [k, v] of Object.entries(base)) if (v !== undefined && v !== "") q.set(k, v);
+    const base: Record<string, string | string[] | undefined> = {
+      status,
+      responsavel: sp.responsavel,
+      projeto: projetosSel.length > 0 ? projetosSel : undefined,
+      visao: visao === visaoPadrao ? undefined : visao,
+      dividir: dividir === "nenhum" ? undefined : dividir,
+      ...mudancas,
+    };
+    for (const [k, v] of Object.entries(base)) {
+      if (v === undefined || v === "") continue;
+      if (Array.isArray(v)) v.forEach((x) => q.append(k, x));
+      else q.set(k, v);
+    }
     const s = q.toString();
     return s ? `/tarefas?${s}` : "/tarefas";
   };
+  // Clicar num projeto soma/tira ele da seleção — dá pra ver dois ou três juntos na linha do tempo.
+  const alternarProjeto = (id: string) => (projetosSel.includes(id) ? projetosSel.filter((p) => p !== id) : [...projetosSel, id]);
 
   const pills: PillProjeto[] = [
-    { href: link({ projeto: undefined }), label: "Todas", ativo: !projetoSel },
+    { href: link({ projeto: undefined }), label: "Todas", ativo: projetosSel.length === 0 },
     ...projetos
-      .filter((p) => p.status === "ativo" || p.id === projetoSel)
-      .map((p) => ({ href: link({ projeto: p.id }), label: p.nome, ativo: projetoSel === p.id, contagem: contagem[p.id] })),
-    { href: link({ projeto: "sem" }), label: "Sem projeto", ativo: projetoSel === "sem" },
+      .filter((p) => p.status === "ativo" || projetosSel.includes(p.id))
+      .map((p) => ({ href: link({ projeto: alternarProjeto(p.id) }), label: p.nome, ativo: projetosSel.includes(p.id), contagem: contagem[p.id] })),
+    { href: link({ projeto: alternarProjeto("sem") }), label: "Sem projeto", ativo: projetosSel.includes("sem") },
   ];
 
   const projetoInicial = projetoSel && projetoSel !== "sem" ? projetoSel : null;
@@ -247,7 +262,14 @@ export default async function TarefasPage({
       {/* Projetos: filtro em pílulas + cadastro (recolhido). Só na visão por projeto e na linha do tempo. */}
       {(visao === "projeto" || visao === "linha") && <ProjetosPanel pills={pills} projetos={projetos} fases={fases} fasesProduto={fasesProduto} contagem={contagem} />}
 
-      {visao === "linha" && <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} produtos={produtos ?? []} dividir={dividir} />}
+      {visao === "linha" && (
+        <>
+          {projetosSel.length === 0 && projetos.length > 1 && (
+            <p className="-mt-1 text-[10.5px] text-text-faint">Clique nos projetos acima para combinar dois ou mais na mesma linha do tempo.</p>
+          )}
+          <LinhaDoTempo raizes={raizes} fases={fasesDoProjeto} pessoas={pessoas ?? []} produtos={produtos ?? []} dividir={dividir} dependencias={deps} />
+        </>
+      )}
 
       {visao === "situacao" && (
         <div className="flex flex-col gap-2">

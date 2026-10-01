@@ -1,4 +1,5 @@
-import { achatar, type FaseProjeto, type Pessoa, type Produto, type TarefaNo } from "./tipos";
+import { achatar, type Dependencia, type FaseProjeto, type Pessoa, type Produto, type TarefaNo } from "./tipos";
+import { SetasDependencia, type Seta } from "./setas-dependencia";
 
 /** Como dividir a linha do tempo em faixas — pra ver que tipo de trabalho está tomando o tempo. */
 export type DividirPor = "nenhum" | "etiqueta" | "produto" | "pessoa";
@@ -22,12 +23,15 @@ export function LinhaDoTempo({
   pessoas,
   produtos,
   dividir = "nenhum",
+  dependencias = [],
 }: {
   raizes: TarefaNo[];
   fases: FaseProjeto[];
   pessoas: Pessoa[];
   produtos: Produto[];
   dividir?: DividirPor;
+  /** Todas as dependências (inclusive de tarefas já feitas) — pras setas e pro caminho crítico. */
+  dependencias?: Dependencia[];
 }) {
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
@@ -85,6 +89,51 @@ export function LinhaDoTempo({
     return [{ chave: "_", titulo: "" }];
   };
 
+  // ── Dependências e caminho crítico ───────────────────────────────────────────────────────
+  // Só entre tarefas que estão no gráfico. Caminho crítico = a sequência de dependências com a
+  // maior soma de dias (a que define o fim do plano): qualquer atraso nela empurra tudo.
+  const noGrafico = new Map(itens.map((i) => [i.no.id, i]));
+  const arestas = dependencias.filter((d) => noGrafico.has(d.tarefa_id) && noGrafico.has(d.depende_de_id));
+  const sucessoras = new Map<string, string[]>();
+  for (const d of arestas) sucessoras.set(d.depende_de_id, [...(sucessoras.get(d.depende_de_id) ?? []), d.tarefa_id]);
+  const memo = new Map<string, { dias: number; proxima: string | null }>();
+  const visitando = new Set<string>();
+  const maisLonga = (id: string): { dias: number; proxima: string | null } => {
+    const pronto = memo.get(id);
+    if (pronto) return pronto;
+    if (visitando.has(id)) return { dias: 0, proxima: null }; // ciclo: ignora
+    visitando.add(id);
+    let melhor: { dias: number; proxima: string | null } = { dias: 0, proxima: null };
+    for (const suc of sucessoras.get(id) ?? []) {
+      const r = maisLonga(suc);
+      if (r.dias > melhor.dias) melhor = { dias: r.dias, proxima: suc };
+    }
+    const resultado = { dias: diasDa(noGrafico.get(id)!) + melhor.dias, proxima: melhor.proxima };
+    visitando.delete(id);
+    memo.set(id, resultado);
+    return resultado;
+  };
+  let inicioCritico: string | null = null;
+  let maiorDias = 0;
+  for (const id of noGrafico.keys()) {
+    const r = maisLonga(id);
+    if (r.dias > maiorDias) {
+      maiorDias = r.dias;
+      inicioCritico = id;
+    }
+  }
+  const criticas = new Set<string>();
+  const arestasCriticas = new Set<string>();
+  for (let id = inicioCritico; id; ) {
+    criticas.add(id);
+    const prox = memo.get(id)?.proxima ?? null;
+    if (prox) arestasCriticas.add(`${id}>${prox}`);
+    id = prox;
+  }
+  // Caminho crítico só faz sentido com pelo menos uma dependência.
+  if (arestas.length === 0) criticas.clear();
+  const setas: Seta[] = arestas.map((d) => ({ de: d.depende_de_id, para: d.tarefa_id, critica: arestasCriticas.has(`${d.depende_de_id}>${d.tarefa_id}`) }));
+
   const porFaixa = new Map<string, { titulo: string; itens: typeof itens; dias: number }>();
   for (const item of itens) {
     for (const { chave, titulo } of chavesDa(item.no)) {
@@ -109,6 +158,12 @@ export function LinhaDoTempo({
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-soft ring-1 ring-danger" /> atrasada (borda vermelha)</span>
         <span className="flex items-center gap-1.5">⏳ aguardando outra tarefa</span>
         <span className="flex items-center gap-1.5"><span className="h-3 w-px bg-danger/60" /> hoje</span>
+        {setas.length > 0 && (
+          <>
+            <span className="flex items-center gap-1.5"><span className="h-px w-5 bg-text-muted" /> depende de →</span>
+            <span className="flex items-center gap-1.5"><span className="h-0.5 w-5 bg-wine" /> caminho crítico ({maiorDias} dias: a sequência mais longa — atraso nela atrasa o fim)</span>
+          </>
+        )}
       </div>
       <div className="min-w-[640px]">
         {/* Régua */}
@@ -144,6 +199,7 @@ export function LinhaDoTempo({
         {/* Tarefas, em faixas quando "dividir por" está ligado */}
         <div className="relative mt-2 flex flex-col gap-1">
           <div className="pointer-events-none absolute inset-y-0 w-px bg-danger/60" style={{ left: `${pos(hoje.getTime())}%` }} title="Hoje" />
+          {dividir === "nenhum" && <SetasDependencia setas={setas} />}
           {faixas.map((faixa) => (
             <div key={faixa.chave} className="flex flex-col gap-1">
               {dividir !== "nenhum" && (
@@ -173,10 +229,11 @@ export function LinhaDoTempo({
                     className={`absolute top-0.5 h-4 rounded-sm ${
                       // Cor = status; atrasada ganha só a borda vermelha, dependência fica no ⏳ do título.
                       feita ? "bg-success-soft" : no.status === "fazendo" ? "bg-primary-fill" : "bg-primary-soft"
-                    } ${atrasada ? "ring-1 ring-danger" : ""
+                    } ${atrasada ? "ring-1 ring-danger" : criticas.has(no.id) ? "ring-1 ring-wine" : ""
                     }`}
+                    data-barra={no.id}
                     style={{ left: `${pos(iniT)}%`, width: `${Math.max(0.6, pos(fimT) - pos(iniT))}%` }}
-                    title={`${no.titulo}${resp ? ` · ${resp.nome}` : ""}`}
+                    title={`${no.titulo}${resp ? ` · ${resp.nome}` : ""}${criticas.has(no.id) ? " · caminho crítico" : ""}`}
                   />
                 </div>
                 <span className="w-[70px] shrink-0 truncate text-[10.5px] text-text-faint">{resp?.nome ?? ""}</span>
