@@ -166,8 +166,8 @@ export function LinhaDoTempo({
         )}
       </div>
       <div className="min-w-[640px]">
-        {/* Régua */}
-        <div className="relative h-5 border-b border-border-soft text-[10px] text-text-faint">
+        {/* Régua — alinhada à coluna das barras (título à esquerda, nome à direita ficam fora da escala). */}
+        <div className="relative ml-[208px] mr-[78px] h-5 border-b border-border-soft text-[10px] text-text-faint">
           {marcas.map((mk) => (
             <span key={mk.label} className="absolute -translate-x-1/2" style={{ left: `${mk.left}%` }}>
               {mk.label}
@@ -177,7 +177,7 @@ export function LinhaDoTempo({
 
         {/* Fases do projeto */}
         {fasesComData.length > 0 && (
-          <div className="relative mt-2 h-6">
+          <div className="relative ml-[208px] mr-[78px] mt-2 h-6">
             {fasesComData.map((f, i) => {
               const a = f.data_inicio ? dia(f.data_inicio) : inicio;
               const b = f.data_fim ? dia(f.data_fim) + DIA : fim;
@@ -198,7 +198,10 @@ export function LinhaDoTempo({
 
         {/* Tarefas, em faixas quando "dividir por" está ligado */}
         <div className="relative mt-2 flex flex-col gap-1">
-          <div className="pointer-events-none absolute inset-y-0 w-px bg-danger/60" style={{ left: `${pos(hoje.getTime())}%` }} title="Hoje" />
+          {/* Linha de hoje: dentro de um trilho com as mesmas margens da coluna das barras. */}
+          <div className="pointer-events-none absolute inset-y-0 left-[208px] right-[78px]">
+            <div className="absolute inset-y-0 w-px bg-danger/60" style={{ left: `${pos(hoje.getTime())}%` }} title="Hoje" />
+          </div>
           {dividir === "nenhum" && <SetasDependencia setas={setas} />}
           {faixas.map((faixa) => (
             <div key={faixa.chave} className="flex flex-col gap-1">
