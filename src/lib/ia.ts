@@ -152,7 +152,7 @@ export type TarefaPlano = {
   depende_de: string[];
   subtarefas: SubtarefaPlano[];
 };
-export type ProjetoPlano = { nome: string; descricao: string | null; prazo: string | null; tarefas: TarefaPlano[] };
+export type ProjetoPlano = { nome: string | null; descricao: string | null; prazo: string | null; tarefas: TarefaPlano[] };
 export type PlanoImportado = { projetos: ProjetoPlano[] };
 
 /** Texto de plano (projetos com tarefas numeradas, "Subtarefas:", "RESPONSÁVEL:", "Depende de:",
@@ -162,19 +162,22 @@ export async function extrairPlanoDeTexto(texto: string, nomesConhecidos: string
   const provedor = provedorIa();
   if (!provedor) return { error: "IA não configurada (GEMINI_API_KEY ou ANTHROPIC_API_KEY na Vercel).", plano: null };
   const ano = hoje.slice(0, 4);
-  const prompt = `Você vai converter um plano de trabalho em JSON estruturado. O texto tem projetos ("Projeto 1: ..."), tarefas numeradas ("1.1 Título"), e dentro de cada tarefa pode haver "Obs.", "Subtarefas:" (itens com * ou •), "RESPONSÁVEL:", "Depende de:" e "Início: dd/mm · Prazo: dd/mm". Pode haver um projeto só, sem o cabeçalho "Projeto".
+  const prompt = `Você vai converter um texto de trabalho em JSON estruturado de tarefas. O texto pode ser:
+(a) um PLANO: projetos ("Projeto 1: ..."), tarefas numeradas ("1.1 Título") e, dentro de cada tarefa, "Obs.", "Subtarefas:" (itens com * ou •), "RESPONSÁVEL:", "Depende de:" e "Início: dd/mm · Prazo: dd/mm";
+(b) uma MENSAGEM SOLTA (aviso de programa de fomento, trecho de edital, recado de WhatsApp, ata): aí extraia as AÇÕES que ela exige de quem recebeu — entregas, envios, relatórios, decisões — cada uma como tarefa, sem inventar projeto: use um único elemento em "projetos" com "nome": null.
 
 Regras:
-- Cada item de "Subtarefas:" é uma ATIVIDADE dentro da tarefa — nunca vira tarefa.
+- Cada item de "Subtarefas:" (ou lista claramente subordinada a uma tarefa) é uma ATIVIDADE dentro da tarefa — nunca vira tarefa.
+- Só crie projeto quando o texto nomeia um ("Projeto X:" ou cabeçalho equivalente); senão "nome": null.
 - "codigo" é o número da tarefa como está no texto ("1.1", "2.8"); null se não houver.
 - "responsaveis": nomes das pessoas (podem ser vários). Pessoas da equipe: ${nomesConhecidos.join(", ") || "(nenhuma cadastrada)"}. Use o nome como aparece na lista quando bater; "(inclusão Vanessa)" não é responsável, é observação.
 - "depende_de": lista dos códigos citados em "Depende de" (só o código, ex.: "2.8"); inclua os marcados "(sugerida)". Vazio se não houver.
-- Datas: devolva YYYY-MM-DD. Datas "dd/mm" sem ano pertencem a ${ano} (hoje é ${hoje}); se o texto trouxer o ano, use-o. Atividade com data entre parênteses no fim do item, ex. "(23/10)", recebe esse prazo; se o parêntese tiver um nome, é o responsável da atividade.
+- Datas: devolva YYYY-MM-DD. Datas "dd/mm" sem ano pertencem a ${ano} (hoje é ${hoje}); se o texto trouxer o ano, use-o. Atividade com data entre parênteses no fim do item, ex. "(23/10)", recebe esse prazo; se o parêntese tiver um nome, é o responsável da atividade. Prazo só quando a data está EXPLÍCITA no texto — urgência sem data é prazo null, nunca estime.
 - "descricao" da tarefa = o texto de "Obs.:"/"Objetivo:" (null se não houver). "descricao" do projeto = a linha "Descrição:"; "prazo" do projeto = a data de finalização citada, se houver.
 - Não invente nada que não esteja no texto. Não resuma títulos.
 
 Responda APENAS com JSON, sem markdown, exatamente neste formato:
-{"projetos":[{"nome":"...","descricao":"...|null","prazo":"YYYY-MM-DD|null","tarefas":[{"codigo":"1.1|null","titulo":"...","descricao":"...|null","responsaveis":["Nome"],"inicio":"YYYY-MM-DD|null","prazo":"YYYY-MM-DD|null","depende_de":["1.2"],"subtarefas":[{"titulo":"...","responsavel":"Nome|null","prazo":"YYYY-MM-DD|null"}]}]}]}
+{"projetos":[{"nome":"...|null","descricao":"...|null","prazo":"YYYY-MM-DD|null","tarefas":[{"codigo":"1.1|null","titulo":"...","descricao":"...|null","responsaveis":["Nome"],"inicio":"YYYY-MM-DD|null","prazo":"YYYY-MM-DD|null","depende_de":["1.2"],"subtarefas":[{"titulo":"...","responsavel":"Nome|null","prazo":"YYYY-MM-DD|null"}]}]}]}
 
 Texto:
 """
@@ -196,9 +199,9 @@ ${texto}
     const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
     const plano: PlanoImportado = {
       projetos: dados.projetos
-        .filter((p) => p && str(p.nome))
+        .filter((p) => p && Array.isArray(p.tarefas))
         .map((p) => ({
-          nome: str(p.nome)!,
+          nome: str(p.nome),
           descricao: str(p.descricao),
           prazo: data(p.prazo),
           tarefas: (Array.isArray(p.tarefas) ? p.tarefas : [])
@@ -217,7 +220,8 @@ ${texto}
             })),
         })),
     };
-    if (plano.projetos.length === 0) return { error: "Não encontrei projeto nem tarefa nesse texto.", plano: null };
+    plano.projetos = plano.projetos.filter((p) => p.tarefas.length > 0);
+    if (plano.projetos.length === 0) return { error: "Não encontrei nenhuma tarefa nesse texto.", plano: null };
     return { error: null, plano };
   } catch {
     return { error: "Resposta da IA veio num formato inesperado (JSON cortado ou inválido) — tente colar um projeto por vez.", plano: null };

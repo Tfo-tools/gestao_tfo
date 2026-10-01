@@ -83,7 +83,7 @@ export async function sugerirPlanoDeTexto(texto: string): Promise<{ error: strin
 /** Cria tudo ligado: projeto (reaproveita se já existir um com o mesmo nome), tarefas no projeto,
  * atividades como subtarefas e dependências pelos códigos ("1.1" → id). Responsável = primeiro
  * nome que bater com o perfil; os demais viram participantes. */
-export async function importarPlano(plano: PlanoImportado): Promise<{ error: string | null; projetos: number; tarefas: number; atividades: number; dependencias: number }> {
+export async function importarPlano(plano: PlanoImportado, programaId: string | null = null): Promise<{ error: string | null; projetos: number; tarefas: number; atividades: number; dependencias: number }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -104,13 +104,19 @@ export async function importarPlano(plano: PlanoImportado): Promise<{ error: str
     return (pessoas ?? []).find((p) => normalizar(p.nome) === n || normalizar(p.nome).split(" ")[0] === n.split(" ")[0]) ?? null;
   };
 
+  // Programa escolhido na tela vira etiqueta (é assim que "ver tudo do Centelha" funciona).
+  let etiquetas: string[] = [];
+  if (programaId) {
+    const { data: programa } = await supabase.from("programas_investimento").select("nome").eq("id", programaId).maybeSingle();
+    if (programa?.nome) etiquetas = [await etiquetaDoPrograma(programa.nome)];
+  }
   let nProjetos = 0, nTarefas = 0, nAtividades = 0, nDeps = 0;
   const idPorCodigo = new Map<string, string>();
   const pendentesDeps: { tarefaId: string; codigos: string[] }[] = [];
 
   for (const proj of plano.projetos) {
-    let projetoId = (projetosExistentes ?? []).find((p) => normalizar(p.nome) === normalizar(proj.nome))?.id ?? null;
-    if (!projetoId) {
+    let projetoId = proj.nome ? ((projetosExistentes ?? []).find((p) => normalizar(p.nome) === normalizar(proj.nome!))?.id ?? null) : null;
+    if (!projetoId && proj.nome) {
       const descricao = [proj.descricao, proj.prazo ? `Prazo previsto: ${proj.prazo.split("-").reverse().join("/")}` : null].filter(Boolean).join(" ");
       const { data, error } = await supabase
         .from("projetos")
@@ -138,7 +144,7 @@ export async function importarPlano(plano: PlanoImportado): Promise<{ error: str
           prazo: t.prazo,
           projeto_id: projetoId,
           ordem: i,
-          etiquetas: ["plano-importado"],
+          etiquetas: proj.nome ? [...etiquetas, "plano-importado"] : etiquetas,
           criado_por: user?.id ?? null,
         })
         .select("id")
