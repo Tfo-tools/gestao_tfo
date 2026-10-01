@@ -101,6 +101,15 @@ export function LinhaDoTempo({
 
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-surface p-4">
+      {/* Legenda das cores — a mesma regra das barras lá embaixo. */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10.5px] text-text-muted">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-soft" /> a fazer</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-fill" /> fazendo</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-warning-soft" /> aguardando outra tarefa (dependência ainda aberta)</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full border border-danger bg-danger-soft" /> atrasada</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-success-soft" /> feita</span>
+        <span className="flex items-center gap-1.5"><span className="h-3 w-px bg-danger/60" /> hoje</span>
+      </div>
       <div className="min-w-[640px]">
         {/* Régua */}
         <div className="relative h-5 border-b border-border-soft text-[10px] text-text-faint">
