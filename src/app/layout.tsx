@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Sora, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Sora, IBM_Plex_Sans, IBM_Plex_Mono, Poppins, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 
@@ -21,6 +21,21 @@ const plexMono = IBM_Plex_Mono({
   weight: ["500"],
 });
 
+// Fontes da MARCA (brandbook): Poppins no texto corrido do slogan e uma itálica serifada de alto
+// contraste nas palavras em destaque. Só a tela inicial usa; o resto do app segue em Sora/Plex.
+const poppins = Poppins({
+  variable: "--font-poppins",
+  subsets: ["latin"],
+  weight: ["400"],
+});
+
+const playfair = Playfair_Display({
+  variable: "--font-playfair",
+  subsets: ["latin"],
+  style: ["italic"],
+  weight: ["400"],
+});
+
 export const metadata: Metadata = {
   title: "TFO-Gestão",
   description: "Gestão interna de produtos SaaS da The Fashion Office",
@@ -40,7 +55,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="pt-BR"
-      className={`${sora.variable} ${plexSans.variable} ${plexMono.variable} h-full antialiased`}
+      className={`${sora.variable} ${plexSans.variable} ${plexMono.variable} ${poppins.variable} ${playfair.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {children}

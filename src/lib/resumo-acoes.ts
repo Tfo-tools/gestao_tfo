@@ -234,3 +234,79 @@ export function dataPorExtenso(agora: Date) {
   const semana = Math.ceil(((d.getTime() - inicioAno.getTime()) / 86400000 + 1) / 7);
   return `${capitalizado} · semana ${semana}`;
 }
+
+// ── Foco da semana (automático) ────────────────────────────────────────────────────────────────
+// Decisão de 04/10/2026: o foco não é digitado — o app olha o vencimento das tarefas e diz qual
+// projeto concentra mais trabalho nesta semana (segunda a domingo) e qual vem na semana que vem.
+
+export type ProjetoDaSemana = { nome: string; total: number; feitas: number; atrasadas: number };
+export type FocoAutomatico = {
+  inicio: string;
+  fim: string;
+  /** Projeto com mais tarefas vencendo nesta semana (null = nenhuma tarefa com prazo na semana). */
+  atual: ProjetoDaSemana | null;
+  totalSemana: number;
+  feitasSemana: number;
+  /** Projeto com mais tarefas na semana que vem. */
+  proxima: ProjetoDaSemana | null;
+  totalProxima: number;
+};
+
+type TarefaSemana = { prazo: string; status: string; projeto_id: string | null };
+
+function somarDiasIso(iso: string, n: number) {
+  return new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
+}
+
+/** Puro: agrupa por projeto e devolve o mais demandado de cada semana. */
+export function calcularFocoSemana(tarefas: TarefaSemana[], nomes: Map<string, string>, hoje: string): FocoAutomatico {
+  const diaSemana = new Date(`${hoje}T00:00:00Z`).getUTCDay() || 7; // 1 = segunda … 7 = domingo
+  const inicio = somarDiasIso(hoje, 1 - diaSemana);
+  const fim = somarDiasIso(inicio, 6);
+  const inicioProxima = somarDiasIso(inicio, 7);
+  const fimProxima = somarDiasIso(inicio, 13);
+
+  const maisDemandado = (lista: TarefaSemana[]): ProjetoDaSemana | null => {
+    const grupos = new Map<string, ProjetoDaSemana>();
+    for (const t of lista) {
+      const chave = t.projeto_id ?? "sem";
+      const g = grupos.get(chave) ?? { nome: t.projeto_id ? (nomes.get(t.projeto_id) ?? "Projeto") : "Tarefas avulsas", total: 0, feitas: 0, atrasadas: 0 };
+      g.total += 1;
+      if (t.status === "feito") g.feitas += 1;
+      else if (t.prazo < hoje) g.atrasadas += 1;
+      grupos.set(chave, g);
+    }
+    // A pergunta é "que PROJETO tem mais tarefas": avulsas só aparecem como foco quando nenhum
+    // projeto tem tarefa na semana. Empate entre projetos: o que tem mais por fazer.
+    const ordenar = (lista: [string, ProjetoDaSemana][]) => lista.sort((a, b) => b[1].total - a[1].total || b[1].total - b[1].feitas - (a[1].total - a[1].feitas));
+    const comNome = ordenar([...grupos.entries()].filter(([chave]) => chave !== "sem"));
+    return comNome[0]?.[1] ?? grupos.get("sem") ?? null;
+  };
+
+  const semana = tarefas.filter((t) => t.prazo >= inicio && t.prazo <= fim);
+  const proxima = tarefas.filter((t) => t.prazo >= inicioProxima && t.prazo <= fimProxima);
+  return {
+    inicio,
+    fim,
+    atual: maisDemandado(semana),
+    totalSemana: semana.length,
+    feitasSemana: semana.filter((t) => t.status === "feito").length,
+    proxima: maisDemandado(proxima),
+    totalProxima: proxima.length,
+  };
+}
+
+export async function montarFocoSemana(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  hoje: string,
+): Promise<FocoAutomatico> {
+  const diaSemana = new Date(`${hoje}T00:00:00Z`).getUTCDay() || 7;
+  const inicio = somarDiasIso(hoje, 1 - diaSemana);
+  const [{ data: tarefas }, { data: projetos }] = await Promise.all([
+    supabase.from("tarefas").select("prazo, status, projeto_id").gte("prazo", inicio).lte("prazo", somarDiasIso(inicio, 13)),
+    supabase.from("projetos").select("id, nome"),
+  ]);
+  const nomes = new Map(((projetos ?? []) as { id: string; nome: string }[]).map((p) => [p.id, p.nome]));
+  return calcularFocoSemana((tarefas ?? []) as TarefaSemana[], nomes, hoje);
+}
