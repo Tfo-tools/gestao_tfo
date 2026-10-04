@@ -176,9 +176,14 @@ export default async function VisaoGeralPage() {
                 rel="noopener noreferrer"
                 className="flex items-center gap-3 rounded-xl bg-wine px-3.5 py-3 text-white shadow-[0_3px_0_var(--color-wine-deep)] transition active:translate-y-px active:shadow-none hover:bg-wine-deep"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white font-heading text-[15px] font-semibold text-wine">{a.sigla}</span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary font-heading text-[15px] font-semibold text-white">{a.sigla}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-heading text-[14px] font-semibold leading-tight">Abrir {a.nome} ↗</span>
+                  <span className="flex items-center gap-1 font-heading text-[14px] font-semibold leading-tight">
+                    Abrir {a.nome}
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M7 17 17 7M9 7h8v8" />
+                    </svg>
+                  </span>
                   <span className="block truncate text-[11px] text-white/75">{a.descricao}</span>
                 </span>
               </a>
