@@ -61,7 +61,7 @@ function FocoBanner({ foco }: { foco: FocoAutomatico }) {
       </p>
       {a ? (
         <>
-          <Link href="/tarefas?visao=situacao&responsavel=todas" className="mt-0.5 block font-heading text-[16px] font-semibold leading-snug hover:underline">
+          <Link href="/tarefas?visao=situacao&responsavel=todas" className="mt-0.5 block font-heading text-[16px] font-semibold leading-snug text-primary-soft hover:text-white hover:underline">
             {a.nome}
           </Link>
           <p className="mt-1 text-[12px] text-white/85">
@@ -80,7 +80,7 @@ function FocoBanner({ foco }: { foco: FocoAutomatico }) {
         Semana que vem:{" "}
         {foco.proxima ? (
           <>
-            <span className="font-medium text-white/95">{foco.proxima.nome}</span> com {foco.proxima.total} {plural(foco.proxima.total, "tarefa", "tarefas")}
+            <span className="font-medium text-primary-soft">{foco.proxima.nome}</span> com {foco.proxima.total} {plural(foco.proxima.total, "tarefa", "tarefas")}
             {foco.totalProxima > foco.proxima.total ? ` (${foco.totalProxima} no total)` : ""}
           </>
         ) : (
