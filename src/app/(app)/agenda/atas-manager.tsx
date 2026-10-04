@@ -21,7 +21,7 @@ const initialState: ActionState = { error: null };
 /** Atas que chegaram pelo webhook do Fathom e não casaram com nenhuma reunião marcada no app nem
  * compromisso do Google (reuniao_id e google_event_id nulos). Ficam numa seção própria no topo da
  * Agenda; "Extrair ações (IA)" continua disponível pra reprocessar, embora as tarefas já tenham
- * sido criadas sozinhas quando a ata entrou. */
+ * ido para a fila de aprovação em Tarefas quando a ata entrou. */
 export function AtasSemReuniao({ atas, pessoas, iaConfigurada }: { atas: Ata[]; pessoas: Pessoa[]; iaConfigurada: boolean }) {
   const [abertas, setAbertas] = useState<Set<string>>(new Set());
   if (atas.length === 0) return null;

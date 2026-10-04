@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { iaConfigurada, extrairAcoesDaAta } from "@/lib/ia";
 import { listarEventosEntre } from "@/lib/google-calendar";
 import { buscarTranscricaoFathom, extrairRecordingId, montarAta, verificarAssinaturaFathom, type FathomPayload } from "@/lib/fathom";
+import { maisParecida } from "@/lib/similaridade";
 
 /**
  * Ata do Fathom entra sozinha, na reunião certa: o Fathom chama aqui quando termina de processar.
@@ -12,15 +13,13 @@ import { buscarTranscricaoFathom, extrairRecordingId, montarAta, verificarAssina
  *    (±30 min do início da gravação), desempatando por convidado em comum;
  * 3. salva/atualiza a ata em reuniao_atas (chave fathom_recording_id — reenvio não duplica). Se a
  *    reunião já tinha ata escrita à mão, a do Fathom entra abaixo dela, sem apagar nada;
- * 4. na PRIMEIRA entrada, a IA (Gemini, plano grátis) extrai os próximos passos e cria as tarefas
- *    direto, com a etiqueta criada-automaticamente (decisão da Vanessa: só reunião pula a revisão).
- *    FATHOM_TAREFAS_AUTOMATICAS=0 desliga.
+ * 4. na PRIMEIRA entrada, a IA (Gemini) extrai os próximos passos como SUGESTÕES que aguardam
+ *    aprovação em Tarefas (não cria tarefa direto). FATHOM_TAREFAS_AUTOMATICAS=0 desliga.
  * Roda com o service role porque não há sessão de usuário numa chamada de webhook.
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const ETIQUETA_AUTOMATICA = "criada-automaticamente";
 const JANELA_MINUTOS = 30;
 
 type ReuniaoApp = { id: string; data_hora_inicio: string; google_event_id: string | null; contatos_externos: { email: string | null } | { email: string | null }[] | null };
@@ -166,31 +165,41 @@ export async function POST(request: NextRequest) {
     ataId = nova.id;
   }
 
-  // ── Tarefas automáticas (desligadas por padrão) ────────────────────────────────────────────
-  let tarefasCriadas = 0;
+  // ── Sugestões de tarefa (aguardam aprovação) ────────────────────────────────────────────
+  // A IA não cria mais tarefa direto (04/10/2026: reunião que reafirma atividades gerava duplicata).
+  // Ela sugere; a sugestão aparece em Tarefas → "Aguardando aprovação", com aviso quando parece
+  // repetir uma tarefa aberta, e as sócias aprovam ou recusam.
+  let sugeridas = 0;
   let aviso: string | null = null;
   if (process.env.FATHOM_TAREFAS_AUTOMATICAS !== "0" && iaConfigurada()) {
-    const { data: pessoas } = await admin.from("profiles").select("id, nome");
+    const [{ data: pessoas }, { data: abertas }] = await Promise.all([
+      admin.from("profiles").select("id, nome"),
+      admin.from("tarefas").select("id, titulo").neq("status", "feito").is("parent_id", null),
+    ]);
     const lista = (pessoas ?? []) as { id: string; nome: string }[];
-    const { error: erroIa, acoes } = await extrairAcoesDaAta(ata.conteudo, lista.map((p) => p.nome));
+    const tarefasAbertas = (abertas ?? []) as { id: string; titulo: string }[];
+    const { error: erroIa, acoes } = await extrairAcoesDaAta(
+      ata.conteudo,
+      lista.map((p) => p.nome),
+      tarefasAbertas.map((t) => t.titulo),
+    );
     if (erroIa) aviso = erroIa;
     if (acoes.length > 0) {
-      const quando = ata.data_reuniao.split("-").reverse().join("/");
-      const { error: erroTarefas } = await admin.from("tarefas").insert(
+      const { error: erroSug } = await admin.from("sugestoes_tarefa").insert(
         acoes.map((a) => {
           const pessoa = lista.find((p) => p.nome.toLowerCase() === (a.responsavel_sugerido ?? "").toLowerCase());
           return {
+            ata_id: ataId,
             titulo: a.titulo,
-            descricao: `Criada automaticamente a partir da ata do Fathom «${ata.titulo}» (${quando}) — ainda não revisada.${a.responsavel_sugerido && !pessoa ? ` Responsável sugerido: ${a.responsavel_sugerido}.` : ""}`,
+            responsavel_sugerido: a.responsavel_sugerido,
             responsavel_id: pessoa?.id ?? null,
-            prazo: a.prazo_sugerido,
-            origem_ata_id: ataId,
-            etiquetas: [ETIQUETA_AUTOMATICA],
+            prazo_sugerido: a.prazo_sugerido,
+            parecida_com: maisParecida(a.titulo, tarefasAbertas)?.id ?? null,
           };
         }),
       );
-      if (erroTarefas) aviso = erroTarefas.message;
-      else tarefasCriadas = acoes.length;
+      if (erroSug) aviso = erroSug.message;
+      else sugeridas = acoes.length;
     }
   }
 
@@ -198,7 +207,7 @@ export async function POST(request: NextRequest) {
     ok: true,
     ata_id: ataId,
     vinculo: reuniao_id ? { reuniao_id } : google_event_id ? { google_event_id } : "sem reunião identificada",
-    tarefas_criadas: tarefasCriadas,
+    sugestoes: sugeridas,
     aviso,
   });
 }

@@ -32,11 +32,14 @@ Se não houver nenhuma ação, responda com um array vazio: []`;
 
 /** Ata de reunião → próximos passos combinados. Na tela a sócia revisa antes de virar tarefa; a
  * ata que chega do Fathom cria as tarefas direto, com a etiqueta `criada-automaticamente`. */
-export async function extrairAcoesDaAta(conteudo: string, nomesConhecidos: string[]): Promise<{ error: string | null; acoes: AcaoSugerida[] }> {
+export async function extrairAcoesDaAta(conteudo: string, nomesConhecidos: string[], tarefasAbertas: string[] = []): Promise<{ error: string | null; acoes: AcaoSugerida[] }> {
   const prompt = `Você vai ler a ata de uma reunião de trabalho e extrair só os PRÓXIMOS PASSOS/AÇÕES combinados — não um resumo geral, só o que alguém ficou de fazer.
 
 Pessoas que costumam aparecer nessas reuniões: ${nomesConhecidos.join(", ") || "(nenhuma cadastrada)"}.
-
+${tarefasAbertas.length > 0 ? `
+Tarefas que JÁ EXISTEM e estão abertas (não repita nenhuma delas, nem com outras palavras — se a reunião só reafirmou uma delas, ignore):
+${tarefasAbertas.slice(0, 80).map((t) => `- ${t}`).join("\n")}
+` : ""}
 ${FORMATO}
 No prazo_sugerido, use a data se houver prazo explícito ou implícito (ex: 'até sexta'); senão null.
 

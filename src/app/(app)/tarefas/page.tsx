@@ -5,6 +5,7 @@ import { ProjetosPanel, type PillProjeto } from "./projetos-panel";
 import { CardsProvider } from "./cards-contexto";
 import { GrupoRecolhivel } from "./grupo-recolhivel";
 import { FerramentasBarra } from "./ferramentas-barra";
+import { SugestoesPanel, type Sugestao } from "./sugestoes-panel";
 import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { RotinasPanel } from "./rotinas-panel";
@@ -121,6 +122,25 @@ export default async function TarefasPage({
   const semPrazo = todas.filter((t) => t.status !== "feito" && !t.parent_id && !t.prazo).length;
   const semResponsavel = todas.filter((t) => t.status !== "feito" && !t.parent_id && !t.responsavel_id);
   const { data: programasRaw } = await supabase.from("programas_investimento").select("id, nome").order("nome");
+  // Sugestões da IA (atas do Fathom) esperando decisão — aparecem no topo, com aviso de duplicata.
+  const { data: sugestoesRaw } = await supabase
+    .from("sugestoes_tarefa")
+    .select("id, titulo, responsavel_sugerido, responsavel_id, prazo_sugerido, parecida_com, reuniao_atas(titulo, data_reuniao)")
+    .eq("status", "pendente")
+    .order("criado_em");
+  const sugestoes: Sugestao[] = (sugestoesRaw ?? []).map((r) => {
+    const ata = (Array.isArray(r.reuniao_atas) ? r.reuniao_atas[0] : r.reuniao_atas) as { titulo: string; data_reuniao: string } | null;
+    return {
+      id: r.id,
+      titulo: r.titulo,
+      responsavel_sugerido: r.responsavel_sugerido,
+      responsavel_id: r.responsavel_id,
+      prazo_sugerido: r.prazo_sugerido,
+      ata_titulo: ata?.titulo ?? null,
+      ata_data: ata?.data_reuniao ?? null,
+      parecida_titulo: r.parecida_com ? (todas.find((t) => t.id === r.parecida_com)?.titulo ?? null) : null,
+    };
+  });
 
   const contagem: Record<string, { total: number; feitas: number }> = {};
   for (const t of todas) {
@@ -210,6 +230,7 @@ export default async function TarefasPage({
           {semPrazo > 0 && semResponsavel.length > 0 && " · "}
           {semResponsavel.length > 0 && <span className="text-amber-700">{semResponsavel.length} sem responsável</span>}
           {bloqueadas > 0 && <span className="text-text-faint"> · {bloqueadas} aguardando outra</span>}
+          {sugestoes.length > 0 && <span className="text-amber-800"> · {sugestoes.length} sugest{sugestoes.length === 1 ? "ão" : "ões"} da IA para aprovar</span>}
           {atrasadas === 0 && hojeCount === 0 && semPrazo === 0 && semResponsavel.length === 0 && "Tudo em dia."}
         </p>
         <span className="ml-auto">
@@ -258,6 +279,8 @@ export default async function TarefasPage({
           preferências
         </a>
       </div>
+
+      {sugestoes.length > 0 && <SugestoesPanel sugestoes={sugestoes} pessoas={pessoas ?? []} projetos={projetos.filter((p) => p.status === "ativo").map((p) => ({ id: p.id, nome: p.nome }))} />}
 
       {/* Projetos: filtro em pílulas + cadastro (recolhido). Só na visão por projeto e na linha do tempo. */}
       {(visao === "projeto" || visao === "linha") && <ProjetosPanel pills={pills} projetos={projetos} fases={fases} fasesProduto={fasesProduto} contagem={contagem} />}
