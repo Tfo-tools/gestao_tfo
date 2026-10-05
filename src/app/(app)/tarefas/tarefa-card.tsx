@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useRef, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, tornarAtividadeDe, type TarefaFormState } from "./actions";
 import { CamposTarefa } from "./campos-tarefa";
@@ -230,6 +230,7 @@ export function TarefaCard({
   mostrarFase = true,
   mostrarProjeto = false,
   emQuadro = false,
+  destaque = false,
 }: {
   no: TarefaNo;
   dados: DadosFormulario;
@@ -238,8 +239,30 @@ export function TarefaCard({
   mostrarProjeto?: boolean;
   /** Coluna estreita do Quadro: título inteiro em cima, projeto/quem/prazo embaixo (em vez de tudo numa linha). */
   emQuadro?: boolean;
+  /** Chegou por link direto (?tarefa=id): nasce aberta, destacada e rola até ela. */
+  destaque?: boolean;
 }) {
-  const [aberto, alternarAberto] = useCardAberto();
+  const [aberto, alternarAberto] = useCardAberto(destaque);
+  const [linkCopiado, setLinkCopiado] = useState(false);
+  const raiz = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (destaque) raiz.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [destaque]);
+  // Link da tarefa: no celular abre a folha de compartilhar (WhatsApp etc.); no computador copia.
+  const compartilhar = async () => {
+    const url = `${window.location.origin}/tarefas?tarefa=${no.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: no.titulo, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setLinkCopiado(true);
+      setTimeout(() => setLinkCopiado(false), 2000);
+    } catch {
+      /* cancelou a folha de compartilhar ou sem permissão de área de transferência */
+    }
+  };
   const [editando, setEditando] = useState(false);
   const [novaSub, setNovaSub] = useState(false);
   const [movendo, setMovendo] = useState(false);
@@ -277,12 +300,13 @@ export function TarefaCard({
 
   return (
     <div
+      ref={raiz}
       data-tarefa={no.id}
       data-aguarda={no.aguardando.map((a) => a.id).join(",")}
       data-libera={libera.map((l) => l.id).join(",")}
       className={`card-tarefa flex flex-col rounded-lg border ${
         feita ? "border-border-soft bg-bg opacity-60" : bloqueada ? "border-warning bg-warning-soft/40" : no.status === "fazendo" ? "border-primary-fill bg-surface" : "border-border-soft bg-surface"
-      } ${atrasada ? "border-l-[3px] border-l-danger" : ""}`}
+      } ${atrasada ? "border-l-[3px] border-l-danger" : ""} ${destaque ? "ring-2 ring-primary-fill ring-offset-2 ring-offset-bg" : ""}`}
     >
       {/* Cabeçalho: UMA linha — caixa de feito, título, projeto, quem, prazo. Clicar no título abre
           o detalhe (só desta tarefa). Atrasada ganha a faixa vermelha na borda esquerda. */}
@@ -322,6 +346,15 @@ export function TarefaCard({
               {textoPrazo && <span className={`w-[76px] shrink-0 text-right text-[10.5px] ${corPrazo}`}>{textoPrazo}</span>}
             </>
           )}
+        </button>
+        <button
+          type="button"
+          onClick={compartilhar}
+          title={linkCopiado ? "Link copiado" : "Enviar o link desta tarefa"}
+          aria-label="Enviar o link desta tarefa"
+          className={`shrink-0 rounded px-1 text-[12px] hover:bg-bg ${linkCopiado ? "text-success" : "text-text-faint hover:text-primary-deep"}`}
+        >
+          {linkCopiado ? "✓" : "🔗"}
         </button>
         {/* Ações rápidas, sem abrir o detalhe: a IA cria tarefa redundante ou que é só etapa de
             outra — daqui dá pra excluir ou rebaixar a atividade em dois cliques. */}

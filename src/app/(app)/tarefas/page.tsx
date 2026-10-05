@@ -28,14 +28,17 @@ const LABEL_FASE_PRODUTO: Record<string, string> = Object.fromEntries(FASES.map(
 export default async function TarefasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string | string[]; visao?: string; dividir?: string; agrupar?: string; q?: string }>;
+  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string | string[]; visao?: string; dividir?: string; agrupar?: string; q?: string; tarefa?: string }>;
 }) {
   const sp = await searchParams;
   // Busca (lupa): sem aba escolhida, procura em TODAS — quem busca quer achar, mesmo que já esteja feita.
-  const busca = (sp.q ?? "").trim();
-  const status = busca && !sp.status ? "todas" : sp.status;
+  // Link direto de uma tarefa (?tarefa=id, botão 🔗 do card): abre em "todas", sem filtro de
+  // projeto nem "só as minhas", pra sócia que recebeu o link achar a tarefa de primeira.
+  const tarefaFoco = (sp.tarefa ?? "").trim() || null;
+  const busca = tarefaFoco ? "" : (sp.q ?? "").trim();
+  const status = tarefaFoco ? "todas" : busca && !sp.status ? "todas" : sp.status;
   // Vários projetos ao mesmo tempo: ?projeto=a&projeto=b ("sem" = sem projeto). Vazio = todos.
-  const projetosSel = [...new Set((Array.isArray(sp.projeto) ? sp.projeto : sp.projeto ? [sp.projeto] : []).filter(Boolean))];
+  const projetosSel = tarefaFoco ? [] : [...new Set((Array.isArray(sp.projeto) ? sp.projeto : sp.projeto ? [sp.projeto] : []).filter(Boolean))];
   const projetoSel = projetosSel.length === 1 ? projetosSel[0] : "";
   const dentroDaSelecao = (projetoId: string | null) => projetosSel.length === 0 || (projetoId ? projetosSel.includes(projetoId) : projetosSel.includes("sem"));
   const dividir = (["etiqueta", "produto", "pessoa"].includes(sp.dividir ?? "") ? sp.dividir : "nenhum") as DividirPor;
@@ -52,7 +55,7 @@ export default async function TarefasPage({
   const visaoPadrao = (["projeto", "situacao", "quadro"].includes(prefs?.tarefas_visao_padrao ?? "") ? prefs!.tarefas_visao_padrao : "projeto") as Visao;
   const visao: Visao = (VISOES.some((v) => v.valor === sp.visao) ? (sp.visao as Visao) : visaoPadrao);
   // "responsavel=todas" na URL desliga o "só as minhas" só nesta abertura.
-  const responsavel = sp.responsavel === "todas" ? undefined : (sp.responsavel ?? (prefs?.tarefas_so_minhas && user ? user.id : undefined));
+  const responsavel = tarefaFoco || sp.responsavel === "todas" ? undefined : (sp.responsavel ?? (prefs?.tarefas_so_minhas && user ? user.id : undefined));
 
   // Rotina de gestão: cria as ocorrências que faltam antes de carregar as tarefas, pra próxima já
   // aparecer. Idempotente — o cron diário faz o mesmo quando ninguém abre a tela.
@@ -221,10 +224,12 @@ export default async function TarefasPage({
   const abertoInicial = false;
   const rotinasAtivas = rotinas.filter((r) => r.ativo).length;
   const atrasadaNo = (n: TarefaNo) => n.status !== "feito" && !!n.prazo && n.prazo < hoje;
-  const gruposSituacao = agruparPorSituacao(raizes, hoje);
-  const gruposProjeto = agruparPorProjeto(raizes, projetos, fases, hoje);
+  // Grupo que contém a tarefa do link nasce aberto, mesmo que normalmente nascesse recolhido.
+  const contemFoco = (nos: TarefaNo[]) => !!tarefaFoco && nos.some((n) => desce(n).some((x) => x.id === tarefaFoco));
+  const gruposSituacao = agruparPorSituacao(raizes, hoje).map((g) => ({ ...g, abertoInicial: g.abertoInicial || contemFoco(g.nos) }));
+  const gruposProjeto = agruparPorProjeto(raizes, projetos, fases, hoje).map((g) => ({ ...g, abertoInicial: g.abertoInicial || contemFoco(g.nos) }));
   const listaLinhas = (nos: TarefaNo[], mostrarProjeto: boolean, emQuadro = false) =>
-    nos.map((n) => <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} mostrarProjeto={mostrarProjeto} emQuadro={emQuadro} />);
+    nos.map((n) => <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} mostrarProjeto={mostrarProjeto} emQuadro={emQuadro} destaque={n.id === tarefaFoco} />);
   // As três colunas do quadro (a fazer · fazendo · feito) pra um conjunto de tarefas. No quadro
   // a coluna é estreita: o card mostra o título inteiro numa linha e projeto/quem/prazo na outra.
   const colunasQuadro = (abertas: TarefaNo[], feitas: TarefaNo[], mostrarProjeto: boolean) => (

@@ -20,5 +20,7 @@ export async function signIn(_prevState: AuthState, formData: FormData): Promise
     return { error: "E-mail ou senha incorretos." };
   }
 
-  redirect("/");
+  // Volta pra página que a pessoa tentou abrir (só caminhos internos, nunca outro site).
+  const next = String(formData.get("next") || "");
+  redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/");
 }

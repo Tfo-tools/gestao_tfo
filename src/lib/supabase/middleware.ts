@@ -72,8 +72,11 @@ export async function updateSession(request: NextRequest) {
   const isPublicPath = PUBLIC_PATHS.some((path) => request.nextUrl.pathname.startsWith(path));
 
   if (!user && !isPublicPath) {
+    // Guarda aonde a pessoa ia (ex.: link de uma tarefa) pra voltar lá depois do login.
+    const destino = request.nextUrl.pathname + request.nextUrl.search;
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = destino !== "/" ? `?next=${encodeURIComponent(destino)}` : "";
     return NextResponse.redirect(url);
   }
 

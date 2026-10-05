@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { LoginForm } from "./login-form";
 
-export default function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   return (
     <div className="flex min-h-screen w-full">
       <div
@@ -53,7 +53,7 @@ export default function LoginPage() {
             Acesse com seu e-mail cadastrado
           </p>
 
-          <LoginForm />
+          <LoginForm next={(await searchParams).next ?? ""} />
 
           <div className="mt-6 flex items-start gap-2 rounded-lg bg-primary-soft px-3.5 py-3">
             <span className="text-[11.5px] leading-relaxed text-primary-deep">

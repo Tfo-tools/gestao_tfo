@@ -16,9 +16,9 @@ export function CardsProvider({ abertoInicial, children }: { abertoInicial: bool
 }
 
 /** Estado aberto/recolhido de um card, respeitando o botão global. */
-export function useCardAberto(): [boolean, () => void] {
+export function useCardAberto(abertoProprio = false): [boolean, () => void] {
   const { padrao, geracao } = useContext(CardsContexto);
-  const [local, setLocal] = useState<{ geracao: number; aberto: boolean } | null>(null);
+  const [local, setLocal] = useState<{ geracao: number; aberto: boolean } | null>(abertoProprio ? { geracao, aberto: true } : null);
   const aberto = local && local.geracao === geracao ? local.aberto : padrao;
   const alternar = () => setLocal({ geracao, aberto: !aberto });
   return [aberto, alternar];
