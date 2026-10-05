@@ -40,15 +40,6 @@ export default async function ConfiguracoesPage() {
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
-  // Anexos de tarefa no Drive (05/10/2026): precisa de alguma conexão Google com a permissão do Drive
-  // e da pasta "Arquivos_tarefas" no Espaço TFO. Anexos antigos (Storage) migram pelo botão.
-  const {
-    data: { user: usuarioAtual },
-  } = await supabase.auth.getUser();
-  const [acesso, { count: anexosAntigos }] = await Promise.all([
-    acessoDrive(usuarioAtual?.id ?? null),
-    supabase.from("anexos_tarefa").select("id", { count: "exact", head: true }).not("caminho_arquivo", "is", null),
-  ]);
   const usuarios = (usersData?.users ?? []).sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   );
@@ -58,6 +49,12 @@ export default async function ConfiguracoesPage() {
   const { data: prefs } = usuarioAtual
     ? await supabase.from("profiles").select("tarefas_visao_padrao, tarefas_so_minhas").eq("id", usuarioAtual.id).maybeSingle()
     : { data: null };
+  // Anexos de tarefa no Drive (05/10/2026): precisa de alguma conexão Google com a permissão do Drive
+  // e da pasta "Arquivos_tarefas" no Espaço TFO. Anexos antigos (Storage) migram pelo botão.
+  const [acesso, { count: anexosAntigos }] = await Promise.all([
+    acessoDrive(usuarioAtual?.id ?? null),
+    supabase.from("anexos_tarefa").select("id", { count: "exact", head: true }).not("caminho_arquivo", "is", null),
+  ]);
 
   return (
     <div>
