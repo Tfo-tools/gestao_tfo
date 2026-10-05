@@ -6,6 +6,7 @@ import { CardsProvider } from "./cards-contexto";
 import { GrupoRecolhivel } from "./grupo-recolhivel";
 import { FerramentasBarra } from "./ferramentas-barra";
 import { SugestoesPanel, type Sugestao } from "./sugestoes-panel";
+import { BuscaTarefas } from "./busca-tarefas";
 import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { RotinasPanel } from "./rotinas-panel";
@@ -27,10 +28,12 @@ const LABEL_FASE_PRODUTO: Record<string, string> = Object.fromEntries(FASES.map(
 export default async function TarefasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string | string[]; visao?: string; dividir?: string; agrupar?: string }>;
+  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string | string[]; visao?: string; dividir?: string; agrupar?: string; q?: string }>;
 }) {
   const sp = await searchParams;
-  const { status } = sp;
+  // Busca (lupa): sem aba escolhida, procura em TODAS — quem busca quer achar, mesmo que já esteja feita.
+  const busca = (sp.q ?? "").trim();
+  const status = busca && !sp.status ? "todas" : sp.status;
   // Vários projetos ao mesmo tempo: ?projeto=a&projeto=b ("sem" = sem projeto). Vazio = todos.
   const projetosSel = [...new Set((Array.isArray(sp.projeto) ? sp.projeto : sp.projeto ? [sp.projeto] : []).filter(Boolean))];
   const projetoSel = projetosSel.length === 1 ? projetosSel[0] : "";
@@ -107,13 +110,20 @@ export default async function TarefasPage({
     const mae = porId.get(t.parent_id);
     if (mae) recorte.push(mae);
   }
+  // Busca: fica a raiz cuja árvore (ela ou uma atividade) bate no título ou na descrição.
+  const normalizar = (t: string | null | undefined) => (t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const termos = normalizar(busca).split(/\s+/).filter(Boolean);
+  const bate = (t: { titulo: string; descricao: string | null }) => termos.length === 0 || termos.every((termo) => normalizar(t.titulo).includes(termo) || normalizar(t.descricao).includes(termo));
+  const filtrarBusca = (nos: TarefaNo[]) => (termos.length === 0 ? nos : nos.filter((n) => desce(n).some(bate)));
   // Dependências consideram TODAS as tarefas (uma pendência fora do filtro ainda bloqueia).
-  const raizes = montarArvore(recorte, deps);
+  const raizes = filtrarBusca(montarArvore(recorte, deps));
   // Quadro: a coluna "Feito" mostra o que foi concluído nos últimos 14 dias, mesmo na aba "abertas".
   const corte14 = new Date(new Date(hoje + "T00:00:00").getTime() - 14 * 86400000).toISOString().slice(0, 10);
-  const todasParaQuadro = montarArvore(
-    todas.filter((t) => t.status === "feito" && !t.parent_id && (t.updated_at ?? "9999") >= corte14 && (!responsavel || t.responsavel_id === responsavel || t.participantes.includes(responsavel)) && dentroDaSelecao(t.projeto_id)),
-    deps,
+  const todasParaQuadro = filtrarBusca(
+    montarArvore(
+      todas.filter((t) => t.status === "feito" && !t.parent_id && (t.updated_at ?? "9999") >= corte14 && (!responsavel || t.responsavel_id === responsavel || t.participantes.includes(responsavel)) && dentroDaSelecao(t.projeto_id)),
+      deps,
+    ),
   );
 
   const atrasadas = todas.filter((t) => t.status !== "feito" && t.prazo && t.prazo < hoje).length;
@@ -184,6 +194,7 @@ export default async function TarefasPage({
       visao: visao === visaoPadrao ? undefined : visao,
       dividir: dividir === "nenhum" ? undefined : dividir,
       agrupar: agruparQuadro ? "projeto" : undefined,
+      q: busca || undefined,
       ...mudancas,
     };
     for (const [k, v] of Object.entries(base)) {
@@ -282,6 +293,7 @@ export default async function TarefasPage({
             </a>
           ))}
         </span>
+        <BuscaTarefas valor={busca} montarLink={link({})} />
         <FerramentasBarra
           rotinasAtivas={rotinasAtivas}
           rotinas={<RotinasPanel rotinas={rotinas} pessoas={pessoas ?? []} proximas={proximas} />}
@@ -303,6 +315,16 @@ export default async function TarefasPage({
       </div>
 
       {sugestoes.length > 0 && <SugestoesPanel sugestoes={sugestoes} pessoas={pessoas ?? []} projetos={projetos.filter((p) => p.status === "ativo").map((p) => ({ id: p.id, nome: p.nome }))} />}
+
+      {busca && (
+        <p className="text-[12px] text-text-muted">
+          {raizes.length === 0 ? "Nenhuma tarefa" : `${raizes.length} tarefa${raizes.length === 1 ? "" : "s"}`} com “{busca}”
+          {sp.status ? "" : " (procurando em abertas e feitas)"} ·{" "}
+          <a href={link({ q: undefined })} className="underline">
+            limpar busca
+          </a>
+        </p>
+      )}
 
       {/* Projetos: filtro em pílulas + cadastro (recolhido). Só na visão por projeto e na linha do tempo. */}
       {(visao === "projeto" || visao === "linha") && <ProjetosPanel pills={pills} projetos={projetos} fases={fases} fasesProduto={fasesProduto} contagem={contagem} />}
