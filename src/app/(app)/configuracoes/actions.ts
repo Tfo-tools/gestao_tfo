@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { acessoDrive, enviarParaDrive, pastaDaTarefa } from "@/lib/google-drive";
 
 export type ConvidarState = { error: string | null; success?: boolean };
 
@@ -65,4 +66,48 @@ export async function definirEscopoInvestidor(id: string, escopoId: string): Pro
   if (error) return { error: "Não foi possível definir o escopo." };
   revalidatePath("/configuracoes");
   return { error: null };
+}
+
+
+/**
+ * Migra anexos de tarefa antigos (Storage do Supabase) pro Drive compartilhado, em lotes de 5 por
+ * clique (limite de tempo da função). Depois da migração, a Storage fica só com comprovantes,
+ * faturas e lançamentos — decisão de 05/10/2026.
+ */
+export async function migrarAnexosAntigos(): Promise<{ migrados: number; restantes: number; error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { migrados: 0, restantes: 0, error: "Sessão expirada — entre de novo." };
+  const acesso = await acessoDrive(user.id);
+  if (!acesso) return { migrados: 0, restantes: 0, error: "Nenhuma conta Google com permissão do Drive — reconecte a sua na Agenda." };
+
+  const { data: pendentes, count } = await supabase
+    .from("anexos_tarefa")
+    .select("id, tarefa_id, nome_arquivo, caminho_arquivo, tipo_mime, tarefas(titulo, drive_pasta_id)", { count: "exact" })
+    .not("caminho_arquivo", "is", null)
+    .order("criado_em")
+    .limit(5);
+  const lista = (pendentes ?? []) as unknown as { id: string; tarefa_id: string; nome_arquivo: string; caminho_arquivo: string; tipo_mime: string | null; tarefas: { titulo: string; drive_pasta_id: string | null } | null }[];
+  let migrados = 0;
+  for (const a of lista) {
+    const { data: blob, error: erroDownload } = await supabase.storage.from("comprovantes").download(a.caminho_arquivo);
+    if (erroDownload || !blob) return { migrados, restantes: (count ?? 0) - migrados, error: `Não consegui baixar "${a.nome_arquivo}".` };
+    const pastaId = await pastaDaTarefa(acesso, a.tarefas?.titulo ?? "Tarefa", a.tarefas?.drive_pasta_id ?? null);
+    if (!pastaId) return { migrados, restantes: (count ?? 0) - migrados, error: "Não consegui criar a pasta da tarefa no Drive." };
+    if (pastaId !== a.tarefas?.drive_pasta_id) await supabase.from("tarefas").update({ drive_pasta_id: pastaId }).eq("id", a.tarefa_id);
+    const noDrive = await enviarParaDrive(acesso, { nome: a.nome_arquivo, tipo: a.tipo_mime ?? blob.type, bytes: await blob.arrayBuffer() }, pastaId);
+    if (!noDrive) return { migrados, restantes: (count ?? 0) - migrados, error: `O Drive recusou "${a.nome_arquivo}".` };
+    const { error } = await supabase
+      .from("anexos_tarefa")
+      .update({ caminho_arquivo: null, drive_file_id: noDrive.id, url: noDrive.url, tipo_mime: noDrive.mime })
+      .eq("id", a.id);
+    if (error) return { migrados, restantes: (count ?? 0) - migrados, error: "Subiu no Drive, mas não atualizou o registro." };
+    await supabase.storage.from("comprovantes").remove([a.caminho_arquivo]);
+    migrados += 1;
+  }
+  revalidatePath("/tarefas");
+  revalidatePath("/configuracoes");
+  return { migrados, restantes: (count ?? 0) - migrados, error: null };
 }

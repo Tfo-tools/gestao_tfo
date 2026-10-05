@@ -146,7 +146,7 @@ function ConexaoPessoalColapsavel({ contaPessoalConectada, icsPessoalUrl }: { co
         <div className="mt-4 flex flex-col gap-5">
           <ConexaoGoogleCard
             titulo="Conexão com sua conta Google"
-            explicacao="Conecte sua própria conta Google pra ver seus compromissos aqui — só leitura, isso nunca cria ou altera nada na sua agenda. A agenda compartilhada (contato@) fica em Configurações."
+            explicacao="Conecte sua própria conta Google pra ver seus compromissos aqui (isso nunca cria ou altera nada na sua agenda) e pra guardar os anexos de tarefa no Drive compartilhado Espaço TFO. A agenda compartilhada (contato@) fica em Configurações."
             contaConectada={contaPessoalConectada}
             linkConectar="/api/google/connect?tipo=pessoal"
           />

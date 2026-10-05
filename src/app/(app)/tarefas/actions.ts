@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { enviarParaDrive, lixeiraDrive, pastaDaTarefa } from "@/lib/google-drive";
+import { acessoDrive, enviarParaDrive, lixeiraDrive, pastaDaTarefa } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 import { LIMITE_ANEXO_MB } from "./limites";
@@ -252,14 +252,15 @@ export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{
   // NFC: o Finder do macOS grava acento decomposto e a Storage recusa esse nome com 400.
   const nome = nomeArquivoSeguro(arquivo.name);
 
-  // 1) Drive compartilhado (Zuzu/8_GESTAO/APP_GESTAO/TAREFAS/<tarefa>): docx/xlsx/pptx viram
-  //    Docs/Sheets/Slides e abrem editáveis pras duas. Precisa da conexão contato@ com Drive.
-  const { data: tarefa } = await supabase.from("tarefas").select("titulo, drive_pasta_id").eq("id", tarefaId).maybeSingle();
-  if (tarefa) {
-    const pastaId = await pastaDaTarefa(tarefa.titulo, tarefa.drive_pasta_id);
+  // 1) Drive compartilhado (Espaço TFO/Arquivos_tarefas/<tarefa>): docx/xlsx/pptx viram
+  //    Docs/Sheets/Slides e abrem editáveis pras duas. Usa a conexão Google de uma sócia com Drive.
+  const acesso = await acessoDrive(user?.id ?? null);
+  const { data: tarefa } = acesso ? await supabase.from("tarefas").select("titulo, drive_pasta_id").eq("id", tarefaId).maybeSingle() : { data: null };
+  if (acesso && tarefa) {
+    const pastaId = await pastaDaTarefa(acesso, tarefa.titulo, tarefa.drive_pasta_id);
     if (pastaId) {
       if (pastaId !== tarefa.drive_pasta_id) await supabase.from("tarefas").update({ drive_pasta_id: pastaId }).eq("id", tarefaId);
-      const noDrive = await enviarParaDrive(arquivo, pastaId);
+      const noDrive = await enviarParaDrive(acesso, { nome, tipo: arquivo.type, bytes: await arquivo.arrayBuffer() }, pastaId);
       if (noDrive) {
         const { error } = await supabase.from("anexos_tarefa").insert({
           tarefa_id: tarefaId,
@@ -298,7 +299,10 @@ export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{
 
 export async function excluirAnexoTarefa(id: string, caminho: string | null, driveFileId: string | null = null): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  if (driveFileId) await lixeiraDrive(driveFileId); // lixeira do Drive: dá pra recuperar por 30 dias
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (driveFileId) await lixeiraDrive(driveFileId, user?.id ?? null); // lixeira do Drive: dá pra recuperar por 30 dias
   if (caminho) await supabase.storage.from("comprovantes").remove([caminho]);
   const { error } = await supabase.from("anexos_tarefa").delete().eq("id", id);
   if (error) return { error: "Não foi possível excluir." };

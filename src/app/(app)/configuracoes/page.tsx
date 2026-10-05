@@ -2,7 +2,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { contaGoogleConectada } from "@/lib/google-calendar";
 import { ConexaoGoogleCard } from "@/components/conexao-google-card";
-import { driveDisponivel } from "@/lib/google-drive";
+import { acessoDrive } from "@/lib/google-drive";
+import { MigrarAnexos } from "./migrar-anexos";
 import { UsuariosForm } from "./usuarios-form";
 import { NotificacoesPush } from "./notificacoes-push";
 import { PlanoContasManager } from "./plano-contas-manager";
@@ -39,8 +40,15 @@ export default async function ConfiguracoesPage() {
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
-  // Anexos de tarefa no Drive dependem da conexão contato@ ter a permissão do Drive (entrou em 05/10/2026).
-  const driveOk = contaConectada ? await driveDisponivel() : false;
+  // Anexos de tarefa no Drive (05/10/2026): precisa de alguma conexão Google com a permissão do Drive
+  // e da pasta "Arquivos_tarefas" no Espaço TFO. Anexos antigos (Storage) migram pelo botão.
+  const {
+    data: { user: usuarioAtual },
+  } = await supabase.auth.getUser();
+  const [acesso, { count: anexosAntigos }] = await Promise.all([
+    acessoDrive(usuarioAtual?.id ?? null),
+    supabase.from("anexos_tarefa").select("id", { count: "exact", head: true }).not("caminho_arquivo", "is", null),
+  ]);
   const usuarios = (usersData?.users ?? []).sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   );
@@ -139,18 +147,26 @@ export default async function ConfiguracoesPage() {
           contaConectada={contaConectada}
           linkConectar="/api/google/connect"
         />
-        {contaConectada && !driveOk && (
-          <div className="mt-2 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[12.5px] text-warning">
-            <b>Drive ainda não liberado.</b> Os anexos de tarefa vão pro Drive compartilhado (Zuzu › 8_GESTAO › APP_GESTAO › TAREFAS) e abrem
-            editáveis pras duas — mas a conexão contato@ foi feita antes dessa permissão existir. Dois passos, uma vez só: (1) no Drive, adicione{" "}
-            <span className="font-mono">contato@thefashionoffice.com.br</span> como <b>Administrador de conteúdo</b> do Drive compartilhado Zuzu; (2) clique em{" "}
-            <a href="/api/google/connect" className="font-medium underline">
-              Reconectar
-            </a>{" "}
-            acima e aceite a permissão do Drive. Até lá, os anexos continuam indo pro Supabase (só pra baixar).
-          </div>
-        )}
-        {contaConectada && driveOk && <p className="mt-2 text-[11.5px] text-success">Drive liberado: anexos de tarefa vão pro Drive compartilhado e abrem editáveis.</p>}
+        <div className="mt-3 rounded-xl border border-border bg-surface p-6">
+          <h2 className="mb-1 font-heading text-sm font-semibold">Google Drive — anexos de tarefa</h2>
+          <p className="text-[12px] text-text-muted">
+            Arquivos anexados nas tarefas vão pra pasta <b>Arquivos_tarefas</b> do Drive compartilhado <b>Espaço TFO</b> (uma subpasta por tarefa). Word, Excel e
+            PowerPoint viram Docs, Sheets e Slides e abrem editáveis pra quem é membro do Espaço TFO. Sobem pela conta Google de quem anexa (ou de outra sócia
+            conectada) — ninguém precisa autorizar nada além da própria conexão.
+          </p>
+          {acesso ? (
+            <p className="mt-2 rounded-lg bg-success-soft px-3 py-2 text-[12px] text-success">
+              Drive liberado pela conta <span className="font-medium">{acesso.conta ?? "conectada"}</span>. Pasta Arquivos_tarefas encontrada.
+            </p>
+          ) : (
+            <p className="mt-2 rounded-lg border border-warning bg-warning-soft px-3 py-2 text-[12px] text-warning">
+              <b>Drive ainda não liberado.</b> Em <a href="/agenda" className="underline">Agenda → Sua agenda pessoal → Gerenciar → Reconectar</a>, entre com a sua conta
+              @thefashionoffice.com.br e aceite a permissão do Google Drive. Se a pasta Arquivos_tarefas ainda não existir na raiz do Espaço TFO, crie. Até lá os anexos
+              vão pro Supabase, só pra baixar.
+            </p>
+          )}
+          <MigrarAnexos antigos={anexosAntigos ?? 0} driveOk={!!acesso} />
+        </div>
       </div>
     </div>
   );
