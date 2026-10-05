@@ -48,8 +48,13 @@ export type AnexoTarefa = {
   id: string;
   tarefa_id: string;
   nome_arquivo: string;
-  caminho_arquivo: string;
+  /** Caminho na Storage do Supabase (anexos antigos). null quando o arquivo está no Drive. */
+  caminho_arquivo: string | null;
   tamanho_bytes: number | null;
+  tipo_mime: string | null;
+  /** Arquivo no Drive compartilhado: abre editável no Google Docs/Sheets/Slides. */
+  drive_file_id: string | null;
+  url: string | null;
 };
 
 export type Dependencia = { tarefa_id: string; depende_de_id: string };

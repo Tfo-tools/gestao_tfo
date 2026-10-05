@@ -70,7 +70,7 @@ export default async function TarefasPage({
       supabase.from("projeto_fases").select("id, projeto_id, nome, ordem, data_inicio, data_fim").order("ordem"),
       supabase.from("produto_fases").select("id, fase, data_inicio, produtos(nome)").order("data_inicio"),
       supabase.from("tarefa_dependencias").select("tarefa_id, depende_de_id"),
-      supabase.from("anexos_tarefa").select("id, tarefa_id, nome_arquivo, caminho_arquivo, tamanho_bytes").order("criado_em"),
+      supabase.from("anexos_tarefa").select("id, tarefa_id, nome_arquivo, caminho_arquivo, tamanho_bytes, tipo_mime, drive_file_id, url").order("criado_em"),
       supabase
         .from("tarefas")
         .select("id, titulo, descricao, responsavel_id, prazo, data_inicio, status, produtos, area, projeto_id, fase_id, parent_id, etiquetas, participantes, ordem, updated_at")

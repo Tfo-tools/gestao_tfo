@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { enviarParaDrive, lixeiraDrive, pastaDaTarefa } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 import { LIMITE_ANEXO_MB } from "./limites";
@@ -250,6 +251,34 @@ export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{
 
   // NFC: o Finder do macOS grava acento decomposto e a Storage recusa esse nome com 400.
   const nome = nomeArquivoSeguro(arquivo.name);
+
+  // 1) Drive compartilhado (Zuzu/8_GESTAO/APP_GESTAO/TAREFAS/<tarefa>): docx/xlsx/pptx viram
+  //    Docs/Sheets/Slides e abrem editáveis pras duas. Precisa da conexão contato@ com Drive.
+  const { data: tarefa } = await supabase.from("tarefas").select("titulo, drive_pasta_id").eq("id", tarefaId).maybeSingle();
+  if (tarefa) {
+    const pastaId = await pastaDaTarefa(tarefa.titulo, tarefa.drive_pasta_id);
+    if (pastaId) {
+      if (pastaId !== tarefa.drive_pasta_id) await supabase.from("tarefas").update({ drive_pasta_id: pastaId }).eq("id", tarefaId);
+      const noDrive = await enviarParaDrive(arquivo, pastaId);
+      if (noDrive) {
+        const { error } = await supabase.from("anexos_tarefa").insert({
+          tarefa_id: tarefaId,
+          nome_arquivo: nome,
+          caminho_arquivo: null,
+          tipo_mime: noDrive.mime,
+          tamanho_bytes: arquivo.size,
+          enviado_por: user?.id ?? null,
+          drive_file_id: noDrive.id,
+          url: noDrive.url,
+        });
+        if (error) return { error: "Subiu no Drive, mas não registrou o anexo." };
+        revalidatePath("/tarefas");
+        return { error: null };
+      }
+    }
+  }
+
+  // 2) Reserva: Storage do Supabase (como era antes do Drive) — abre só pra baixar.
   const path = `tarefas/${tarefaId}/${Date.now()}-${nome}`;
   const { error: uploadError } = await supabase.storage.from("comprovantes").upload(path, arquivo, { contentType: arquivo.type });
   if (uploadError) return { error: "Não foi possível subir o arquivo." };
@@ -267,9 +296,10 @@ export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{
   return { error: null };
 }
 
-export async function excluirAnexoTarefa(id: string, caminho: string): Promise<{ error: string | null }> {
+export async function excluirAnexoTarefa(id: string, caminho: string | null, driveFileId: string | null = null): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  await supabase.storage.from("comprovantes").remove([caminho]);
+  if (driveFileId) await lixeiraDrive(driveFileId); // lixeira do Drive: dá pra recuperar por 30 dias
+  if (caminho) await supabase.storage.from("comprovantes").remove([caminho]);
   const { error } = await supabase.from("anexos_tarefa").delete().eq("id", id);
   if (error) return { error: "Não foi possível excluir." };
   revalidatePath("/tarefas");

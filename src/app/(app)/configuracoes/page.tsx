@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { contaGoogleConectada } from "@/lib/google-calendar";
 import { ConexaoGoogleCard } from "@/components/conexao-google-card";
+import { driveDisponivel } from "@/lib/google-drive";
 import { UsuariosForm } from "./usuarios-form";
 import { NotificacoesPush } from "./notificacoes-push";
 import { PlanoContasManager } from "./plano-contas-manager";
@@ -38,6 +39,8 @@ export default async function ConfiguracoesPage() {
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
+  // Anexos de tarefa no Drive dependem da conexão contato@ ter a permissão do Drive (entrou em 05/10/2026).
+  const driveOk = contaConectada ? await driveDisponivel() : false;
   const usuarios = (usersData?.users ?? []).sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   );
@@ -136,6 +139,18 @@ export default async function ConfiguracoesPage() {
           contaConectada={contaConectada}
           linkConectar="/api/google/connect"
         />
+        {contaConectada && !driveOk && (
+          <div className="mt-2 rounded-lg border border-warning bg-warning-soft px-4 py-3 text-[12.5px] text-warning">
+            <b>Drive ainda não liberado.</b> Os anexos de tarefa vão pro Drive compartilhado (Zuzu › 8_GESTAO › APP_GESTAO › TAREFAS) e abrem
+            editáveis pras duas — mas a conexão contato@ foi feita antes dessa permissão existir. Dois passos, uma vez só: (1) no Drive, adicione{" "}
+            <span className="font-mono">contato@thefashionoffice.com.br</span> como <b>Administrador de conteúdo</b> do Drive compartilhado Zuzu; (2) clique em{" "}
+            <a href="/api/google/connect" className="font-medium underline">
+              Reconectar
+            </a>{" "}
+            acima e aceite a permissão do Drive. Até lá, os anexos continuam indo pro Supabase (só pra baixar).
+          </div>
+        )}
+        {contaConectada && driveOk && <p className="mt-2 text-[11.5px] text-success">Drive liberado: anexos de tarefa vão pro Drive compartilhado e abrem editáveis.</p>}
       </div>
     </div>
   );

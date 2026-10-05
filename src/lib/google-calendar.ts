@@ -2,7 +2,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 // userinfo.email é só pra descobrir qual conta autorizou (mostrar "conectado como fulana@...") —
 // sem esse escopo o Google recusa a chamada ao userinfo e a conta fica salva como "desconhecido".
-const SCOPE = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email";
+// Drive entrou em 05/10/2026: anexos de tarefa vão pro Drive compartilhado (Zuzu) e abrem
+// editáveis pras duas sócias. O escopo "drive" inteiro é necessário porque a pasta não foi criada
+// pelo app (drive.file só enxerga o que o próprio app cria). Só a conexão compartilhada (contato@)
+// usa o Drive — ela precisa ser reconectada uma vez pra ganhar a permissão nova.
+const SCOPE = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
@@ -52,7 +56,7 @@ export async function trocarCodigoPorTokens(code: string) {
 /** Lê a conexão salva (a compartilhada quando profileId é null, ou a pessoal de quem tem esse id)
  * e devolve um access_token válido, renovando via refresh_token quando expirado. `null` quando
  * essa conexão específica ainda não existe. */
-async function obterAccessTokenValido(profileId: string | null): Promise<string | null> {
+export async function obterAccessTokenValido(profileId: string | null): Promise<string | null> {
   const admin = createAdminClient();
   const query = admin.from("google_calendar_conexao").select("*");
   const { data: conexao } = await (profileId ? query.eq("profile_id", profileId) : query.is("profile_id", null)).maybeSingle();
