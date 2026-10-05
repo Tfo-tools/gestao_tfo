@@ -27,7 +27,7 @@ const LABEL_FASE_PRODUTO: Record<string, string> = Object.fromEntries(FASES.map(
 export default async function TarefasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string | string[]; visao?: string; dividir?: string }>;
+  searchParams: Promise<{ status?: string; responsavel?: string; projeto?: string | string[]; visao?: string; dividir?: string; agrupar?: string }>;
 }) {
   const sp = await searchParams;
   const { status } = sp;
@@ -36,6 +36,8 @@ export default async function TarefasPage({
   const projetoSel = projetosSel.length === 1 ? projetosSel[0] : "";
   const dentroDaSelecao = (projetoId: string | null) => projetosSel.length === 0 || (projetoId ? projetosSel.includes(projetoId) : projetosSel.includes("sem"));
   const dividir = (["etiqueta", "produto", "pessoa"].includes(sp.dividir ?? "") ? sp.dividir : "nenhum") as DividirPor;
+  // Quadro: um quadro só (padrão) ou um quadro por projeto.
+  const agruparQuadro = sp.agrupar === "projeto";
   const supabase = await createClient();
   // Preferência por pessoa (Configurações → Tarefas): visão com que a tela abre e "só as minhas".
   const {
@@ -181,6 +183,7 @@ export default async function TarefasPage({
       projeto: projetosSel.length > 0 ? projetosSel : undefined,
       visao: visao === visaoPadrao ? undefined : visao,
       dividir: dividir === "nenhum" ? undefined : dividir,
+      agrupar: agruparQuadro ? "projeto" : undefined,
       ...mudancas,
     };
     for (const [k, v] of Object.entries(base)) {
@@ -209,8 +212,27 @@ export default async function TarefasPage({
   const atrasadaNo = (n: TarefaNo) => n.status !== "feito" && !!n.prazo && n.prazo < hoje;
   const gruposSituacao = agruparPorSituacao(raizes, hoje);
   const gruposProjeto = agruparPorProjeto(raizes, projetos, fases, hoje);
-  const listaLinhas = (nos: TarefaNo[], mostrarProjeto: boolean) =>
-    nos.map((n) => <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} mostrarProjeto={mostrarProjeto} />);
+  const listaLinhas = (nos: TarefaNo[], mostrarProjeto: boolean, emQuadro = false) =>
+    nos.map((n) => <TarefaCard key={n.id} no={n} dados={dados} dependeDe={dependeDe} mostrarFase={false} mostrarProjeto={mostrarProjeto} emQuadro={emQuadro} />);
+  // As três colunas do quadro (a fazer · fazendo · feito) pra um conjunto de tarefas. No quadro
+  // a coluna é estreita: o card mostra o título inteiro numa linha e projeto/quem/prazo na outra.
+  const colunasQuadro = (abertas: TarefaNo[], feitas: TarefaNo[], mostrarProjeto: boolean) => (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {STATUS_ORDEM.map((st) => {
+        const nos = (st === "feito" ? feitas : abertas).filter((n) => n.status === st);
+        return (
+          <div key={st} className="flex flex-col gap-1.5">
+            <p className="flex items-center justify-between px-1 text-[11.5px] text-text-muted">
+              <span>{STATUS_LABEL[st]}{st === "feito" ? " · últimos 14 dias" : ""}</span>
+              <span>{nos.length}</span>
+            </p>
+            {listaLinhas(nos, mostrarProjeto, true)}
+            {nos.length === 0 && <p className="px-1 text-[11px] text-text-faint">—</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <CardsProvider abertoInicial={abertoInicial}>
@@ -378,20 +400,24 @@ export default async function TarefasPage({
       )}
 
       {visao === "quadro" && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {STATUS_ORDEM.map((st) => {
-            const nos = (st === "feito" ? todasParaQuadro : raizes).filter((n) => n.status === st);
-            return (
-              <div key={st} className="flex flex-col gap-1.5">
-                <p className="flex items-center justify-between px-1 text-[11.5px] text-text-muted">
-                  <span>{STATUS_LABEL[st]}{st === "feito" ? " · últimos 14 dias" : ""}</span>
-                  <span>{nos.length}</span>
-                </p>
-                {listaLinhas(nos, true)}
-                {nos.length === 0 && <p className="px-1 text-[11px] text-text-faint">—</p>}
-              </div>
-            );
-          })}
+        <div className="flex flex-col gap-3">
+          <p className="flex flex-wrap items-center gap-2 text-[11.5px] text-text-muted">
+            <span>Mostrar:</span>
+            <a href={link({ agrupar: undefined })} className={!agruparQuadro ? "font-semibold text-text" : "underline"}>um quadro só</a>
+            <a href={link({ agrupar: "projeto" })} className={agruparQuadro ? "font-semibold text-text" : "underline"}>um quadro por projeto</a>
+          </p>
+          {!agruparQuadro && colunasQuadro(raizes, todasParaQuadro, true)}
+          {agruparQuadro &&
+            gruposProjeto.map((g) => {
+              const feitasDoGrupo = todasParaQuadro.filter((n) => n.status === "feito" && (g.projetoId ? n.projeto_id === g.projetoId : !n.projeto_id || !projetos.some((p) => p.id === n.projeto_id)));
+              if (g.nos.filter((n) => n.status !== "feito").length === 0 && feitasDoGrupo.length === 0) return null;
+              return (
+                <GrupoRecolhivel key={g.chave} titulo={g.titulo} resumo={`${g.nos.filter((n) => n.status !== "feito").length} aberta(s)`} abertoInicial={g.abertoInicial}>
+                  {colunasQuadro(g.nos, feitasDoGrupo, false)}
+                </GrupoRecolhivel>
+              );
+            })}
+          {agruparQuadro && gruposProjeto.length === 0 && <p className="text-[12px] text-text-muted">Nenhuma tarefa nesse recorte.</p>}
         </div>
       )}
       </div>

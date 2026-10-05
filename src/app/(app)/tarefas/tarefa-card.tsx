@@ -229,12 +229,15 @@ export function TarefaCard({
   dependeDe,
   mostrarFase = true,
   mostrarProjeto = false,
+  emQuadro = false,
 }: {
   no: TarefaNo;
   dados: DadosFormulario;
   dependeDe: Map<string, string[]>;
   mostrarFase?: boolean;
   mostrarProjeto?: boolean;
+  /** Coluna estreita do Quadro: título inteiro em cima, projeto/quem/prazo embaixo (em vez de tudo numa linha). */
+  emQuadro?: boolean;
 }) {
   const [aberto, alternarAberto] = useCardAberto();
   const [editando, setEditando] = useState(false);
@@ -297,16 +300,28 @@ export function TarefaCard({
           }}
           className="accent-wine"
         />
-        <button type="button" onClick={alternarAberto} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-          <span className={`min-w-0 flex-1 truncate text-[12.5px] font-medium leading-snug ${feita ? "line-through" : ""}`} title={no.titulo}>
+        <button type="button" onClick={alternarAberto} className={`flex min-w-0 flex-1 text-left ${emQuadro ? "flex-col items-stretch gap-0.5" : "items-center gap-2"}`}>
+          <span className={`min-w-0 text-[12.5px] font-medium leading-snug ${emQuadro ? "line-clamp-2" : "flex-1 truncate"} ${feita ? "line-through" : ""}`} title={no.titulo}>
             {no.titulo}
             {bloqueada && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
             {libera.length > 0 && <span title={`Libera: ${libera.map((l) => l.titulo).join(", ")}`}> 🔓</span>}
             {contagemFilhas && <span className="font-normal text-text-faint"> · {contagemFilhas}</span>}
           </span>
-          {mostrarProjeto && projeto && <span className="hidden shrink-0 rounded-full bg-wine-soft px-1.5 py-0.5 text-[10px] text-wine sm:inline">{projeto.nome}</span>}
-          {quem && <span className="hidden shrink-0 text-[10.5px] text-text-faint sm:inline">{quem}</span>}
-          {textoPrazo && <span className={`w-[76px] shrink-0 text-right text-[10.5px] ${corPrazo}`}>{textoPrazo}</span>}
+          {emQuadro ? (
+            (projeto && mostrarProjeto) || quem || textoPrazo ? (
+              <span className="flex min-w-0 items-center gap-1.5 text-[10.5px] text-text-faint">
+                {mostrarProjeto && projeto && <span className="min-w-0 truncate rounded-full bg-wine-soft px-1.5 py-0.5 text-[10px] text-wine">{projeto.nome}</span>}
+                {quem && <span className="shrink-0">{quem}</span>}
+                {textoPrazo && <span className={`ml-auto shrink-0 ${corPrazo}`}>{textoPrazo}</span>}
+              </span>
+            ) : null
+          ) : (
+            <>
+              {mostrarProjeto && projeto && <span className="hidden shrink-0 rounded-full bg-wine-soft px-1.5 py-0.5 text-[10px] text-wine sm:inline">{projeto.nome}</span>}
+              {quem && <span className="hidden shrink-0 text-[10.5px] text-text-faint sm:inline">{quem}</span>}
+              {textoPrazo && <span className={`w-[76px] shrink-0 text-right text-[10.5px] ${corPrazo}`}>{textoPrazo}</span>}
+            </>
+          )}
         </button>
         {/* Ações rápidas, sem abrir o detalhe: a IA cria tarefa redundante ou que é só etapa de
             outra — daqui dá pra excluir ou rebaixar a atividade em dois cliques. */}
