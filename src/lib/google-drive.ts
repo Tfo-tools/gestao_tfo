@@ -6,7 +6,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * 05/10/2026: o Zuzu vai ficar exclusivo da IA). O arquivo sobe pela conexão Google de uma sócia
  * que tenha a permissão do Drive — primeiro a de quem está anexando, depois a compartilhada
  * (contato@), depois qualquer outra conectada. docx/xlsx/pptx viram Docs/Sheets/Slides e o link
- * abre em modo de edição pra quem é membro do Espaço TFO. Cada tarefa ganha uma pasta própria.
+ * abre em modo de edição pra quem é membro do Espaço TFO. Tudo numa pasta só, com o nome da
+ * tarefa no fim do nome do arquivo ("guia de vendas · finalizar o documento…") — decisão de 06/10/2026.
  */
 
 const API = "https://www.googleapis.com/drive/v3";
@@ -86,30 +87,22 @@ export async function acessoDrive(userId: string | null): Promise<AcessoDrive | 
   return null;
 }
 
-/** Pasta da tarefa dentro da raiz. Cria se não existir; devolve o id. */
-export async function pastaDaTarefa(acesso: AcessoDrive, tituloTarefa: string, pastaExistente: string | null): Promise<string | null> {
-  if (pastaExistente) {
-    const ok = await fetch(`${API}/files/${pastaExistente}?supportsAllDrives=true&fields=id,trashed`, { headers: { Authorization: `Bearer ${acesso.token}` } });
-    if (ok.ok && !((await ok.json()) as { trashed?: boolean }).trashed) return pastaExistente;
-  }
-  const nome = tituloTarefa.replace(/[\\/:*?"<>|]/g, " ").trim().slice(0, 80) || "Tarefa";
-  const resp = await fetch(`${API}/files?supportsAllDrives=true&fields=id`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${acesso.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ name: nome, mimeType: "application/vnd.google-apps.folder", parents: [acesso.pastaRaizId] }),
-  });
-  if (!resp.ok) {
-    console.error("Drive: não criou a pasta da tarefa:", resp.status, await resp.text());
-    return null;
-  }
-  return ((await resp.json()) as { id: string }).id;
+/** "guia de vendas · finalizar o documento sobre a metodologia.pdf": nome do arquivo, tarefa, extensão (quando não converte). */
+export function nomeNoDrive(nomeArquivo: string, tituloTarefa: string, converte: boolean) {
+  const ponto = nomeArquivo.lastIndexOf(".");
+  const base = ponto > 0 ? nomeArquivo.slice(0, ponto) : nomeArquivo;
+  const extensao = converte || ponto <= 0 ? "" : nomeArquivo.slice(ponto);
+  let tarefa = tituloTarefa.replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim();
+  // Título longo: corta em 70 caracteres, sem partir palavra.
+  if (tarefa.length > 70) tarefa = tarefa.slice(0, 70).replace(/\s+\S*$/, "");
+  return `${base}${tarefa ? ` · ${tarefa}` : ""}${extensao}`;
 }
 
-/** Sobe o arquivo na pasta; converte pra Docs/Sheets/Slides quando o tipo permite. */
-export async function enviarParaDrive(acesso: AcessoDrive, arquivo: { nome: string; tipo: string; bytes: ArrayBuffer }, pastaId: string): Promise<ArquivoDrive | null> {
+/** Sobe o arquivo na pasta Arquivos_tarefas; converte pra Docs/Sheets/Slides quando o tipo permite. */
+export async function enviarParaDrive(acesso: AcessoDrive, arquivo: { nome: string; tipo: string; bytes: ArrayBuffer }, tituloTarefa: string): Promise<ArquivoDrive | null> {
   const destino = CONVERSAO[arquivo.tipo];
-  const nome = destino ? arquivo.nome.replace(/\.[^.]+$/, "") : arquivo.nome;
-  const metadados = { name: nome, parents: [pastaId], ...(destino ? { mimeType: destino } : {}) };
+  const nome = nomeNoDrive(arquivo.nome, tituloTarefa, !!destino);
+  const metadados = { name: nome, parents: [acesso.pastaRaizId], ...(destino ? { mimeType: destino } : {}) };
 
   const limite = `tfo${Date.now()}`;
   const cabecalho = `--${limite}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadados)}\r\n--${limite}\r\nContent-Type: ${arquivo.tipo || "application/octet-stream"}\r\n\r\n`;

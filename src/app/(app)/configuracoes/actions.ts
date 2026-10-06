@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { acessoDrive, enviarParaDrive, pastaDaTarefa } from "@/lib/google-drive";
+import { acessoDrive, enviarParaDrive } from "@/lib/google-drive";
 
 export type ConvidarState = { error: string | null; success?: boolean };
 
@@ -94,10 +94,7 @@ export async function migrarAnexosAntigos(): Promise<{ migrados: number; restant
   for (const a of lista) {
     const { data: blob, error: erroDownload } = await supabase.storage.from("comprovantes").download(a.caminho_arquivo);
     if (erroDownload || !blob) return { migrados, restantes: (count ?? 0) - migrados, error: `Não consegui baixar "${a.nome_arquivo}".` };
-    const pastaId = await pastaDaTarefa(acesso, a.tarefas?.titulo ?? "Tarefa", a.tarefas?.drive_pasta_id ?? null);
-    if (!pastaId) return { migrados, restantes: (count ?? 0) - migrados, error: "Não consegui criar a pasta da tarefa no Drive." };
-    if (pastaId !== a.tarefas?.drive_pasta_id) await supabase.from("tarefas").update({ drive_pasta_id: pastaId }).eq("id", a.tarefa_id);
-    const noDrive = await enviarParaDrive(acesso, { nome: a.nome_arquivo, tipo: a.tipo_mime ?? blob.type, bytes: await blob.arrayBuffer() }, pastaId);
+    const noDrive = await enviarParaDrive(acesso, { nome: a.nome_arquivo, tipo: a.tipo_mime ?? blob.type, bytes: await blob.arrayBuffer() }, a.tarefas?.titulo ?? "Tarefa");
     if (!noDrive) return { migrados, restantes: (count ?? 0) - migrados, error: `O Drive recusou "${a.nome_arquivo}".` };
     const { error } = await supabase
       .from("anexos_tarefa")

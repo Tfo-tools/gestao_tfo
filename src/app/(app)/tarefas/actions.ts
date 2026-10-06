@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { acessoDrive, enviarParaDrive, lixeiraDrive, pastaDaTarefa } from "@/lib/google-drive";
+import { acessoDrive, enviarParaDrive, lixeiraDrive } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 import { LIMITE_ANEXO_MB } from "./limites";
@@ -252,15 +252,13 @@ export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{
   // NFC: o Finder do macOS grava acento decomposto e a Storage recusa esse nome com 400.
   const nome = nomeArquivoSeguro(arquivo.name);
 
-  // 1) Drive compartilhado (Espaço TFO/Arquivos_tarefas/<tarefa>): docx/xlsx/pptx viram
-  //    Docs/Sheets/Slides e abrem editáveis pras duas. Usa a conexão Google de uma sócia com Drive.
+  // 1) Drive compartilhado (Espaço TFO/Arquivos_tarefas, nome da tarefa no fim do arquivo):
+  //    docx/xlsx/pptx viram Docs/Sheets/Slides e abrem editáveis pras duas.
   const acesso = await acessoDrive(user?.id ?? null);
-  const { data: tarefa } = acesso ? await supabase.from("tarefas").select("titulo, drive_pasta_id").eq("id", tarefaId).maybeSingle() : { data: null };
+  const { data: tarefa } = acesso ? await supabase.from("tarefas").select("titulo").eq("id", tarefaId).maybeSingle() : { data: null };
   if (acesso && tarefa) {
-    const pastaId = await pastaDaTarefa(acesso, tarefa.titulo, tarefa.drive_pasta_id);
-    if (pastaId) {
-      if (pastaId !== tarefa.drive_pasta_id) await supabase.from("tarefas").update({ drive_pasta_id: pastaId }).eq("id", tarefaId);
-      const noDrive = await enviarParaDrive(acesso, { nome, tipo: arquivo.type, bytes: await arquivo.arrayBuffer() }, pastaId);
+    {
+      const noDrive = await enviarParaDrive(acesso, { nome, tipo: arquivo.type, bytes: await arquivo.arrayBuffer() }, tarefa.titulo);
       if (noDrive) {
         const { error } = await supabase.from("anexos_tarefa").insert({
           tarefa_id: tarefaId,
