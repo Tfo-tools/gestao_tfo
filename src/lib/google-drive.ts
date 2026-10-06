@@ -122,6 +122,58 @@ export async function enviarParaDrive(acesso: AcessoDrive, arquivo: { nome: stri
   return { id: d.id, url: d.webViewLink, mime: d.mimeType };
 }
 
+/**
+ * Garante que o arquivo está direto em Arquivos_tarefas com o nome padrão (sem subpasta por tarefa).
+ * Idempotente: se já está certo, não mexe. Devolve true quando mudou algo.
+ */
+export async function reorganizarArquivoDrive(acesso: AcessoDrive, fileId: string, nomeArquivo: string, tituloTarefa: string): Promise<boolean | null> {
+  const cab = { Authorization: `Bearer ${acesso.token}` };
+  const atual = await fetch(`${API}/files/${fileId}?supportsAllDrives=true&fields=id,name,parents,mimeType,trashed`, { headers: cab });
+  if (!atual.ok) return null;
+  const f = (await atual.json()) as { name: string; parents?: string[]; mimeType: string; trashed?: boolean };
+  if (f.trashed) return null;
+  const converte = f.mimeType.startsWith("application/vnd.google-apps.");
+  const esperado = nomeNoDrive(nomeArquivo, tituloTarefa, converte);
+  const paiAtual = f.parents?.[0] ?? null;
+  const precisaMover = paiAtual !== acesso.pastaRaizId;
+  const precisaRenomear = f.name !== esperado;
+  if (!precisaMover && !precisaRenomear) return false;
+  const params = new URLSearchParams({ supportsAllDrives: "true", fields: "id" });
+  if (precisaMover) {
+    params.set("addParents", acesso.pastaRaizId);
+    if (paiAtual) params.set("removeParents", paiAtual);
+  }
+  const resp = await fetch(`${API}/files/${fileId}?${params}`, {
+    method: "PATCH",
+    headers: { ...cab, "Content-Type": "application/json" },
+    body: JSON.stringify(precisaRenomear ? { name: esperado } : {}),
+  });
+  if (!resp.ok) {
+    console.error("Drive: não reorganizou:", resp.status, await resp.text());
+    return null;
+  }
+  return true;
+}
+
+/** Manda pra lixeira as subpastas vazias que sobraram em Arquivos_tarefas. Devolve quantas. */
+export async function limparPastasVazias(acesso: AcessoDrive): Promise<number> {
+  const cab = { Authorization: `Bearer ${acesso.token}` };
+  const q = encodeURIComponent(`'${acesso.pastaRaizId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+  const resp = await fetch(`${API}/files?q=${q}&corpora=allDrives&includeItemsFromAllDrives=true&supportsAllDrives=true&fields=files(id,name)&pageSize=200`, { headers: cab });
+  if (!resp.ok) return 0;
+  const { files } = (await resp.json()) as { files: { id: string }[] };
+  let apagadas = 0;
+  for (const pasta of files) {
+    const qf = encodeURIComponent(`'${pasta.id}' in parents and trashed = false`);
+    const filhos = await fetch(`${API}/files?q=${qf}&corpora=allDrives&includeItemsFromAllDrives=true&supportsAllDrives=true&fields=files(id)&pageSize=1`, { headers: cab });
+    if (!filhos.ok) continue;
+    if (((await filhos.json()) as { files: unknown[] }).files.length > 0) continue;
+    const r = await fetch(`${API}/files/${pasta.id}?supportsAllDrives=true`, { method: "PATCH", headers: { ...cab, "Content-Type": "application/json" }, body: JSON.stringify({ trashed: true }) });
+    if (r.ok) apagadas += 1;
+  }
+  return apagadas;
+}
+
 /** Lixeira do Drive (recuperável por 30 dias), não exclusão definitiva. */
 export async function lixeiraDrive(fileId: string, userId: string | null): Promise<boolean> {
   const acesso = await acessoDrive(userId);

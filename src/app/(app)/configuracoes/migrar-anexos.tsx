@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { migrarAnexosAntigos } from "./actions";
+import { migrarAnexosAntigos, reorganizarAnexosDrive } from "./actions";
 
 /** Botão "Migrar anexos antigos": leva os arquivos da Storage do Supabase pro Drive, 5 por vez, até acabar. */
 export function MigrarAnexos({ antigos, driveOk }: { antigos: number; driveOk: boolean }) {
@@ -10,7 +10,36 @@ export function MigrarAnexos({ antigos, driveOk }: { antigos: number; driveOk: b
   const [erro, setErro] = useState<string | null>(null);
   const [pendente, start] = useTransition();
 
-  if (antigos === 0 && feitos === 0) return <p className="mt-2 text-[11.5px] text-text-faint">Nenhum anexo antigo no Supabase — a Storage ficou só com comprovantes, faturas e lançamentos.</p>;
+  const [reorg, setReorg] = useState<string | null>(null);
+  const [reorganizando, startReorg] = useTransition();
+  const botaoReorganizar = (
+    <div className="mt-2 flex flex-wrap items-center gap-3 text-[12px]">
+      <button
+        type="button"
+        disabled={reorganizando || !driveOk}
+        title="Põe todos os anexos direto em Arquivos_tarefas com o nome da tarefa no fim e apaga subpastas vazias"
+        onClick={() => {
+          setReorg(null);
+          startReorg(async () => {
+            const r = await reorganizarAnexosDrive();
+            setReorg(r.error ?? `${r.ajustados} arquivo(s) ajustado(s), ${r.pastasApagadas} pasta(s) vazia(s) removida(s).`);
+          });
+        }}
+        className="rounded-lg border border-border px-3 py-1.5 text-[12px] font-medium text-text-muted hover:border-primary-fill hover:text-primary-deep disabled:opacity-50"
+      >
+        {reorganizando ? "Reorganizando…" : "Reorganizar arquivos no Drive"}
+      </button>
+      {reorg && <span className={reorg.includes("ajustado") ? "text-success" : "text-danger"}>{reorg}</span>}
+    </div>
+  );
+
+  if (antigos === 0 && feitos === 0)
+    return (
+      <>
+        <p className="mt-2 text-[11.5px] text-text-faint">Nenhum anexo antigo no Supabase — a Storage ficou só com comprovantes, faturas e lançamentos.</p>
+        {botaoReorganizar}
+      </>
+    );
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px]">

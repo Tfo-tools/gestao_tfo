@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { acessoDrive, enviarParaDrive } from "@/lib/google-drive";
+import { acessoDrive, enviarParaDrive, limparPastasVazias, reorganizarArquivoDrive } from "@/lib/google-drive";
 
 export type ConvidarState = { error: string | null; success?: boolean };
 
@@ -107,4 +107,29 @@ export async function migrarAnexosAntigos(): Promise<{ migrados: number; restant
   revalidatePath("/tarefas");
   revalidatePath("/configuracoes");
   return { migrados, restantes: (count ?? 0) - migrados, error: null };
+}
+
+
+/**
+ * Reorganiza os anexos que já estão no Drive pro padrão atual (pasta única, nome da tarefa no fim)
+ * e manda pra lixeira as subpastas vazias que sobraram. Idempotente — pode clicar de novo.
+ */
+export async function reorganizarAnexosDrive(): Promise<{ ajustados: number; pastasApagadas: number; error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ajustados: 0, pastasApagadas: 0, error: "Sessão expirada — entre de novo." };
+  const acesso = await acessoDrive(user.id);
+  if (!acesso) return { ajustados: 0, pastasApagadas: 0, error: "Nenhuma conta Google com permissão do Drive." };
+  const { data } = await supabase.from("anexos_tarefa").select("drive_file_id, nome_arquivo, tarefas(titulo)").not("drive_file_id", "is", null);
+  const lista = (data ?? []) as unknown as { drive_file_id: string; nome_arquivo: string; tarefas: { titulo: string } | null }[];
+  let ajustados = 0;
+  for (const a of lista) {
+    const r = await reorganizarArquivoDrive(acesso, a.drive_file_id, a.nome_arquivo, a.tarefas?.titulo ?? "Tarefa");
+    if (r) ajustados += 1;
+  }
+  const pastasApagadas = await limparPastasVazias(acesso);
+  revalidatePath("/configuracoes");
+  return { ajustados, pastasApagadas, error: null };
 }
