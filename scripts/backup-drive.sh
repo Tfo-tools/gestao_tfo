@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Backup do código no Google Drive (Zuzu/8_GESTAO/APP_GESTAO/code_AppGestao) — roda a cada publicação.
+# Backup do código no Google Drive (Zuzu/CODIGO/gestao_tfo) — roda a cada publicação.
+# Zuzu é o drive escrito só pela IA (redesenho de 06/10/2026); o código oficial vive no Mac + GitHub, isto é só rede de segurança.
 # Exporta o código do commit atual (sem node_modules, build e .env) e um bundle com o histórico inteiro.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-DEST="/Users/vanessaugulino/Library/CloudStorage/GoogleDrive-vanessa@thefashionoffice.com.br/Drives compartilhados/Zuzu/8_GESTAO/APP_GESTAO/code_AppGestao"
+DEST="/Users/vanessaugulino/Library/CloudStorage/GoogleDrive-vanessa@thefashionoffice.com.br/Drives compartilhados/Zuzu/CODIGO/gestao_tfo"
 COMMIT=$(git rev-parse --short HEAD)
 BRANCH=$(git branch --show-current)
 
