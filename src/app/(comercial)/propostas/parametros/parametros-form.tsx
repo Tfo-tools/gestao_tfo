@@ -19,14 +19,25 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
     ],
   },
   {
-    titulo: "Suporte e rateio",
-    nota: "Suporte é a média do negócio inteiro (horas por cliente ao mês), não por cliente ou módulo.",
+    titulo: "Suporte (demanda por cliente)",
+    nota: "Não é um valor fixo igual para todos: é a demanda esperada. Reativo = fração de clientes que abre chamado × horas por atendimento. Proativo = a equipe que confere se os dados chegaram certos e corrige erros, crescendo com o volume de dados. Padrões vindos de médias de mercado; ajuste à vontade.",
     campos: [
-      { k: "suporte.horas_mes_media", label: "Horas médias de suporte por cliente/mês", tipo: "num" },
+      { k: "suporte.contato_mes_pct", label: "Clientes que abrem chamado no mês", tipo: "pct", ajuda: "Mercado B2B: 10% a 30%" },
+      { k: "suporte.horas_por_contato", label: "Horas por atendimento", tipo: "num" },
+      { k: "suporte.proativo_horas_base", label: "Monitoramento: horas fixas por cliente/mês", tipo: "num" },
+      { k: "suporte.proativo_horas_por_gb", label: "Monitoramento: horas extras por GB de dados", tipo: "num", ajuda: "Quanto mais dados, mais acompanhamento" },
       { k: "suporte.cargo", label: "Cargo (tabela de custo/hora)" },
       { k: "suporte.senioridade", label: "Senioridade (junior, pleno, senior)" },
       { k: "suporte.tipo_contratacao", label: "Contratação (clt, pj)" },
-      { k: "rateio.clientes_fixo", label: "Clientes para rateio quando o modo for fixo", tipo: "int", ajuda: "Modo atual: clientes previstos no Base. Enquanto o custo fixo da plataforma for zero, o rateio é zero." },
+    ],
+  },
+  {
+    titulo: "Infraestrutura, rateio e processamento",
+    nota: "Custo fixo da plataforma (instância do banco, plano, domínio) rateado entre os clientes — é COGS. Processamento é o que as consultas e agregações no banco consomem, e cresce com o volume de dados do cliente (não com usuários). Pesquisa de nuvem de 08/10/2026.",
+    campos: [
+      { k: "custo_fixo_infra_mes", label: "Custo fixo de infraestrutura (R$/mês)", tipo: "num", ajuda: "Usado quando o Base ainda não traz o número" },
+      { k: "rateio.clientes_fixo", label: "Clientes para ratear o fixo", tipo: "int", ajuda: "Meta de clientes; não divida pelos poucos de hoje" },
+      { k: "processamento.reais_por_gb_mes", label: "Processamento (R$ por GB de dados/mês)", tipo: "num", ajuda: "Provisório; calibrar medindo a instância" },
     ],
   },
   {
@@ -121,7 +132,7 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
       set(novo, c.k, c.tipo === "pct" ? n / 100 : c.tipo === "int" ? Math.round(n) : n);
     }
     set(novo, "arredondar_90", arred);
-    set(novo, "rateio.modo", (params.rateio?.modo ?? "clientes_previstos"));
+    set(novo, "rateio.modo", "fixo");
     set(novo, "implantacao.prazos_permitidos", ["avista", "3x", "5x"]);
     return novo as unknown as ParametrosPrecificacao;
   };

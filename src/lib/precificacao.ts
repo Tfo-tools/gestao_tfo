@@ -25,8 +25,13 @@ export type ParametrosPrecificacao = {
     insumos_por_modelo_cor: number; fator_sobrecarga: number; outros_gb_por_cliente: number; preco_medio_padrao: number;
   };
   custo_gb: { disco_usd_gb: number; memoria_usd_gb: number; memoria_pct_volume: number; cambio: number };
+  /** processamento no banco (consultas e agregações): R$ por GB de dados do cliente ao mês */
+  processamento: { reais_por_gb_mes: number };
+  /** custo fixo mensal de infraestrutura usado no rateio quando o Base ainda não tem o número */
+  custo_fixo_infra_mes: number;
   rateio: { modo: "clientes_previstos" | "fixo"; clientes_fixo: number };
-  suporte: { horas_mes_media: number; cargo: string; tipo_contratacao: string; senioridade: string };
+  /** suporte = reativo (fração que abre chamado × horas) + proativo (base + por GB de dados) */
+  suporte: { contato_mes_pct: number; horas_por_contato: number; proativo_horas_base: number; proativo_horas_por_gb: number; cargo: string; tipo_contratacao: string; senioridade: string };
   margens: { mensalidade_pct: number; implantacao_pct: number };
   tabela_comercial: { desconto_max_mensalidade_pct: number; desconto_max_implantacao_pct: number };
   implantacao: { prazo_dias: number; reducao_integracao_pct: number; prazos_permitidos: PrazoPagamento[]; margem_fixa_parcela: boolean };
@@ -208,27 +213,34 @@ export function calcularProposta(args: {
   if (volume.base_estimativa === "Falta dado") alertas.push("Informe o faturamento anual ou as peças por ano para estimar o uso de banco.");
   const custo_gb = custoPorGb(params.custo_gb);
 
-  // Uso de banco por módulo: Mind leva o volume inteiro; Price sem Mind tem o seu; Skills o seu.
+  // GB por módulo: Mind leva o volume inteiro; Price sem Mind tem o seu; Skills o seu.
   const temMind = codigos.has("mind");
+  const gbDoModulo = (codigo: string): number =>
+    codigo === "mind" ? volume.gb_mind : codigo === "price" ? (temMind ? 0 : volume.gb_price_sem_mind) : codigo.startsWith("skills") ? volume.gb_skills : 0;
+  const proc_gb = params.processamento?.reais_por_gb_mes ?? 0;
+  // Custo DIRETO do módulo = dado (armazenamento) + processamento no banco, os dois crescendo com o GB.
+  const custoDiretoModulo = (codigo: string): number => gbDoModulo(codigo) * (custo_gb + proc_gb);
   const custos: LinhaCusto[] = [];
-  const custoBanco = (codigo: string): number => {
-    if (codigo === "mind") return volume.gb_mind * custo_gb;
-    if (codigo === "price") return temMind ? 0 : volume.gb_price_sem_mind * custo_gb;
-    if (codigo.startsWith("skills")) return volume.gb_skills * custo_gb;
-    return 0;
-  };
+  let gbUsado = 0;
   for (const m of escolhidos) {
-    const v = custoBanco(m.codigo);
-    const gb = m.codigo === "mind" ? volume.gb_mind : m.codigo === "price" ? (temMind ? 0 : volume.gb_price_sem_mind) : volume.gb_skills;
-    custos.push({ componente: "Uso de banco", modulo: m.codigo, valor: v, detalhe: `${gb.toFixed(2)} GB × R$ ${custo_gb.toFixed(2)}/GB`, conta: "1.1.1" });
+    const gb = gbDoModulo(m.codigo);
+    gbUsado += gb;
+    custos.push({ componente: "Uso de banco", modulo: m.codigo, valor: gb * custo_gb, detalhe: `${gb.toFixed(2)} GB × R$ ${custo_gb.toFixed(2)}/GB`, conta: "1.1.1" });
+    if (proc_gb > 0) custos.push({ componente: "Processamento", modulo: m.codigo, valor: gb * proc_gb, detalhe: `${gb.toFixed(2)} GB × R$ ${proc_gb.toFixed(2)}/GB (consultas e agregações no banco)`, conta: "1.1.1" });
   }
-  // Rateio da plataforma: uma vez por cliente
+  // Rateio do custo fixo da plataforma (instância, plano, domínio): uma vez por cliente.
+  // Usa o número do Base; se o Base ainda não tem, cai no valor manual dos parâmetros.
+  const fixoInfra = bases.custo_fixo_infra_mes > 0 ? bases.custo_fixo_infra_mes : (params.custo_fixo_infra_mes ?? 0);
   const clientesRateio = params.rateio.modo === "fixo" ? params.rateio.clientes_fixo : bases.clientes_previstos_mes;
-  const rateio = bases.custo_fixo_infra_mes > 0 && clientesRateio > 0 ? bases.custo_fixo_infra_mes / clientesRateio : 0;
-  custos.push({ componente: "Plataforma (rateio)", modulo: null, valor: rateio, detalhe: bases.custo_fixo_infra_mes > 0 ? `R$ ${bases.custo_fixo_infra_mes.toFixed(2)} ÷ ${clientesRateio} clientes` : "custo fixo do Base é zero hoje", conta: "1.1.1" });
-  // Suporte: média do negócio, uma vez por cliente
-  const suporte = params.suporte.horas_mes_media * bases.custo_hora_suporte;
-  custos.push({ componente: "Suporte (média do negócio)", modulo: null, valor: suporte, detalhe: `${params.suporte.horas_mes_media} h × R$ ${bases.custo_hora_suporte.toFixed(2)}/h`, conta: "1.1.3" });
+  const rateio = fixoInfra > 0 && clientesRateio > 0 ? fixoInfra / clientesRateio : 0;
+  custos.push({ componente: "Plataforma (rateio)", modulo: null, valor: rateio, detalhe: fixoInfra > 0 ? `R$ ${fixoInfra.toFixed(2)} ÷ ${clientesRateio} clientes` : "custo fixo zero", conta: "1.1.1" });
+  // Suporte como DEMANDA por cliente: reativo (quem abre chamado × horas) + proativo (monitoramento
+  // dos dados, cresce com o volume). Nada por usuário — a pesquisa de nuvem mostrou que dado é o que pesa.
+  const hReativo = (params.suporte.contato_mes_pct ?? 0) * (params.suporte.horas_por_contato ?? 0);
+  const hProativo = (params.suporte.proativo_horas_base ?? 0) + (params.suporte.proativo_horas_por_gb ?? 0) * gbUsado;
+  const horasSuporte = hReativo + hProativo;
+  const suporte = horasSuporte * bases.custo_hora_suporte;
+  custos.push({ componente: "Suporte (demanda do cliente)", modulo: null, valor: suporte, detalhe: `reativo ${hReativo.toFixed(2)} h + proativo ${hProativo.toFixed(2)} h = ${horasSuporte.toFixed(2)} h × R$ ${bases.custo_hora_suporte.toFixed(2)}/h`, conta: "1.1.3" });
   const custo_total_mes = custos.reduce((s, c) => s + c.valor, 0);
 
   const tx = taxaPara(bases.taxas, pagamento.meio_mensalidade, "mensal");
@@ -241,7 +253,7 @@ export function calcularProposta(args: {
   const mensalidade_formula = divisor > 0 ? (custo_total_mes + taxaFixo) / divisor : 0;
 
   // Por módulo: preço rateado pelo custo direto de cada um (custos comuns divididos igualmente)
-  const custoDireto = new Map(escolhidos.map((m) => [m.codigo, custoBanco(m.codigo)]));
+  const custoDireto = new Map(escolhidos.map((m) => [m.codigo, custoDiretoModulo(m.codigo)]));
   const comuns = rateio + suporte;
   const nMod = Math.max(1, escolhidos.length);
   const custoModulo = (codigo: string) => (custoDireto.get(codigo) ?? 0) + comuns / nMod;
