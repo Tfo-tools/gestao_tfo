@@ -7,7 +7,7 @@ export type Seta = { de: string; para: string; critica: boolean };
 /**
  * Setas de dependência por cima da linha do tempo: do fim da barra "de" ao início da barra "para".
  * Mede as barras no DOM (data-barra) depois de montar e a cada redimensionamento — assim não depende
- * de altura fixa de linha nem de cabeçalho de faixa. Seta escura = caminho crítico.
+ * de altura fixa de linha nem de cabeçalho de faixa. Seta vermelha = caminho crítico (08/10/2026).
  */
 export function SetasDependencia({ setas }: { setas: Seta[] }) {
   const ref = useRef<SVGSVGElement>(null);
@@ -68,7 +68,7 @@ export function SetasDependencia({ setas }: { setas: Seta[] }) {
           strokeWidth={l.critica ? 2 : 1}
           strokeOpacity={l.critica ? 0.9 : 0.45}
           markerEnd="url(#seta-dep)"
-          className={l.critica ? "text-wine" : "text-text-muted"}
+          className={l.critica ? "text-danger" : "text-text-muted"}
         />
       ))}
     </svg>

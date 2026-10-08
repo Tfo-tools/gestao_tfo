@@ -153,15 +153,15 @@ export function LinhaDoTempo({
       {/* Legenda das cores — a mesma regra das barras lá embaixo. */}
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10.5px] text-text-muted">
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-soft" /> a fazer</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-fill" /> fazendo</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-success-soft" /> feita</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-soft ring-1 ring-danger" /> atrasada (borda vermelha)</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full border border-cream-deep/40 bg-cream" /> fazendo</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-wine" /> feita</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-5 rounded-full bg-primary-soft ring-1 ring-danger" /> atrasada (borda vermelha e ! no título)</span>
         <span className="flex items-center gap-1.5">⏳ aguardando outra tarefa</span>
-        <span className="flex items-center gap-1.5"><span className="h-3 w-px bg-danger/60" /> hoje</span>
+        <span className="flex items-center gap-1.5"><span className="h-3 w-px bg-primary" /> hoje</span>
         {setas.length > 0 && (
           <>
             <span className="flex items-center gap-1.5"><span className="h-px w-5 bg-text-muted" /> depende de →</span>
-            <span className="flex items-center gap-1.5"><span className="h-0.5 w-5 bg-wine" /> caminho crítico ({maiorDias} dias: a sequência mais longa — atraso nela atrasa o fim)</span>
+            <span className="flex items-center gap-1.5"><span className="h-0.5 w-5 bg-danger" /> caminho crítico em vermelho ({maiorDias} dias: a sequência mais longa — atraso nela atrasa o fim)</span>
           </>
         )}
       </div>
@@ -200,7 +200,7 @@ export function LinhaDoTempo({
         <div className="relative mt-2 flex flex-col gap-1">
           {/* Linha de hoje: dentro de um trilho com as mesmas margens da coluna das barras. */}
           <div className="pointer-events-none absolute inset-y-0 left-[208px] right-[78px]">
-            <div className="absolute inset-y-0 w-px bg-danger/60" style={{ left: `${pos(hoje.getTime())}%` }} title="Hoje" />
+            <div className="absolute inset-y-0 w-px bg-primary/70" style={{ left: `${pos(hoje.getTime())}%` }} title="Hoje" />
           </div>
           {dividir === "nenhum" && <SetasDependencia setas={setas} />}
           {faixas.map((faixa) => (
@@ -230,10 +230,11 @@ export function LinhaDoTempo({
                 <div className="relative h-5 flex-1">
                   <div
                     className={`absolute top-0.5 h-4 rounded-sm ${
-                      // Cor = status; atrasada ganha só a borda vermelha, dependência fica no ⏳ do título.
-                      feita ? "bg-success-soft" : no.status === "fazendo" ? "bg-primary-fill" : "bg-primary-soft"
-                    } ${atrasada ? "ring-1 ring-danger" : criticas.has(no.id) ? "ring-1 ring-wine" : ""
-                    }`}
+                      // Cor = status, nas cores da marca (pedido de 08/10/2026): fazendo em amarelo, feita em
+                      // vinho. Vermelho é "atenção": contorno em atrasada e no caminho crítico (as setas
+                      // vermelhas ligam esse caminho); dependência fica no ⏳ do título.
+                      feita ? "bg-wine" : no.status === "fazendo" ? "border border-cream-deep/40 bg-cream" : "bg-primary-soft"
+                    } ${atrasada || criticas.has(no.id) ? "ring-1 ring-danger" : ""}`}
                     data-barra={no.id}
                     style={{ left: `${pos(iniT)}%`, width: `${Math.max(0.6, pos(fimT) - pos(iniT))}%` }}
                     title={`${no.titulo}${resp ? ` · ${resp.nome}` : ""}${criticas.has(no.id) ? " · caminho crítico" : ""}`}
