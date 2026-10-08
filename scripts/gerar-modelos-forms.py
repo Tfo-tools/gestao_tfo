@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Gera os modelos em branco (PDF) dos formulários do app Forms da TFO, a partir das definições
+"""Gera os modelos em branco (PDF) — uso interno, pra validar com o time (ela não quis em Documentos, 08/10/2026).
+Gera os modelos dos formulários do app Forms da TFO, a partir das definições
 extraídas das páginas publicadas (secs.json = levantamento; PESQ = pesquisas de ciclo)."""
 import json, os, sys
 from reportlab.lib.pagesizes import A4
