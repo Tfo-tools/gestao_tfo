@@ -13,7 +13,7 @@ import { RotinasPanel } from "./rotinas-panel";
 import { NotaParaTarefas } from "./nota-para-tarefas";
 import { iaConfigurada } from "@/lib/ia";
 import { gerarOcorrenciasRotinas, hojeSP, proximaData, type Rotina } from "@/lib/rotinas";
-import { montarArvore, STATUS_LABEL, STATUS_ORDEM, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
+import { montarArvore, STATUS_LABEL, STATUS_ORDEM, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type NotaTarefa, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
 
 type Visao = "projeto" | "situacao" | "quadro" | "linha";
 const VISOES: { valor: Visao; rotulo: string }[] = [
@@ -65,7 +65,7 @@ export default async function TarefasPage({
   const hojeLocal = hojeSP();
   const proximas = Object.fromEntries(rotinas.map((r) => [r.id, r.ativo ? proximaData(r, hojeLocal) : null]));
 
-  const [{ data: pessoas }, { data: produtos }, { data: projetosRaw }, { data: fasesRaw }, { data: fasesProdutoRaw }, { data: depsRaw }, { data: anexosRaw }, { data: todasRaw }] =
+  const [{ data: pessoas }, { data: produtos }, { data: projetosRaw }, { data: fasesRaw }, { data: fasesProdutoRaw }, { data: depsRaw }, { data: anexosRaw }, { data: todasRaw }, { data: notasRaw }] =
     await Promise.all([
       supabase.from("profiles").select("id, nome").order("nome"),
       supabase.from("produtos").select("id, nome").order("nome"),
@@ -78,6 +78,7 @@ export default async function TarefasPage({
         .from("tarefas")
         .select("id, titulo, descricao, responsavel_id, prazo, data_inicio, status, produtos, area, projeto_id, fase_id, parent_id, etiquetas, participantes, ordem, updated_at")
         .order("created_at", { ascending: true }),
+      supabase.from("tarefa_notas").select("id, tarefa_id, texto, autor_id, mencoes, criado_em").order("criado_em"),
     ]);
 
   const projetos = (projetosRaw ?? []) as Projeto[];
@@ -168,6 +169,8 @@ export default async function TarefasPage({
   const dependeDe = new Map<string, string[]>();
   for (const d of deps) dependeDe.set(d.tarefa_id, [...(dependeDe.get(d.tarefa_id) ?? []), d.depende_de_id]);
 
+  const notasPorTarefa = new Map<string, NotaTarefa[]>();
+  for (const n of (notasRaw ?? []) as NotaTarefa[]) notasPorTarefa.set(n.tarefa_id, [...(notasPorTarefa.get(n.tarefa_id) ?? []), n]);
   const anexosPorTarefa = new Map<string, AnexoTarefa[]>();
   for (const a of (anexosRaw ?? []) as AnexoTarefa[]) {
     const lista = anexosPorTarefa.get(a.tarefa_id) ?? [];
@@ -183,6 +186,8 @@ export default async function TarefasPage({
     // Dependência é entre tarefas; subtarefa (parent_id) não entra na lista.
     candidatasDependencia: todas.filter((t) => !t.parent_id).map((t) => ({ id: t.id, titulo: t.titulo, projeto_id: t.projeto_id, status: t.status })),
     anexos: anexosPorTarefa,
+    notas: notasPorTarefa,
+    usuarioId: user?.id ?? null,
   };
 
   // Fases na linha do tempo: as dos projetos escolhidos (um só mostra as faixas; vários, todas as deles).

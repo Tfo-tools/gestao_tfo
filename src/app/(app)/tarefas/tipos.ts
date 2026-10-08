@@ -57,6 +57,8 @@ export type AnexoTarefa = {
   url: string | null;
 };
 
+export type NotaTarefa = { id: string; tarefa_id: string; texto: string; autor_id: string | null; mencoes: string[]; criado_em: string };
+
 export type Dependencia = { tarefa_id: string; depende_de_id: string };
 
 export type TarefaNo = Tarefa & {

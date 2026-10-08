@@ -5,8 +5,9 @@ import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, tornarAtividadeDe, type TarefaFormState } from "./actions";
 import { CamposTarefa } from "./campos-tarefa";
 import { useCardAberto } from "./cards-contexto";
-import { achatar, STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type FaseProjeto, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
+import { achatar, STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type FaseProjeto, type NotaTarefa, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
 import { AnexosTarefa } from "./anexos-tarefa";
+import { NotasTarefa } from "./notas-tarefa";
 
 export type DadosFormulario = {
   pessoas: Pessoa[];
@@ -16,6 +17,10 @@ export type DadosFormulario = {
   candidatasDependencia: Pick<Tarefa, "id" | "titulo" | "projeto_id" | "status">[];
   /** Arquivos por tarefa (anexos_tarefa), pra caixinha mostrar sem buscar de novo. */
   anexos: Map<string, AnexoTarefa[]>;
+  /** Observações por tarefa (tarefa_notas), em ordem de data. */
+  notas: Map<string, NotaTarefa[]>;
+  /** Quem está logada — pra excluir só as próprias observações e não se avisar com @. */
+  usuarioId: string | null;
 };
 
 const initialState: TarefaFormState = { error: null };
@@ -480,6 +485,8 @@ export function TarefaCard({
               ))}
             </div>
           )}
+
+          {!no.parent_id && <NotasTarefa tarefaId={no.id} notas={dados.notas.get(no.id) ?? []} pessoas={dados.pessoas} usuarioId={dados.usuarioId} />}
 
           {novaSub && <NovaTarefaCard dados={dados} projetoInicial={no.projeto_id} faseInicial={no.fase_id} parentId={no.id} aoConcluir={() => setNovaSub(false)} />}
 
