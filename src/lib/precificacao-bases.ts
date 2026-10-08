@@ -84,7 +84,7 @@ export async function carregarBasesProposta(supabase: Db, mesIso = new Date().to
 
   return {
     modulos: ((modulosRaw ?? []) as Modulo[]),
-    blocos: ((blocosRaw ?? []) as Bloco[]).map((b) => ({ ...b, peso_pct: Number(b.peso_pct), adesao_pct: Number(b.adesao_pct), regra_perfil: (b.regra_perfil ?? {}) as Bloco["regra_perfil"] })),
+    blocos: ((blocosRaw ?? []) as Bloco[]).map((b) => ({ ...b, peso_pct: Number(b.peso_pct), adesao_pct: Number(b.adesao_pct), custo_processamento_mes: Number(b.custo_processamento_mes ?? 0), regra_perfil: (b.regra_perfil ?? {}) as Bloco["regra_perfil"] })),
     params,
     bases: { custo_fixo_infra_mes, clientes_previstos_mes, custo_hora_suporte, custo_implantacao_padrao, horas_implantacao_padrao, aliquota_imposto, taxas },
     cenario: cenarioBase ? { id: cenarioBase.id, nome: cenarioBase.nome } : null,

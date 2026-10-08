@@ -44,6 +44,8 @@ export type Modulo = { id: string; codigo: string; nome: string; descricao: stri
 export type Bloco = {
   id: string; modulo_id: string; codigo: string; nome: string; descricao: string | null; peso_pct: number;
   regra_perfil: { remove_se?: string[]; motivo?: string }; adesao_pct: number; ordem: number; ativo: boolean;
+  /** processamento extra do bloco (R$/mês): blocos pesados como o orçamento consomem banco além do armazenamento */
+  custo_processamento_mes: number;
 };
 
 export type PerfilCliente = {
@@ -195,7 +197,8 @@ export type ResultadoPreco = {
 };
 
 const parcelasDe = (prazo: PrazoPagamento | null) => (prazo === "3x" ? 3 : prazo === "5x" ? 5 : 1);
-const arred90 = (v: number) => Math.max(0.9, Math.floor(v) + 0.9);
+// Arredonda o preço de lista para cima até terminar em 9, em degraus de 30 (…379, 409, 439…).
+const arredNove = (v: number) => (v <= 0 ? 0 : Math.ceil((v - 19) / 30) * 30 + 19);
 
 export function calcularProposta(args: {
   perfil: PerfilCliente; selecao: Selecao; pagamento: Pagamento; desconto: Desconto;
@@ -218,7 +221,14 @@ export function calcularProposta(args: {
   const gbDoModulo = (codigo: string): number =>
     codigo === "mind" ? volume.gb_mind : codigo === "price" ? (temMind ? 0 : volume.gb_price_sem_mind) : codigo.startsWith("skills") ? volume.gb_skills : 0;
   const proc_gb = params.processamento?.reais_por_gb_mes ?? 0;
-  // Custo DIRETO do módulo = dado (armazenamento) + processamento no banco, os dois crescendo com o GB.
+  // Bloco pesado (ex.: orçamento) ativo no perfil soma processamento próprio ao custo do módulo.
+  const blocoAtivoNaSelecao = (b: Bloco): boolean => {
+    const removido = blocoRemovidoPeloPerfil(b, perfil);
+    return selecao.blocos.length === 0 ? !removido : selecao.blocos.includes(b.id);
+  };
+  const custoBlocosDoModulo = (m: Modulo): number =>
+    args.blocos.filter((b) => b.modulo_id === m.id && b.ativo && blocoAtivoNaSelecao(b)).reduce((acc, b) => acc + (Number(b.custo_processamento_mes) || 0), 0);
+  // Custo DIRETO do módulo = dado (armazenamento) + processamento no banco (ambos crescem com o GB) + blocos pesados.
   const custoDiretoModulo = (codigo: string): number => gbDoModulo(codigo) * (custo_gb + proc_gb);
   const custos: LinhaCusto[] = [];
   let gbUsado = 0;
@@ -227,6 +237,8 @@ export function calcularProposta(args: {
     gbUsado += gb;
     custos.push({ componente: "Uso de banco", modulo: m.codigo, valor: gb * custo_gb, detalhe: `${gb.toFixed(2)} GB × R$ ${custo_gb.toFixed(2)}/GB`, conta: "1.1.1" });
     if (proc_gb > 0) custos.push({ componente: "Processamento", modulo: m.codigo, valor: gb * proc_gb, detalhe: `${gb.toFixed(2)} GB × R$ ${proc_gb.toFixed(2)}/GB (consultas e agregações no banco)`, conta: "1.1.1" });
+    const cb = custoBlocosDoModulo(m);
+    if (cb > 0) custos.push({ componente: "Processamento de blocos", modulo: m.codigo, valor: cb, detalhe: "blocos pesados ativos (ex.: orçamento)", conta: "1.1.1" });
   }
   // Rateio do custo fixo da plataforma (instância, plano, domínio): uma vez por cliente.
   // Usa o número do Base; se o Base ainda não tem, cai no valor manual dos parâmetros.
@@ -253,7 +265,7 @@ export function calcularProposta(args: {
   const mensalidade_formula = divisor > 0 ? (custo_total_mes + taxaFixo) / divisor : 0;
 
   // Por módulo: preço rateado pelo custo direto de cada um (custos comuns divididos igualmente)
-  const custoDireto = new Map(escolhidos.map((m) => [m.codigo, custoDiretoModulo(m.codigo)]));
+  const custoDireto = new Map(escolhidos.map((m) => [m.codigo, custoDiretoModulo(m.codigo) + custoBlocosDoModulo(m)]));
   const comuns = rateio + suporte;
   const nMod = Math.max(1, escolhidos.length);
   const custoModulo = (codigo: string) => (custoDireto.get(codigo) ?? 0) + comuns / nMod;
@@ -280,7 +292,7 @@ export function calcularProposta(args: {
   const plano_pequeno_aplicado = cabe && selecao.plano_pequeno && selecaoIgualAoPlano;
   if (plano_pequeno_aplicado) mensalidade = pp.preco_mensal;
   if (cabe && !selecao.plano_pequeno && selecaoIgualAoPlano) alertas.push(`Este perfil cabe no plano fechado ${pp.nome} (R$ ${pp.preco_mensal.toFixed(2)}).`);
-  if (params.arredondar_90 && !plano_pequeno_aplicado) mensalidade = arred90(mensalidade);
+  if (params.arredondar_90 && !plano_pequeno_aplicado) mensalidade = arredNove(mensalidade);
 
   const descMensal = plano_pequeno_aplicado ? 0 : Math.max(0, Math.min(1, desconto.mensalidade_pct || 0));
   const mensalidade_com_desconto = mensalidade * (1 - descMensal);

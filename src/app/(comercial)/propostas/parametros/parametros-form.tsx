@@ -175,7 +175,7 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
           </div>
         ))}
         <label className="flex items-center gap-2 text-[12px]">
-          <input type="checkbox" checked={arred} onChange={(e) => { setSalvo(false); setArred(e.target.checked); }} className="accent-wine" /> Arredondar a mensalidade para terminar em ,90
+          <input type="checkbox" checked={arred} onChange={(e) => { setSalvo(false); setArred(e.target.checked); }} className="accent-wine" /> Arredondar a mensalidade (termina em 9, degraus de 30)
         </label>
       </div>
       <div className="mt-3 flex items-center gap-3">

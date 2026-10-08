@@ -24,7 +24,7 @@ export async function salvarParametrosPrecificacao(valor: ParametrosPrecificacao
   return { error: null };
 }
 
-export type BlocoEntrada = { id?: string; modulo_id: string; codigo: string; nome: string; descricao: string | null; peso_pct: number; remove_se: string[]; motivo: string | null; adesao_pct: number; ordem: number; ativo: boolean };
+export type BlocoEntrada = { id?: string; modulo_id: string; codigo: string; nome: string; descricao: string | null; peso_pct: number; remove_se: string[]; motivo: string | null; adesao_pct: number; ordem: number; ativo: boolean; custo_processamento_mes: number };
 
 export async function salvarBloco(b: BlocoEntrada): Promise<{ error: string | null }> {
   const { supabase, user, ok } = await socia();
@@ -35,7 +35,7 @@ export async function salvarBloco(b: BlocoEntrada): Promise<{ error: string | nu
   const linha = {
     ...(b.id ? { id: b.id } : {}),
     modulo_id: b.modulo_id, codigo, nome: b.nome.trim(), descricao: b.descricao?.trim() || null,
-    peso_pct: Number(b.peso_pct) || 0, adesao_pct: Math.min(1, Math.max(0, Number(b.adesao_pct) || 0)), ordem: Number(b.ordem) || 0, ativo: b.ativo,
+    peso_pct: Number(b.peso_pct) || 0, adesao_pct: Math.min(1, Math.max(0, Number(b.adesao_pct) || 0)), ordem: Number(b.ordem) || 0, ativo: b.ativo, custo_processamento_mes: Math.max(0, Number(b.custo_processamento_mes) || 0),
     regra_perfil: b.remove_se.length > 0 ? { remove_se: b.remove_se, motivo: b.motivo?.trim() || null } : {},
   };
   const { error } = await supabase.from("catalogo_blocos").upsert(linha, { onConflict: "modulo_id,codigo" });

@@ -25,8 +25,8 @@ export function CatalogoForm({ modulos, blocos }: { modulos: Modulo[]; blocos: B
       else { setEditando(null); router.refresh(); }
     });
   };
-  const novoBloco = (modulo_id: string, ordem: number) => setEditando({ chave: "novo", modulo_id, codigo: "", nome: "", descricao: "", peso_pct: 0, remove_se: [], motivo: "", adesao_pct: 1, ordem, ativo: true });
-  const editarBloco = (b: Bloco) => setEditando({ chave: b.id, id: b.id, modulo_id: b.modulo_id, codigo: b.codigo, nome: b.nome, descricao: b.descricao ?? "", peso_pct: b.peso_pct, remove_se: b.regra_perfil?.remove_se ?? [], motivo: b.regra_perfil?.motivo ?? "", adesao_pct: b.adesao_pct, ordem: b.ordem, ativo: b.ativo });
+  const novoBloco = (modulo_id: string, ordem: number) => setEditando({ chave: "novo", modulo_id, codigo: "", nome: "", descricao: "", peso_pct: 0, remove_se: [], motivo: "", adesao_pct: 1, ordem, ativo: true, custo_processamento_mes: 0 });
+  const editarBloco = (b: Bloco) => setEditando({ chave: b.id, id: b.id, modulo_id: b.modulo_id, codigo: b.codigo, nome: b.nome, descricao: b.descricao ?? "", peso_pct: b.peso_pct, remove_se: b.regra_perfil?.remove_se ?? [], motivo: b.regra_perfil?.motivo ?? "", adesao_pct: b.adesao_pct, ordem: b.ordem, ativo: b.ativo, custo_processamento_mes: b.custo_processamento_mes ?? 0 });
 
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
@@ -40,12 +40,13 @@ export function CatalogoForm({ modulos, blocos }: { modulos: Modulo[]; blocos: B
             <div key={m.id} className={`rounded-lg border px-3 py-2 ${m.ativo ? "border-border" : "border-border-soft opacity-60"}`}>
               <ModuloLinha m={m} onSalvar={(dados) => rodar(() => salvarModulo(dados))} pendente={pendente} />
               <table className="mt-2 w-full text-[11.5px]">
-                <thead><tr className="text-left text-text-faint"><th className="py-1 pr-2 font-medium">Bloco</th><th className="py-1 pr-2 font-medium">Peso %</th><th className="py-1 pr-2 font-medium">Sai da sugestão se</th><th className="py-1 pr-2 font-medium">Adesão</th><th className="py-1 pr-2 font-medium">Ativo</th><th /></tr></thead>
+                <thead><tr className="text-left text-text-faint"><th className="py-1 pr-2 font-medium">Bloco</th><th className="py-1 pr-2 font-medium">Peso %</th><th className="py-1 pr-2 font-medium">Proc. R$</th><th className="py-1 pr-2 font-medium">Sai da sugestão se</th><th className="py-1 pr-2 font-medium">Adesão</th><th className="py-1 pr-2 font-medium">Ativo</th><th /></tr></thead>
                 <tbody>
                   {bl.map((b) => (
                     <tr key={b.id} className="border-t border-border-soft">
                       <td className="py-1 pr-2"><span className="font-medium">{b.nome}</span>{b.descricao && <span className="block text-[10.5px] text-text-faint">{b.descricao}</span>}</td>
                       <td className="py-1 pr-2 tabular-nums">{b.peso_pct}</td>
+                      <td className="py-1 pr-2 tabular-nums">{b.custo_processamento_mes ? `R$ ${b.custo_processamento_mes}` : "—"}</td>
                       <td className="py-1 pr-2 text-text-muted">{(b.regra_perfil?.remove_se ?? []).map((s) => SISTEMAS.find((x) => x.v === s)?.r ?? s).join(", ") || "—"}</td>
                       <td className="py-1 pr-2 tabular-nums">{Math.round(b.adesao_pct * 100)}%</td>
                       <td className="py-1 pr-2">{b.ativo ? "sim" : "não"}</td>
@@ -55,7 +56,7 @@ export function CatalogoForm({ modulos, blocos }: { modulos: Modulo[]; blocos: B
                       </td>
                     </tr>
                   ))}
-                  {bl.length === 0 && <tr><td colSpan={6} className="py-1 text-[11px] text-text-faint">Sem blocos: o módulo é vendido inteiro. Cadastre os blocos para o plano por funcionalidade.</td></tr>}
+                  {bl.length === 0 && <tr><td colSpan={7} className="py-1 text-[11px] text-text-faint">Sem blocos: o módulo é vendido inteiro. Cadastre os blocos para o plano por funcionalidade.</td></tr>}
                 </tbody>
               </table>
               <div className="mt-1 flex items-center justify-between">
@@ -67,6 +68,7 @@ export function CatalogoForm({ modulos, blocos }: { modulos: Modulo[]; blocos: B
                   <label className="flex flex-col gap-0.5"><span className="text-text-muted">Nome *</span><input value={editando.nome} onChange={(e) => setEditando({ ...editando, nome: e.target.value })} className="input input-compacto" /></label>
                   <label className="flex flex-col gap-0.5 lg:col-span-2"><span className="text-text-muted">Descrição</span><input value={editando.descricao ?? ""} onChange={(e) => setEditando({ ...editando, descricao: e.target.value })} className="input input-compacto" /></label>
                   <label className="flex flex-col gap-0.5"><span className="text-text-muted">Peso no preço do módulo (%)</span><input value={editando.peso_pct} onChange={(e) => setEditando({ ...editando, peso_pct: Number(e.target.value.replace(",", ".")) || 0 })} className="input input-compacto" inputMode="decimal" /></label>
+                  <label className="flex flex-col gap-0.5"><span className="text-text-muted">Processamento do bloco (R$/mês)</span><input value={editando.custo_processamento_mes} onChange={(e) => setEditando({ ...editando, custo_processamento_mes: Number(e.target.value.replace(",", ".")) || 0 })} className="input input-compacto" inputMode="decimal" /></label>
                   <label className="flex flex-col gap-0.5"><span className="text-text-muted">Adesão esperada (% de clientes)</span><input value={Math.round(editando.adesao_pct * 100)} onChange={(e) => setEditando({ ...editando, adesao_pct: (Number(e.target.value.replace(",", ".")) || 0) / 100 })} className="input input-compacto" inputMode="decimal" /></label>
                   <label className="flex flex-col gap-0.5"><span className="text-text-muted">Ordem</span><input value={editando.ordem} onChange={(e) => setEditando({ ...editando, ordem: Number(e.target.value) || 0 })} className="input input-compacto" inputMode="numeric" /></label>
                   <div className="flex flex-col gap-0.5 lg:col-span-2">
