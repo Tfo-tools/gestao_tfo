@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { AVISO_SEM_BANCO_COMERCIAL, createComercialClient } from "@/lib/supabase/comercial";
 import { carregarBasesProposta } from "@/lib/precificacao-bases";
 import { calcularProposta, type Desconto, type Pagamento, type PerfilCliente, type Selecao } from "@/lib/precificacao";
 
@@ -10,12 +11,21 @@ export type DadosProposta = {
   perfil: PerfilCliente; selecao: Selecao; pagamento: Pagamento; desconto: Desconto; observacoes: string | null;
 };
 
-async function sessao() {
+/**
+ * Duas conexões por action: `supabase` (sessão do Gestão) diz quem é a pessoa e lê catálogo,
+ * parâmetros e bases do plano; `db` (banco comercial = Supabase do Forms, service role) guarda as
+ * propostas. Sem sessão válida nada acontece.
+ */
+async function contexto() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  return { supabase, user };
+  if (!user) return { erro: "Sessão expirada — entre de novo." as string | null, supabase, db: null, user: null, nome: "", socia: false };
+  const db = createComercialClient();
+  if (!db) return { erro: AVISO_SEM_BANCO_COMERCIAL as string | null, supabase, db: null, user, nome: "", socia: false };
+  const { data: perfil } = await supabase.from("profiles").select("nome, papel").eq("id", user.id).maybeSingle();
+  return { erro: null as string | null, supabase, db, user, nome: perfil?.nome ?? user.email ?? "", socia: perfil?.papel === "socia" };
 }
 
 /**
@@ -26,9 +36,9 @@ async function sessao() {
 export async function salvarProposta(id: string | null, dados: DadosProposta): Promise<{ error: string | null; id?: string }> {
   const marca = dados.marca.trim();
   if (!marca) return { error: "Informe a marca." };
-  const { supabase, user } = await sessao();
-  if (!user) return { error: "Sessão expirada — entre de novo." };
-  const bases = await carregarBasesProposta(supabase);
+  const c = await contexto();
+  if (c.erro || !c.db || !c.user) return { error: c.erro ?? "Sem acesso." };
+  const bases = await carregarBasesProposta(c.supabase);
   const resultado = calcularProposta({ perfil: dados.perfil, selecao: dados.selecao, pagamento: dados.pagamento, desconto: dados.desconto, modulos: bases.modulos, blocos: bases.blocos, params: bases.params, bases: bases.bases });
   const linha = {
     marca, contato: dados.contato, email: dados.email, telefone: dados.telefone, origem: dados.origem,
@@ -37,14 +47,14 @@ export async function salvarProposta(id: string | null, dados: DadosProposta): P
     observacoes: dados.observacoes, atualizado_em: new Date().toISOString(),
   };
   if (id) {
-    const { data: atual } = await supabase.from("propostas").select("status").eq("id", id).maybeSingle();
+    const { data: atual } = await c.db.from("propostas").select("status").eq("id", id).maybeSingle();
     if (atual && !["rascunho", "aguardando_aprovacao"].includes(atual.status)) return { error: "Proposta já aprovada ou enviada: crie uma nova a partir dela." };
-    const { error } = await supabase.from("propostas").update({ ...linha, status: "rascunho" }).eq("id", id);
+    const { error } = await c.db.from("propostas").update({ ...linha, status: "rascunho" }).eq("id", id);
     if (error) return { error: "Não foi possível salvar." };
     revalidatePath("/propostas");
     return { error: null, id };
   }
-  const { data, error } = await supabase.from("propostas").insert({ ...linha, criado_por: user.id }).select("id").single();
+  const { data, error } = await c.db.from("propostas").insert({ ...linha, criado_por: c.user.id, criado_por_nome: c.nome }).select("id").single();
   if (error || !data) return { error: "Não foi possível criar a proposta." };
   revalidatePath("/propostas");
   return { error: null, id: data.id };
@@ -52,14 +62,18 @@ export async function salvarProposta(id: string | null, dados: DadosProposta): P
 
 /** Rascunho → validação: dentro da tabela comercial vira aprovada; fora, aguarda Vanessa ou Emyli. */
 export async function enviarParaValidacao(id: string): Promise<{ error: string | null; status?: string }> {
-  const { supabase, user } = await sessao();
-  if (!user) return { error: "Sessão expirada — entre de novo." };
-  const { data: p } = await supabase.from("propostas").select("status, resultado").eq("id", id).maybeSingle();
+  const c = await contexto();
+  if (c.erro || !c.db || !c.user) return { error: c.erro ?? "Sem acesso." };
+  const { data: p } = await c.db.from("propostas").select("status, resultado").eq("id", id).maybeSingle();
   if (!p) return { error: "Proposta não encontrada." };
   const sit = (p.resultado as { desconto_situacao?: string })?.desconto_situacao;
   if (sit === "bloqueado") return { error: "Desconto abaixo do piso sem margem: ajuste antes de enviar." };
   const status = sit === "precisa_aprovacao" ? "aguardando_aprovacao" : "aprovada";
-  const { error } = await supabase.from("propostas").update({ status, ...(status === "aprovada" ? { aprovada_por: user.id, aprovada_em: new Date().toISOString() } : {}), atualizado_em: new Date().toISOString() }).eq("id", id);
+  const agora = new Date().toISOString();
+  const { error } = await c.db
+    .from("propostas")
+    .update({ status, ...(status === "aprovada" ? { aprovada_por: c.user.id, aprovada_por_nome: c.nome, aprovada_em: agora } : {}), atualizado_em: agora })
+    .eq("id", id);
   if (error) return { error: "Não foi possível enviar para validação." };
   revalidatePath("/propostas");
   return { error: null, status };
@@ -67,13 +81,13 @@ export async function enviarParaValidacao(id: string): Promise<{ error: string |
 
 /** Só sócias aprovam ou devolvem o que saiu da tabela comercial. */
 export async function decidirAprovacao(id: string, aprovar: boolean): Promise<{ error: string | null }> {
-  const { supabase, user } = await sessao();
-  if (!user) return { error: "Sessão expirada — entre de novo." };
-  const { data: perfil } = await supabase.from("profiles").select("papel").eq("id", user.id).maybeSingle();
-  if (perfil?.papel !== "socia") return { error: "Só as sócias aprovam propostas fora da tabela comercial." };
-  const { error } = await supabase
+  const c = await contexto();
+  if (c.erro || !c.db || !c.user) return { error: c.erro ?? "Sem acesso." };
+  if (!c.socia) return { error: "Só as sócias aprovam propostas fora da tabela comercial." };
+  const agora = new Date().toISOString();
+  const { error } = await c.db
     .from("propostas")
-    .update(aprovar ? { status: "aprovada", aprovada_por: user.id, aprovada_em: new Date().toISOString() } : { status: "rascunho" })
+    .update(aprovar ? { status: "aprovada", aprovada_por: c.user.id, aprovada_por_nome: c.nome, aprovada_em: agora, atualizado_em: agora } : { status: "rascunho", atualizado_em: agora })
     .eq("id", id)
     .eq("status", "aguardando_aprovacao");
   if (error) return { error: "Não foi possível registrar a decisão." };
@@ -82,19 +96,20 @@ export async function decidirAprovacao(id: string, aprovar: boolean): Promise<{ 
 }
 
 export async function mudarStatusProposta(id: string, status: "enviada" | "aceita" | "recusada" | "vencida"): Promise<{ error: string | null }> {
-  const { supabase, user } = await sessao();
-  if (!user) return { error: "Sessão expirada — entre de novo." };
+  const c = await contexto();
+  if (c.erro || !c.db) return { error: c.erro ?? "Sem acesso." };
   const agora = new Date().toISOString();
   const extra = status === "enviada" ? { enviada_em: agora } : { decidida_em: agora };
-  const { error } = await supabase.from("propostas").update({ status, ...extra, atualizado_em: agora }).eq("id", id);
+  const { error } = await c.db.from("propostas").update({ status, ...extra, atualizado_em: agora }).eq("id", id);
   if (error) return { error: "Não foi possível mudar a situação." };
   revalidatePath("/propostas");
   return { error: null };
 }
 
 export async function excluirProposta(id: string): Promise<{ error: string | null }> {
-  const { supabase } = await sessao();
-  const { error } = await supabase.from("propostas").delete().eq("id", id).in("status", ["rascunho", "recusada", "vencida"]);
+  const c = await contexto();
+  if (c.erro || !c.db) return { error: c.erro ?? "Sem acesso." };
+  const { error } = await c.db.from("propostas").delete().eq("id", id).in("status", ["rascunho", "recusada", "vencida"]);
   if (error) return { error: "Não foi possível excluir." };
   revalidatePath("/propostas");
   return { error: null };

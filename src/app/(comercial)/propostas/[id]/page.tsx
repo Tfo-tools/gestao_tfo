@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createComercialClient } from "@/lib/supabase/comercial";
 import { carregarBasesProposta } from "@/lib/precificacao-bases";
 import { PropostaEditor, type PropostaSalva } from "../proposta-editor";
 
@@ -11,9 +12,10 @@ export default async function PropostaPage({ params }: { params: Promise<{ id: s
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const db = createComercialClient();
   const [bases, { data: proposta }, { data: perfil }] = await Promise.all([
     carregarBasesProposta(supabase),
-    supabase.from("propostas").select("*").eq("id", id).maybeSingle(),
+    db ? db.from("propostas").select("*").eq("id", id).maybeSingle() : Promise.resolve({ data: null }),
     user ? supabase.from("profiles").select("papel").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   if (!proposta) notFound();

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { AVISO_SEM_BANCO_COMERCIAL, createComercialClient } from "@/lib/supabase/comercial";
 
 /**
  * Propostas comerciais (08/10/2026): o closer monta a proposta com o perfil do cliente, o sistema
@@ -26,8 +27,10 @@ export default async function PropostasPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  // Propostas vivem no banco comercial (Supabase do Forms); perfil e catálogo, no Gestão.
+  const db = createComercialClient();
   const [{ data: propostas }, { data: perfil }] = await Promise.all([
-    supabase.from("propostas").select("id, numero, marca, contato, status, resultado, perfil, selecao, criado_em, atualizado_em").order("numero", { ascending: false }),
+    db ? db.from("propostas").select("id, numero, marca, contato, status, resultado, perfil, selecao, criado_em, atualizado_em").order("numero", { ascending: false }) : Promise.resolve({ data: null }),
     user ? supabase.from("profiles").select("papel").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const lista = (propostas ?? []) as { id: string; numero: number; marca: string; contato: string | null; status: string; resultado: { mensalidade_com_desconto?: number; implantacao?: { preco_com_desconto: number } | null; margem_resultante_mensalidade?: number }; perfil: { faturamento_anual?: number | null; lojas?: number }; selecao: { modulos?: string[] }; criado_em: string; atualizado_em: string }[];
@@ -52,6 +55,8 @@ export default async function PropostasPage() {
           </Link>
         </span>
       </div>
+
+      {!db && <p className="rounded-lg border border-warning bg-warning-soft px-3 py-2 text-[12.5px] text-warning">{AVISO_SEM_BANCO_COMERCIAL}</p>}
 
       {aguardando > 0 && (
         <p className="rounded-lg border border-warning bg-warning-soft px-3 py-2 text-[12.5px] text-warning">

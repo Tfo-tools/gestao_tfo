@@ -1,7 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { destinoComercialSeguro, ehHostComercial, ehHostGestaoProducao, URL_GESTAO } from "@/lib/hosts";
 
-const PUBLIC_PATHS = ["/login", "/definir-senha", "/recuperar-senha", "/agendar"];
+// /api/comercial/sessao recebe o token da entrada sem senha no host comercial: ainda não há sessão.
+const PUBLIC_PATHS = ["/login", "/definir-senha", "/recuperar-senha", "/agendar", "/api/comercial/sessao"];
+
+/** No host comercial só existe o app de propostas (e login, e as rotas de entrada). */
+function rotaExisteNoComercial(pathname: string): boolean {
+  return pathname.startsWith("/propostas") || pathname.startsWith("/api/comercial");
+}
 
 /** O que a conta de contabilidade externa enxerga: só o realizado (despesas, ativos, contratações
  * já fechadas, extrato/demonstrativo) — nada de projeção, cenário, valuation ou captação. Prefixo
@@ -47,6 +54,25 @@ function rotaLiberadaParaEquipe(pathname: string): boolean {
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const host = request.headers.get("host");
+  const comercial = ehHostComercial(host);
+  const { pathname } = request.nextUrl;
+
+  // Dois hosts, um código (08/10/2026). comercial.* é só propostas: a raiz vai para a lista e
+  // qualquer outra tela do Gestão volta para lá. No Gestão em produção, /propostas vive no outro
+  // host: manda para a entrada sem senha, que leva a sessão junto. Em localhost nada disso roda.
+  if (comercial && pathname === "/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/propostas";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+  if (!comercial && ehHostGestaoProducao(host) && pathname.startsWith("/propostas")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/api/comercial/entrar";
+    url.search = `?next=${encodeURIComponent(destinoComercialSeguro(pathname + request.nextUrl.search))}`;
+    return NextResponse.redirect(url);
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -84,7 +110,14 @@ export async function updateSession(request: NextRequest) {
 
   if (user && request.nextUrl.pathname === "/login") {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = comercial ? "/propostas" : "/";
+    return NextResponse.redirect(url);
+  }
+
+  if (comercial && user && !isPublicPath && !rotaExisteNoComercial(pathname)) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/propostas";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 
@@ -107,6 +140,8 @@ export async function updateSession(request: NextRequest) {
             ? rotaLiberadaParaEquipe(request.nextUrl.pathname)
             : true;
     if (!liberado) {
+      // No comercial não há "tela permitida" alternativa: contabilidade e investidor voltam ao Gestão.
+      if (comercial) return NextResponse.redirect(new URL("/", URL_GESTAO));
       const url = request.nextUrl.clone();
       url.pathname = papel === "investidor_fomento" || papel === "investidor" ? "/prestacao-de-contas" : papel === "equipe" ? "/" : "/custos";
       url.search = "";
