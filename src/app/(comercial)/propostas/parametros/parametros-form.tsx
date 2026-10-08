@@ -45,6 +45,7 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
       { k: "plano_pequeno.preco_mensal", label: "Preço mensal (R$)", tipo: "num" },
       { k: "plano_pequeno.faturamento_max", label: "Faturamento anual máximo (R$)", tipo: "num" },
       { k: "plano_pequeno.lojas_max", label: "Lojas máximas", tipo: "int" },
+      { k: "plano_pequeno.usuarios_max", label: "Usuários máximos", tipo: "int" },
     ],
   },
   {

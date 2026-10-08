@@ -31,7 +31,7 @@ export type ParametrosPrecificacao = {
   tabela_comercial: { desconto_max_mensalidade_pct: number; desconto_max_implantacao_pct: number };
   implantacao: { prazo_dias: number; reducao_integracao_pct: number; prazos_permitidos: PrazoPagamento[]; margem_fixa_parcela: boolean };
   imposto: { modo: "fixo" | "base"; aliquota_fixa: number };
-  plano_pequeno: { ativo: boolean; nome: string; preco_mensal: number; faturamento_max: number; lojas_max: number; modulos: string[]; meios: MeioPagamento[] };
+  plano_pequeno: { ativo: boolean; nome: string; preco_mensal: number; faturamento_max: number; lojas_max: number; usuarios_max: number; modulos: string[]; meios: MeioPagamento[] };
   arredondar_90: boolean;
 };
 
@@ -152,7 +152,8 @@ export function blocoRemovidoPeloPerfil(b: Bloco, perfil: PerfilCliente): string
 export function perfilCabeNoPlanoPequeno(perfil: PerfilCliente, pp: ParametrosPrecificacao["plano_pequeno"]): boolean {
   if (!pp.ativo) return false;
   const fat = perfil.faturamento_anual ?? 0;
-  return fat > 0 && fat <= pp.faturamento_max && perfil.lojas <= pp.lojas_max;
+  const okUsuarios = !pp.usuarios_max || perfil.usuarios <= pp.usuarios_max;
+  return fat > 0 && fat <= pp.faturamento_max && perfil.lojas <= pp.lojas_max && okUsuarios;
 }
 
 // ── Cálculo ────────────────────────────────────────────────────────────────────────────────────

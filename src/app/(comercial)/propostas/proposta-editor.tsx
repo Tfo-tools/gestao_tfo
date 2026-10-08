@@ -196,7 +196,7 @@ export function PropostaEditor({ bases, proposta, socia }: { bases: BasesPropost
               <label className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-success px-3 py-2 text-[12px]">
                 <input type="checkbox" checked={selecao.plano_pequeno} disabled={!editavel} onChange={(e) => setSelecao((s) => ({ ...s, plano_pequeno: e.target.checked, modulos: e.target.checked ? bases.params.plano_pequeno.modulos : s.modulos }))} className="accent-wine" />
                 <span>
-                  <b>{bases.params.plano_pequeno.nome}</b>: {brl(bases.params.plano_pequeno.preco_mensal)}/mês, preço fixo, sem desconto. Perfil até R$ {(bases.params.plano_pequeno.faturamento_max / 1e6).toLocaleString("pt-BR")} mi e {bases.params.plano_pequeno.lojas_max} lojas.
+                  <b>{bases.params.plano_pequeno.nome}</b>: {brl(bases.params.plano_pequeno.preco_mensal)}/mês, preço fixo, sem desconto. Perfil até R$ {(bases.params.plano_pequeno.faturamento_max / 1e6).toLocaleString("pt-BR")} mi, {bases.params.plano_pequeno.lojas_max} lojas e {bases.params.plano_pequeno.usuarios_max} usuários.
                 </span>
               </label>
             )}
