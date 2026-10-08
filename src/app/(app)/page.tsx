@@ -13,7 +13,9 @@ import { SeletorInicio } from "./seletor-inicio";
 export const dynamic = "force-dynamic";
 
 const EXTERNOS = [
-  { nome: "Forms", descricao: "Beta Fashion Mind: ICP, triagem e termo", href: "https://forms.thefashionoffice.online", sigla: "F" },
+  // A raiz do forms é a página do RESPONDENTE (exige ?t= pessoal e mostra "Link incompleto");
+  // o painel da equipe (levantamentos, triagem, links) fica em /painel.
+  { nome: "Forms", descricao: "Painel dos levantamentos: ICP, triagem e termo", href: "https://forms.thefashionoffice.online/painel", sigla: "F" },
   { nome: "Eventos", descricao: "Contatos de feiras, offline, com cupom", href: "https://eventos.thefashionoffice.online", sigla: "E" },
 ];
 
