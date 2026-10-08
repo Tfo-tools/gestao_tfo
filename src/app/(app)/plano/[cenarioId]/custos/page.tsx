@@ -7,6 +7,7 @@ import { RecalcularProjecao } from "../recalcular-projecao";
 import { CATEGORIAS_LANCAMENTO, categoriaDeConta, labelCategoriaNegocio } from "@/lib/categoria-negocio";
 import type { CustoDerivado } from "./custos-derivados";
 import { CogsPremissasForm, type ProdutoCogs, type PerfilHora } from "./cogs-premissas-form";
+import { aplicarTaxasNoGateway, carregarTaxasVigentes } from "@/lib/taxas-pagamento";
 import { TabelaCustos, type LinhaCustos } from "./tabela-custos";
 import { CustosCategoriaCard, type CustoFixoRow, type CustoVariavelRow } from "./custos-categoria-card";
 import { AvisoTelaGrande } from "@/components/aviso-tela-grande";
@@ -108,7 +109,7 @@ export default async function PlanoCustosPage({
     (simRows ?? []).reduce((s, r) => s + Number((r as Record<string, unknown>)[campo] ?? 0), 0);
 
   // Premissas de COGS por produto + perfis de custo/hora + níveis (pro seletor do LLM).
-  const [{ data: cogsRaw }, { data: perfisRaw }, { data: modulosRaw }, { data: planosRaw }, { data: acoesRaw }, { data: produtosCenario }] = await Promise.all([
+  const [{ data: cogsRaw }, { data: perfisRaw }, { data: modulosRaw }, { data: planosRaw }, { data: acoesRaw }, { data: produtosCenario }, taxasVigentes] = await Promise.all([
     supabase.from("cogs_premissas").select("produto_id, parametros").eq("cenario_id", cenarioId),
     supabase.from("tabela_custo_hora").select("cargo, tipo_contratacao, senioridade, valor_hora").order("cargo"),
     // Só os níveis deste cenário — sem o filtro, cada cenário espelhado repetia os níveis na lista.
@@ -116,6 +117,7 @@ export default async function PlanoCustosPage({
     supabase.from("planos_precificacao").select("produto_id, nome_plano, tipo_cobranca, preco").eq("cenario_id", cenarioId),
     supabase.from("acoes_marketing").select("*").eq("cenario_id", cenarioId).order("created_at"),
     supabase.from("produtos").select("id, nome").or(`cenario_id.is.null,cenario_id.eq.${cenarioId}`).order("nome"),
+    carregarTaxasVigentes(supabase),
   ]);
   const produtosPlanos: ProdutoPlanos[] = (produtosCenario ?? []).map((p) => ({
     id: p.id,
@@ -135,7 +137,7 @@ export default async function PlanoCustosPage({
       id: p.id,
       nome: p.nome,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      premissas: ((cogsRaw ?? []).find((c) => c.produto_id === p.id)?.parametros as any) ?? {},
+      premissas: aplicarTaxasNoGateway(((cogsRaw ?? []).find((c) => c.produto_id === p.id)?.parametros as any) ?? {}, taxasVigentes),
       niveis: (modulosRaw ?? []).filter((m) => m.produto_id === p.id).map((m) => m.nome),
       totais: {
         infra: somaSimProduto(p.id, "cogs_infraestrutura"),
@@ -458,7 +460,7 @@ export default async function PlanoCustosPage({
               atalhos={atalhosPorCategoria[chave] ?? []}
               painel={
                 chave === "csp" ? (
-                  <CogsPremissasForm cenarioId={cenarioId} produtos={produtosCogs} perfis={perfisHora} />
+                  <CogsPremissasForm cenarioId={cenarioId} produtos={produtosCogs} perfis={perfisHora} taxas={taxasVigentes} />
                 ) : chave === "marketing" ? (
                   <>
                     <FeirasEventos cenarioId={cenarioId} acoes={acoesLista} produtos={produtosPlanos} fimCenario={fimCenario} />

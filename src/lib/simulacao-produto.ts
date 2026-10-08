@@ -1,3 +1,4 @@
+import { aplicarTaxasNoGateway, carregarTaxasVigentes } from "@/lib/taxas-pagamento";
 import {
   custoImplementacaoDasEtapas,
   temAjusteDeEtapas,
@@ -266,7 +267,7 @@ export async function montarEntradaSimulacao(
   );
 
   // Premissas de COGS do produto neste cenário + tabela de custo/hora (suporte e CS são horas × R$/h).
-  const [{ data: cogsRaw }, { data: custoHoraRaw }] = await Promise.all([
+  const [{ data: cogsRaw }, { data: custoHoraRaw }, taxasVigentes] = await Promise.all([
     supabase
       .from("cogs_premissas")
       .select("parametros")
@@ -276,6 +277,8 @@ export async function montarEntradaSimulacao(
     supabase
       .from("tabela_custo_hora")
       .select("cargo, tipo_contratacao, senioridade, valor_hora"),
+    // Tarifas do gateway: cadastro único em Configurações (o COGS do produto guarda só o mix).
+    carregarTaxasVigentes(supabase),
   ]);
   const custoHoraPorPerfil = (perfil: {
     cargo?: string;
@@ -579,7 +582,7 @@ export async function montarEntradaSimulacao(
           }
         : null,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    cogs: (cogsRaw?.parametros as any) ?? null,
+    cogs: aplicarTaxasNoGateway((cogsRaw?.parametros as any) ?? null, taxasVigentes),
     custoHoraPorPerfil,
     custosFixos: (custosFixosRaw ?? []).map((c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

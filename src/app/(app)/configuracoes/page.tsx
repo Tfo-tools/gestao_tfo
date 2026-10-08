@@ -10,6 +10,8 @@ import { PlanoContasManager } from "./plano-contas-manager";
 import { UsuarioPapelSelect } from "./usuario-papel-select";
 import { ParametrosTributariosCard } from "./parametros-tributarios";
 import { PreferenciasTarefas } from "./preferencias-tarefas";
+import { TaxasPagamentoCard } from "./taxas-pagamento-card";
+import type { TaxaPagamento } from "@/lib/taxas-pagamento";
 import type { VisaoTarefas } from "./preferencias-tarefas-actions";
 import { parametrosTributariosDe } from "@/lib/impostos";
 
@@ -29,6 +31,7 @@ export default async function ConfiguracoesPage() {
     { data: tributosRaw },
     { data: programas },
     { data: cenariosLista },
+    { data: taxasRaw },
   ] = await Promise.all([
     supabase.from("profiles").select("id, nome, papel, escopo_investidor_id").order("nome"),
     admin.auth.admin.listUsers(),
@@ -37,7 +40,9 @@ export default async function ConfiguracoesPage() {
     supabase.from("parametros_tributarios").select("*").maybeSingle(),
     supabase.from("programas_investimento").select("id, nome").order("nome"),
     supabase.from("cenarios").select("id, nome").order("nome"),
+    supabase.from("taxas_pagamento").select("*").order("prazo").order("meio").order("vigencia_inicio"),
   ]);
+  const taxas = ((taxasRaw ?? []) as TaxaPagamento[]).map((t) => ({ ...t, pct: Number(t.pct), fixo: Number(t.fixo) }));
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
   const usuarios = (usersData?.users ?? []).sort(
@@ -77,6 +82,10 @@ export default async function ConfiguracoesPage() {
 
       <div className="mb-6">
         <PlanoContasManager contas={planoContas ?? []} />
+      </div>
+
+      <div className="mb-6">
+        <TaxasPagamentoCard taxas={taxas} />
       </div>
 
       <div className="mb-6">

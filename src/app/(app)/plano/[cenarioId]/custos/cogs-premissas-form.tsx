@@ -10,6 +10,7 @@ import {
   type CogsPremissas,
 } from "@/lib/cogs";
 import { salvarCogsPremissas, type ActionState } from "./cogs-actions";
+import { taxaPara, type TaxaPagamento } from "@/lib/taxas-pagamento";
 
 export type ProdutoCogs = {
   id: string;
@@ -35,7 +36,7 @@ const SENIORIDADE_LABEL: Record<string, string> = { junior: "Jr", pleno: "Pl", s
  * tudo de uma vez — e mostra ao lado de cada regra o que ela dá por cliente, pra você ver o
  * efeito antes de salvar.
  */
-export function CogsPremissasForm({ cenarioId, produtos, perfis }: { cenarioId: string; produtos: ProdutoCogs[]; perfis: PerfilHora[] }) {
+export function CogsPremissasForm({ cenarioId, produtos, perfis, taxas = [] }: { cenarioId: string; produtos: ProdutoCogs[]; perfis: PerfilHora[]; taxas?: TaxaPagamento[] }) {
   const [produtoId, setProdutoId] = useState(produtos[0]?.id ?? "");
   const produto = produtos.find((p) => p.id === produtoId);
   if (!produto) return null;
@@ -61,12 +62,15 @@ export function CogsPremissasForm({ cenarioId, produtos, perfis }: { cenarioId: 
           ))}
         </div>
       </div>
-      <FormProduto key={produto.id} cenarioId={cenarioId} produto={produto} perfis={perfis} />
+      <FormProduto key={produto.id} cenarioId={cenarioId} produto={produto} perfis={perfis} taxas={taxas} />
     </div>
   );
 }
 
-function FormProduto({ cenarioId, produto, perfis }: { cenarioId: string; produto: ProdutoCogs; perfis: PerfilHora[] }) {
+function FormProduto({ cenarioId, produto, perfis, taxas }: { cenarioId: string; produto: ProdutoCogs; perfis: PerfilHora[]; taxas: TaxaPagamento[] }) {
+  const txCartao = taxaPara(taxas, "cartao", "mensal");
+  const txBoleto = taxaPara(taxas, "boleto", "mensal");
+  const txPix = taxaPara(taxas, "pix", "mensal");
   const [p, setP] = useState<CogsPremissas>(produto.premissas ?? {});
   const [state, formAction, pending] = useActionState(salvarCogsPremissas, initialState);
 
@@ -180,11 +184,14 @@ function FormProduto({ cenarioId, produto, perfis }: { cenarioId: string; produt
           <Campo label="Mix cartão (%)" ajuda="De cada 100 cobranças do mês, quantas saem no cartão. Os três mixes somam 100%."><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_cartao)} onChange={(e) => set("gateway", { mix_cartao: num(e) / 100 })} /></Campo>
           <Campo label="Mix boleto (%)" ajuda="Fatia das cobranças em boleto. Cliente maior e compra por empresa puxam esse número para cima."><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_boleto)} onChange={(e) => set("gateway", { mix_boleto: num(e) / 100 })} /></Campo>
           <Campo label="Mix Pix (%)" ajuda="Fatia das cobranças em Pix."><input type="number" step="1" className="input campo-pct" value={pct(p.gateway?.mix_pix)} onChange={(e) => set("gateway", { mix_pix: num(e) / 100 })} /></Campo>
-          <Campo label="Cartão (%)" ajuda="Percentual que o gateway cobra sobre o valor de cada cobrança no cartão. Asaas: 2,99%."><input type="number" step="0.01" className="input campo-pct" value={pct(p.gateway?.cartao_pct, 2)} onChange={(e) => set("gateway", { cartao_pct: num(e) / 100 })} /></Campo>
-          <Campo label="Cartão fixo (R$)" ajuda="Tarifa fixa por transação no cartão, somada ao percentual. Asaas: R$ 0,49."><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.cartao_fixo ?? ""} onChange={(e) => set("gateway", { cartao_fixo: num(e) })} /></Campo>
-          <Campo label="Boleto (R$)" ajuda="Tarifa por boleto liquidado. Valor fixo, sem percentual."><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.boleto_fixo ?? ""} onChange={(e) => set("gateway", { boleto_fixo: num(e) })} /></Campo>
-          <Campo label="Pix (R$)" ajuda="Tarifa por cobrança recebida via Pix."><input type="number" step="0.01" className="input campo-pct" value={p.gateway?.pix_fixo ?? ""} onChange={(e) => set("gateway", { pix_fixo: num(e) })} /></Campo>
         </div>
+        {/* Tarifas: cadastro único em Configurações (decisão 08/10/2026). Aqui só leitura; o mix acima continua por produto. */}
+        <p className="mt-2 text-[10.5px] text-text-faint">
+          Tarifas vigentes (cadastro único em <a href="/configuracoes" className="underline">Configurações → Taxas de meios de pagamento</a>):
+          {" "}cartão {txCartao ? `${(txCartao.pct * 100).toFixed(2).replace(".", ",")}% + R$ ${txCartao.fixo.toFixed(2).replace(".", ",")}` : "sem cadastro"} ·
+          {" "}boleto {txBoleto ? `R$ ${txBoleto.fixo.toFixed(2).replace(".", ",")}` : "sem cadastro"} ·
+          {" "}Pix {txPix ? `R$ ${txPix.fixo.toFixed(2).replace(".", ",")}` : "sem cadastro"}.
+        </p>
       </Secao>
 
       {/* 1.1.6 */}
