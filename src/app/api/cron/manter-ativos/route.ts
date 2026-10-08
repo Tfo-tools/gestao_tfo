@@ -5,13 +5,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * Mantém acordados os bancos Supabase dos apps-satélite: o plano gratuito pausa um projeto após
  * 7 dias sem requisição, e aí o login do Forms "não entra". A cada 4 dias (vercel.json) este cron
  * faz UMA consulta mínima em cada banco da lista — o bastante pra contar como uso.
- * Para incluir outro banco, basta acrescentar uma entrada em BANCOS (URL + chave anon, que é pública,
- * + uma tabela que a chave anon possa ler). Resultado da última rodada fica em integracoes
- * (chave manter_ativos) pra conferência.
+ * Para incluir outro banco, basta acrescentar uma entrada em BANCOS (URL + chave anon, que é pública).
+ * A consulta é a raiz da API REST (devolve a descrição da API, 200), sem depender de tabela nem de
+ * permissão. Resultado da última rodada fica em integracoes (chave manter_ativos) pra conferência.
  */
 export const dynamic = "force-dynamic";
 
-type Banco = { nome: string; url: string; anonKey: string; tabela: string };
+type Banco = { nome: string; url: string; anonKey: string };
 
 const BANCOS: Banco[] = [
   {
@@ -19,7 +19,6 @@ const BANCOS: Banco[] = [
     url: "https://pudtwbkwfftwwukbappm.supabase.co",
     anonKey:
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1ZHR3Ymt3ZmZ0d3d1a2JhcHBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5NTc3NDAsImV4cCI6MjEwNjUzMzc0MH0.KiDL1AisR39PnSH9Oo-Cn-IcZ3KXIQ9FwesfK6eX2zg",
-    tabela: "equipe",
   },
   // Eventos: NÃO tem Supabase (grava na planilha Google via Apps Script, que não pausa). Quando o
   // app for refeito com banco próprio, entra aqui.
@@ -27,13 +26,9 @@ const BANCOS: Banco[] = [
 
 async function tocar(b: Banco): Promise<{ nome: string; ok: boolean; status: number; detalhe?: string }> {
   try {
-    const resp = await fetch(`${b.url}/rest/v1/${b.tabela}?select=*&limit=1`, {
-      headers: { apikey: b.anonKey, Authorization: `Bearer ${b.anonKey}`, Prefer: "count=none" },
-      cache: "no-store",
-    });
-    // Qualquer resposta do PostgREST (200, 401 por RLS, 404 sem tabela) já prova que o projeto está
-    // de pé e conta como atividade; 5xx ou timeout indicam projeto pausado/fora.
-    return { nome: b.nome, ok: resp.status < 500, status: resp.status, detalhe: resp.status >= 400 ? (await resp.text()).slice(0, 200) : undefined };
+    const resp = await fetch(`${b.url}/rest/v1/`, { headers: { apikey: b.anonKey, Authorization: `Bearer ${b.anonKey}` }, cache: "no-store" });
+    // 200 = projeto de pé e requisição contada como uso; 5xx/timeout = pausado ou fora do ar.
+    return { nome: b.nome, ok: resp.ok, status: resp.status, detalhe: resp.ok ? undefined : (await resp.text()).slice(0, 200) };
   } catch (e) {
     return { nome: b.nome, ok: false, status: 0, detalhe: e instanceof Error ? e.message : String(e) };
   }
