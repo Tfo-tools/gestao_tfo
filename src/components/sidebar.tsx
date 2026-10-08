@@ -130,6 +130,8 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
         // Rota própria (não /cenarios/comparar): o menu acende tudo que começa com /cenarios.
         { kind: "link", href: "/comparar-cenarios", label: "Comparar cenários", icon: IconCompare },
         { kind: "link", href: "/produtos", label: "Produtos", icon: IconBox },
+        // Propostas: simula o preço por perfil com as bases do plano Base e guarda a proposta (08/10/2026).
+        { kind: "link", href: "/propostas", label: "Propostas comerciais", icon: IconFile },
       ],
     },
     ...(papel === "equipe"

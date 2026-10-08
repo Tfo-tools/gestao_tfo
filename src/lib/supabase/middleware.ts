@@ -40,6 +40,8 @@ function rotaLiberadaParaInvestidor(pathname: string, escopoId: string | null): 
 const ROTAS_BLOQUEADAS_EQUIPE = ["/documentos", "/vendas", "/configuracoes"];
 
 function rotaLiberadaParaEquipe(pathname: string): boolean {
+  // Propostas comerciais: a equipe (vendedor/closer) monta e acompanha (08/10/2026).
+  if (pathname.startsWith("/propostas")) return true;
   return !ROTAS_BLOQUEADAS_EQUIPE.some((prefixo) => pathname === prefixo || pathname.startsWith(`${prefixo}/`));
 }
 
