@@ -43,8 +43,8 @@ class Marca(Flowable):
 
 def opcoes(itens, kind="radio"):
     data = [[Marca(kind), Paragraph(t, ParagraphStyle("o", parent=st_op, leftIndent=0))] for t in itens]
-    t = Table(data, colWidths=[7 * mm, 163 * mm])
-    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (0, -1), 12), ("TOPPADDING", (0, 0), (-1, -1), 1.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5), ("LEFTPADDING", (1, 0), (1, -1), 0)]))
+    t = Table(data, colWidths=[10 * mm, 160 * mm])
+    t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (0, -1), 12), ("RIGHTPADDING", (0, 0), (0, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5), ("LEFTPADDING", (1, 0), (1, -1), 4)]))
     return t
 
 
