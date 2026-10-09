@@ -99,6 +99,7 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
       items: [
         { kind: "link", href: "/custos", label: "Custos (Lançamentos)", icon: IconReceipt },
         { kind: "link", href: "/contratacoes/realizado", label: "Contratações", icon: IconUsers },
+        ...(papel === "socia" ? [{ kind: "link" as const, href: "/realizado/produtos", label: "Produtos (taxas e preços)", icon: IconBox }] : []),
         ...(papel === "equipe" ? [] : [{ kind: "em-breve" as const, label: "Vendas", icon: IconShoppingCart }]),
         { kind: "link", href: "/ativos", label: "Ativos", icon: IconArchive },
         {
