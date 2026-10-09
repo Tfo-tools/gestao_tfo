@@ -94,6 +94,14 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
       { k: "estimativa.preco_medio_padrao", label: "Preço médio padrão (R$)", tipo: "num" },
     ],
   },
+  {
+    titulo: "Piso de preço por faturamento (lógica de valor)",
+    nota: "Cliente acima de um faturamento paga no mínimo este preço, mesmo sem lojas ou canais. Serve para o atacado grande não ficar barato demais frente ao varejo. Ligue no seletor abaixo.",
+    campos: [
+      { k: "piso_por_faturamento.faturamento_min", label: "Faturamento mínimo para o piso (R$/ano)", tipo: "num" },
+      { k: "piso_por_faturamento.preco_min", label: "Preço mínimo da mensalidade (R$)", tipo: "num" },
+    ],
+  },
 ];
 
 function get(obj: unknown, caminho: string): unknown {
@@ -117,6 +125,7 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
   }
   const [valores, setValores] = useState(inicial);
   const [arred, setArred] = useState(!!params.arredondar_90);
+  const [pisoAtivo, setPisoAtivo] = useState(!!params.piso_por_faturamento?.ativo);
   const [erro, setErro] = useState<string | null>(null);
   const [salvo, setSalvo] = useState(false);
   const [pendente, start] = useTransition();
@@ -132,6 +141,7 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
       set(novo, c.k, c.tipo === "pct" ? n / 100 : c.tipo === "int" ? Math.round(n) : n);
     }
     set(novo, "arredondar_90", arred);
+    set(novo, "piso_por_faturamento.ativo", pisoAtivo);
     set(novo, "rateio.modo", "fixo");
     set(novo, "implantacao.prazos_permitidos", ["avista", "3x", "5x"]);
     return novo as unknown as ParametrosPrecificacao;
@@ -176,6 +186,9 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
         ))}
         <label className="flex items-center gap-2 text-[12px]">
           <input type="checkbox" checked={arred} onChange={(e) => { setSalvo(false); setArred(e.target.checked); }} className="accent-wine" /> Arredondar a mensalidade (termina em 9, degraus de 30)
+        </label>
+        <label className="flex items-center gap-2 text-[12px]">
+          <input type="checkbox" checked={pisoAtivo} onChange={(e) => { setSalvo(false); setPisoAtivo(e.target.checked); }} className="accent-wine" /> Aplicar o piso de preço por faturamento
         </label>
       </div>
       <div className="mt-3 flex items-center gap-3">

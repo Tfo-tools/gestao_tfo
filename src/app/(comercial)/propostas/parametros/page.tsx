@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { carregarBasesProposta } from "@/lib/precificacao-bases";
 import { ParametrosForm } from "./parametros-form";
 import { CatalogoForm } from "./catalogo-form";
+import { SimuladorDesconto } from "./simulador-desconto";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function ParametrosPropostaPage() {
         {" "}{bases.bases.taxas.length} taxas vigentes. Esses números mudam nas telas de origem (Plano → Custos, Produtos → implantação, Configurações → Taxas); aqui ficam as regras.
       </p>
       <ParametrosForm params={bases.params} />
+      <SimuladorDesconto bases={bases} />
       <CatalogoForm modulos={bases.modulos} blocos={bases.blocos} />
     </div>
   );

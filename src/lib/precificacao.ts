@@ -37,6 +37,8 @@ export type ParametrosPrecificacao = {
   implantacao: { prazo_dias: number; reducao_integracao_pct: number; prazos_permitidos: PrazoPagamento[]; margem_fixa_parcela: boolean };
   imposto: { modo: "fixo" | "base"; aliquota_fixa: number };
   plano_pequeno: { ativo: boolean; nome: string; preco_mensal: number; faturamento_max: number; lojas_max: number; usuarios_max: number; modulos: string[]; meios: MeioPagamento[] };
+  /** piso de preço por faturamento: cliente grande paga no mínimo isto, mesmo sem canais (lógica de valor) */
+  piso_por_faturamento: { ativo: boolean; faturamento_min: number; preco_min: number };
   arredondar_90: boolean;
 };
 
@@ -293,6 +295,10 @@ export function calcularProposta(args: {
   if (plano_pequeno_aplicado) mensalidade = pp.preco_mensal;
   if (cabe && !selecao.plano_pequeno && selecaoIgualAoPlano) alertas.push(`Este perfil cabe no plano fechado ${pp.nome} (R$ ${pp.preco_mensal.toFixed(2)}).`);
   if (params.arredondar_90 && !plano_pequeno_aplicado) mensalidade = arredNove(mensalidade);
+  // Piso de preço por faturamento: cliente acima do faturamento mínimo paga pelo menos o preço mínimo,
+  // mesmo que o volume de dados seja baixo (ex.: atacado sem lojas). Lógica de valor, não de custo.
+  const pf = params.piso_por_faturamento;
+  if (pf?.ativo && !plano_pequeno_aplicado && (perfil.faturamento_anual ?? 0) >= pf.faturamento_min && mensalidade < pf.preco_min) mensalidade = pf.preco_min;
 
   const descMensal = plano_pequeno_aplicado ? 0 : Math.max(0, Math.min(1, desconto.mensalidade_pct || 0));
   const mensalidade_com_desconto = mensalidade * (1 - descMensal);
