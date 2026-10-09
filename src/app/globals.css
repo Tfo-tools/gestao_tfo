@@ -109,7 +109,7 @@
   }
   /* Campo curto em linha densa (grades, listas de parcelas): mesma borda, metade da altura. */
   .input-compacto {
-    padding: 0.3rem 0.5rem;
+    padding: 0.28rem 0.5rem;
     font-size: 12px;
   }
 

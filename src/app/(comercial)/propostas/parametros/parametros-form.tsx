@@ -140,7 +140,9 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
   const [erro, setErro] = useState<string | null>(null);
   const [salvo, setSalvo] = useState(false);
   const [pendente, start] = useTransition();
-  const [aberto, setAberto] = useState<string | null>(GRUPOS[0].titulo);
+  const [aberto, setAberto] = useState<string[]>([GRUPOS[0].titulo]);
+  const estaAberto = (t: string) => aberto.includes(t);
+  const alternarGrupo = (t: string) => setAberto((a) => (a.includes(t) ? a.filter((x) => x !== t) : [...a, t]));
 
   const montar = (): ParametrosPrecificacao => {
     const novo = JSON.parse(JSON.stringify(params)) as Record<string, unknown>;
@@ -172,17 +174,17 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
         <h2 className="font-heading text-sm font-semibold">Parâmetros de precificação</h2>
         <span className="text-[11.5px] text-text-muted">Custo por GB resultante: <b>R$ {custoGb.toFixed(2).replace(".", ",")}</b>/mês</span>
       </div>
-      <div className="mt-3 flex flex-col gap-2">
+      <div className="mt-3 grid grid-cols-1 items-start gap-2 lg:grid-cols-2">
         {GRUPOS.map((g) => (
           <div key={g.titulo} className="rounded-lg border border-border-soft">
-            <button type="button" onClick={() => setAberto((a) => (a === g.titulo ? null : g.titulo))} className="flex w-full items-center justify-between px-3 py-2 text-left">
+            <button type="button" onClick={() => alternarGrupo(g.titulo)} className="flex w-full items-center justify-between px-3 py-2 text-left">
               <span className="text-[12.5px] font-medium">{g.titulo}</span>
-              <span className="text-[11px] text-text-faint">{aberto === g.titulo ? "▲" : "▼"}</span>
+              <span className="text-[11px] text-text-faint">{estaAberto(g.titulo) ? "▲" : "▼"}</span>
             </button>
-            {aberto === g.titulo && (
+            {estaAberto(g.titulo) && (
               <div className="border-t border-border-soft px-3 py-2">
                 <p className="mb-2 text-[11px] text-text-muted">{g.nota}</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-x-3 gap-y-1.5 sm:grid-cols-2">
                   {g.campos.map((c) => (
                     <label key={c.k} className="flex flex-col gap-0.5 text-[11.5px]">
                       <span className="text-text-muted">{c.label}{c.tipo === "pct" ? " (%)" : ""}</span>
@@ -195,10 +197,10 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
             )}
           </div>
         ))}
-        <label className="flex items-center gap-2 text-[12px]">
+        <label className="flex items-center gap-2 text-[12px] lg:col-span-2">
           <input type="checkbox" checked={arred} onChange={(e) => { setSalvo(false); setArred(e.target.checked); }} className="accent-wine" /> Arredondar a mensalidade (termina em 9, degraus de 30)
         </label>
-        <label className="flex items-center gap-2 text-[12px]">
+        <label className="flex items-center gap-2 text-[12px] lg:col-span-2">
           <input type="checkbox" checked={pisoAtivo} onChange={(e) => { setSalvo(false); setPisoAtivo(e.target.checked); }} className="accent-wine" /> Aplicar o piso de preço por faturamento
         </label>
       </div>
