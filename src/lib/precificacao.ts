@@ -12,6 +12,7 @@
  */
 
 import type { TaxaPagamento, MeioPagamento, PrazoPagamento } from "@/lib/taxas-pagamento";
+import { custoProcFuncionalidade } from "@/lib/processamento";
 import { taxaPara } from "@/lib/taxas-pagamento";
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────────────────────
@@ -26,7 +27,7 @@ export type ParametrosPrecificacao = {
   };
   custo_gb: { disco_usd_gb: number; memoria_usd_gb: number; memoria_pct_volume: number; cambio: number };
   /** processamento no banco (consultas e agregações): R$ por GB de dados do cliente ao mês */
-  processamento: { reais_por_gb_mes: number };
+  processamento: { reais_por_gb_mes: number; reais_por_gb_processado?: number };
   /** custo fixo mensal de infraestrutura usado no rateio quando o Base ainda não tem o número */
   custo_fixo_infra_mes: number;
   rateio: { modo: "clientes_previstos" | "fixo"; clientes_fixo: number };
@@ -47,14 +48,18 @@ export type ParametrosPrecificacao = {
 };
 
 export type CargoRef = { cargo: string; senioridade: string; tipo_contratacao: string };
-export type EtapaImplantacao = { nome: string; dono: string | null; tipo: "mao_obra" | "servico"; cargo: string; senioridade: string; tipo_contratacao: string; horas: number; valor_hora: number; custo_direto: number };
+export type EtapaImplantacao = { nome: string; dono: string | null; tipo: "mao_obra" | "servico"; cargo: string; senioridade: string; tipo_contratacao: string; horas: number; valor_hora: number; custo_direto: number; /** só entra quando a integração NÃO é nativa (ex.: construir conector customizado) */ so_nao_nativo?: boolean };
 
 export type Modulo = { id: string; codigo: string; nome: string; descricao: string | null; ordem: number; ativo: boolean; contem_codigo: string | null };
 export type Bloco = {
   id: string; modulo_id: string; codigo: string; nome: string; descricao: string | null; peso_pct: number;
   regra_perfil: { remove_se?: string[]; motivo?: string }; adesao_pct: number; ordem: number; ativo: boolean;
-  /** processamento extra do bloco (R$/mês): blocos pesados como o orçamento consomem banco além do armazenamento */
+  /** processamento extra do bloco (R$/mês) — fallback quando não há período definido */
   custo_processamento_mes: number;
+  /** modelo por período: reprocessa a cada X e varre uma fração do volume do cliente */
+  proc_periodo?: string | null;
+  proc_dias?: number | null;
+  proc_fracao_volume?: number | null;
 };
 
 export type PerfilCliente = {
@@ -238,13 +243,17 @@ export function calcularProposta(args: {
   const gbDoModulo = (codigo: string): number =>
     codigo === "mind" ? volume.gb_mind : codigo === "price" ? (temMind ? 0 : volume.gb_price_sem_mind) : codigo.startsWith("skills") ? volume.gb_skills : 0;
   const proc_gb = params.processamento?.reais_por_gb_mes ?? 0;
+  const proc_gb_passada = params.processamento?.reais_por_gb_processado ?? 0;
   // Bloco pesado (ex.: orçamento) ativo no perfil soma processamento próprio ao custo do módulo.
+  // Custo = reprocessamento por período × fração do volume × GB do módulo × R$/GB processado (fallback: valor fixo).
   const blocoAtivoNaSelecao = (b: Bloco): boolean => {
     const removido = blocoRemovidoPeloPerfil(b, perfil);
     return selecao.blocos.length === 0 ? !removido : selecao.blocos.includes(b.id);
   };
   const custoBlocosDoModulo = (m: Modulo): number =>
-    args.blocos.filter((b) => b.modulo_id === m.id && b.ativo && blocoAtivoNaSelecao(b)).reduce((acc, b) => acc + (Number(b.custo_processamento_mes) || 0), 0);
+    args.blocos
+      .filter((b) => b.modulo_id === m.id && b.ativo && blocoAtivoNaSelecao(b))
+      .reduce((acc, b) => acc + custoProcFuncionalidade(b, gbDoModulo(m.codigo), proc_gb_passada), 0);
   // Custo DIRETO do módulo = dado (armazenamento) + processamento no banco (ambos crescem com o GB) + blocos pesados.
   const custoDiretoModulo = (codigo: string): number => gbDoModulo(codigo) * (custo_gb + proc_gb);
   const custos: LinhaCusto[] = [];
@@ -325,14 +334,13 @@ export function calcularProposta(args: {
 
   // Implantação: pacote fixo; integração pronta reduz as horas
   let implantacao: ResultadoPreco["implantacao"] = null;
-  const etapasImpl = params.implantacao.etapas ?? [];
+  const etapasTodas = params.implantacao.etapas ?? [];
+  // Integração nativa = etapas padrão; não-nativa soma as etapas marcadas (ex.: construir conector).
+  const etapasImpl = etapasTodas.filter((e) => !e.so_nao_nativo || !perfil.integracao_pronta);
   if (pagamento.meio_implantacao && pagamento.prazo_implantacao && etapasImpl.length > 0) {
-    const fator = perfil.integracao_pronta ? 1 - params.implantacao.reducao_integracao_pct : 1;
     // Custo e horas vêm das etapas: mão de obra (horas × R$/h do cargo) ou serviço (custo direto).
-    const custoBase = etapasImpl.reduce((acc, e) => acc + (e.tipo === "servico" ? (Number(e.custo_direto) || 0) : (Number(e.horas) || 0) * (Number(e.valor_hora) || 0)), 0);
-    const horasBase = etapasImpl.reduce((acc, e) => acc + (e.tipo === "servico" ? 0 : (Number(e.horas) || 0)), 0);
-    const custo = custoBase * fator;
-    const horas = horasBase * fator;
+    const custo = etapasImpl.reduce((acc, e) => acc + (e.tipo === "servico" ? (Number(e.custo_direto) || 0) : (Number(e.horas) || 0) * (Number(e.valor_hora) || 0)), 0);
+    const horas = etapasImpl.reduce((acc, e) => acc + (e.tipo === "servico" ? 0 : (Number(e.horas) || 0)), 0);
     const txi = taxaPara(bases.taxas, pagamento.meio_implantacao, pagamento.prazo_implantacao);
     if (!txi) alertas.push(`Sem taxa cadastrada para ${pagamento.meio_implantacao} ${pagamento.prazo_implantacao} na implantação.`);
     const parcelas = parcelasDe(pagamento.prazo_implantacao);
@@ -344,7 +352,7 @@ export function calcularProposta(args: {
     const preco_com_desconto = preco * (1 - descI);
     implantacao = {
       horas, custo, integracao_pronta: perfil.integracao_pronta,
-      prazo_dias: Math.round(params.implantacao.prazo_dias * fator),
+      prazo_dias: Math.round(params.implantacao.prazo_dias),
       taxa: txi ? { pct: txi.pct, fixo: txi.fixo, meio: pagamento.meio_implantacao, prazo: pagamento.prazo_implantacao } : null,
       preco, preco_com_desconto, parcelas, valor_parcela: preco_com_desconto / parcelas,
       margem_resultante: preco_com_desconto > 0 ? 1 - aliquota - pctI - (custo + fixoTotal) / preco_com_desconto : 0,

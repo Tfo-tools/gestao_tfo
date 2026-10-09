@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { carregarBasesProposta } from "@/lib/precificacao-bases";
 import { ParametrosForm } from "./parametros-form";
-import { SimuladorDesconto } from "./simulador-desconto";
+import type { TaxaPagamento } from "@/lib/taxas-pagamento";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,11 @@ export default async function ParametrosPropostaPage() {
   } = await supabase.auth.getUser();
   const { data: perfil } = user ? await supabase.from("profiles").select("papel").eq("id", user.id).maybeSingle() : { data: null };
   if (perfil?.papel !== "socia") redirect("/propostas");
-  const bases = await carregarBasesProposta(supabase);
+  const [bases, { data: taxasRaw }] = await Promise.all([
+    carregarBasesProposta(supabase),
+    supabase.from("taxas_pagamento").select("*").order("prazo").order("meio").order("vigencia_inicio"),
+  ]);
+  const taxas = ((taxasRaw ?? []) as TaxaPagamento[]).map((t) => ({ ...t, pct: Number(t.pct), fixo: Number(t.fixo) }));
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -28,8 +32,7 @@ export default async function ParametrosPropostaPage() {
         {" "}implantação {bases.bases.horas_implantacao_padrao} h = {bases.bases.custo_implantacao_padrao.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} (etapas cadastradas no Base),
         {" "}{bases.bases.taxas.length} taxas vigentes. Esses números mudam nas telas de origem (Plano → Custos, Produtos → implantação, Configurações → Taxas); aqui ficam as regras.
       </p>
-      <ParametrosForm params={bases.params} cargos={bases.cargos} />
-      <SimuladorDesconto bases={bases} />
+      <ParametrosForm params={bases.params} cargos={bases.cargos} taxas={taxas} bases={bases} />
     </div>
   );
 }

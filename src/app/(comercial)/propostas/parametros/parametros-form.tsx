@@ -2,10 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { custoPorGb, type ParametrosPrecificacao } from "@/lib/precificacao";
-import type { CargoHora } from "@/lib/precificacao-bases";
+import type { BasesProposta, CargoHora } from "@/lib/precificacao-bases";
 import type { EtapaImplantacao } from "@/lib/precificacao";
+import type { TaxaPagamento } from "@/lib/taxas-pagamento";
 import { CargoManager } from "./cargo-manager";
 import { ImplantacaoEtapas } from "./implantacao-etapas";
+import { CustoFuncionalidades } from "./custo-funcionalidades";
+import { SimuladorDesconto } from "./simulador-desconto";
+import { TaxasPagamentoCard } from "@/app/(app)/configuracoes/taxas-pagamento-card";
 import { salvarParametrosPrecificacao } from "./actions";
 
 type Caminho = string; // "estimativa.faturamento_por_loja"
@@ -24,19 +28,19 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
   },
   {
     titulo: "Infraestrutura, rateio e processamento",
-    nota: "Custo fixo da plataforma (instância do banco, plano, domínio) rateado entre os clientes — é COGS. Processamento é o que as consultas e agregações no banco consomem, e cresce com o volume de dados do cliente (não com usuários). Pesquisa de nuvem de 08/10/2026.",
+    nota: "Custo fixo da plataforma (instância do banco, plano, domínio) rateado entre os clientes — é COGS. Processamento é o que as consultas e agregações no banco consomem, e cresce com o volume de dados do cliente (não com usuários).",
     campos: [
       { k: "custo_fixo_infra_mes", label: "Custo fixo de infraestrutura (R$/mês)", tipo: "num", ajuda: "Usado quando o Base ainda não traz o número" },
       { k: "rateio.clientes_fixo", label: "Clientes para ratear o fixo", tipo: "int", ajuda: "Meta de clientes; não divida pelos poucos de hoje" },
-      { k: "processamento.reais_por_gb_mes", label: "Processamento (R$ por GB de dados/mês)", tipo: "num", ajuda: "Provisório; calibrar medindo a instância" },
+      { k: "processamento.reais_por_gb_mes", label: "Processamento base (R$ por GB/mês)", tipo: "num", ajuda: "Enriquecimento diário que mantém o banco pronto" },
+      { k: "processamento.reais_por_gb_processado", label: "Processamento por passada (R$ por GB processado)", tipo: "num", ajuda: "Custo de reprocessar 1 GB uma vez; base do custo por funcionalidade" },
     ],
   },
   {
     titulo: "Implantação",
-    nota: "Prazo e redução por integração pronta; as etapas ficam na tabela acima.",
+    nota: "Prazo para o cliente; as etapas ficam na tabela acima. Integração nativa = etapas padrão; não-nativa soma as etapas marcadas como 'só não-nativo'.",
     campos: [
       { k: "implantacao.prazo_dias", label: "Prazo para o cliente (dias)", tipo: "int" },
-      { k: "implantacao.reducao_integracao_pct", label: "Redução com ERP integrado (ex.: Matriz Sistemas)", tipo: "pct", ajuda: "Chute inicial; ajuste quando medir com a Amabillis" },
     ],
   },
   {
@@ -117,13 +121,22 @@ function set(obj: Record<string, unknown>, caminho: string, valor: unknown) {
 }
 
 type Sup = ParametrosPrecificacao["suporte"];
+type Aba = "infra" | "implantacao" | "taxas" | "suporte" | "parametros";
+const ABAS: { key: Aba; label: string }[] = [
+  { key: "infra", label: "Infra" },
+  { key: "implantacao", label: "Implantação" },
+  { key: "taxas", label: "Taxas" },
+  { key: "suporte", label: "Suporte e CS" },
+  { key: "parametros", label: "Parâmetros + simulador" },
+];
 
-export function ParametrosForm({ params, cargos }: { params: ParametrosPrecificacao; cargos: CargoHora[] }) {
+export function ParametrosForm({ params, cargos, taxas, bases }: { params: ParametrosPrecificacao; cargos: CargoHora[]; taxas: TaxaPagamento[]; bases: BasesProposta }) {
   const inicial: Record<string, string> = {};
   for (const g of GRUPOS) for (const c of g.campos) {
     const v = get(params, c.k);
     inicial[c.k] = v == null ? "" : c.tipo === "pct" ? String(Number(v) * 100).replace(".", ",") : String(v).replace(".", ",");
   }
+  const [aba, setAba] = useState<Aba>("infra");
   const [valores, setValores] = useState(inicial);
   const [sup, setSup] = useState<Sup>(params.suporte);
   const chaveCargo = (r: { cargo: string; senioridade: string; tipo_contratacao: string }) => `${r.cargo}|${r.senioridade}|${r.tipo_contratacao}`;
@@ -183,71 +196,104 @@ export function ParametrosForm({ params, cargos }: { params: ParametrosPrecifica
     );
   };
 
+  const barraSalvar = (
+    <div className="mt-3 flex items-center gap-3">
+      <button type="button" disabled={pendente} onClick={salvar} className="rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white disabled:opacity-60">{pendente ? "Salvando…" : "Salvar parâmetros"}</button>
+      {salvo && <span className="text-[11.5px] text-success">Salvo — as próximas propostas usam estes valores; as salvas não mudam.</span>}
+      {erro && <span className="text-[11.5px] text-danger">{erro}</span>}
+    </div>
+  );
+
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-heading text-sm font-semibold">Parâmetros de precificação</h2>
+        <h2 className="font-heading text-sm font-semibold">COGS · parâmetros de custo e preço</h2>
         <span className="text-[11.5px] text-text-muted">Custo por GB resultante: <b>R$ {custoGb.toFixed(2).replace(".", ",")}</b>/mês</span>
       </div>
-      <div className="mt-3 flex flex-col gap-3">
-        <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {cardGrupo("Margens e tabela comercial")}
-          {cardGrupo("Plano fechado para marca pequena")}
+
+      <div className="mt-3 flex flex-wrap gap-1.5 border-b border-border">
+        {ABAS.map((a) => (
+          <button key={a.key} type="button" onClick={() => setAba(a.key)} className={`-mb-px border-b-2 px-3 py-1.5 text-[12.5px] font-medium transition-colors ${aba === a.key ? "border-wine text-wine-deep" : "border-transparent text-text-muted hover:text-text"}`}>{a.label}</button>
+        ))}
+      </div>
+
+      <div className="mt-3">
+        {aba === "infra" && (
           <div className="flex flex-col gap-3">
-            {cardGrupo("Elegibilidade do Mind")}
-            {cardGrupo("Piso de preço por faturamento (lógica de valor)")}
-            <div className="rounded-lg border border-border-soft p-3">
-              <h3 className="text-[12.5px] font-medium">Opções de preço</h3>
-              <label className="mt-2 flex items-center gap-2 text-[12px]"><input type="checkbox" checked={arred} onChange={(e) => { setSalvo(false); setArred(e.target.checked); }} className="accent-wine" /> Arredondar a mensalidade (termina em 9, degraus de 30)</label>
-              <label className="mt-2 flex items-center gap-2 text-[12px]"><input type="checkbox" checked={pisoAtivo} onChange={(e) => { setSalvo(false); setPisoAtivo(e.target.checked); }} className="accent-wine" /> Aplicar o piso de preço por faturamento</label>
+            <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {cardGrupo("Infraestrutura, rateio e processamento")}
+              {cardGrupo("Custo do banco de dados")}
+              {cardGrupo("Regras de estimativa do volume")}
             </div>
+            <CustoFuncionalidades modulos={bases.modulos} blocos={bases.blocos} />
           </div>
-        </div>
-        <div className="rounded-lg border border-border-soft p-3">
-          <h3 className="text-[12.5px] font-medium">Implantação</h3>
-          <p className="mb-2 mt-0.5 text-[11px] text-text-muted">Pacote por cliente. Cada etapa é mão de obra (o cargo puxa o custo/hora) ou um serviço com custo direto. Integração pronta reduz o custo.</p>
-          <ImplantacaoEtapas etapas={etapas} cargos={cargos} onChange={(e) => { setSalvo(false); setEtapas(e); }} />
-          <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-1.5 sm:grid-cols-2 lg:max-w-md">{grupo("Implantação")?.campos.map(campoLabel)}</div>
-        </div>
-        <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {cardGrupo("Infraestrutura, rateio e processamento")}
-          {cardGrupo("Custo do banco de dados")}
-          {cardGrupo("Regras de estimativa do volume")}
-        </div>
+        )}
+
+        {aba === "implantacao" && (
+          <div className="rounded-lg border border-border-soft p-3">
+            <h3 className="text-[12.5px] font-medium">Implantação</h3>
+            <p className="mb-2 mt-0.5 text-[11px] text-text-muted">Pacote por cliente. Cada etapa é mão de obra (o cargo puxa o custo/hora) ou um serviço com custo direto. Marque &quot;só não-nativo&quot; nas etapas que só valem quando a integração não é pronta (ex.: construir o conector).</p>
+            <ImplantacaoEtapas etapas={etapas} cargos={cargos} onChange={(e) => { setSalvo(false); setEtapas(e); }} />
+            <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-1.5 sm:grid-cols-2 lg:max-w-md">{grupo("Implantação")?.campos.map(campoLabel)}</div>
+          </div>
+        )}
+
+        {aba === "taxas" && <TaxasPagamentoCard taxas={taxas} />}
+
+        {aba === "suporte" && (
+          <div className="flex flex-col gap-3">
+            <div className="rounded-lg border border-border-soft p-3">
+              <h3 className="text-[12.5px] font-medium">Suporte (horas por cliente/mês e cargo)</h3>
+              <p className="mb-2 mt-0.5 text-[11px] text-text-muted">Escolha o cargo de cada serviço; o custo da hora vem da lista de cargos. Benchmark: reativo 2-4 h, CS 1,5-3 h, monitoramento 2-5 h.</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11.5px]">
+                  <thead><tr className="text-left text-text-faint"><th className="py-1 pr-2 font-medium">Serviço</th><th className="py-1 pr-2 font-medium">Horas/mês</th><th className="py-1 pr-2 font-medium">Cargo · senioridade · contratação</th><th className="py-1 pr-2 text-right font-medium">R$/h</th></tr></thead>
+                  <tbody>
+                    {([["reativo", "Suporte reativo (chamados)", "reativo_horas"], ["cs", "CS ativo (retenção e adoção)", "cs_horas"], ["monitoramento", "Monitoramento / DevOps", "monitoramento_horas"]] as const).map(([srv, label, hk]) => {
+                      const ref = sup[srv];
+                      return (
+                        <tr key={srv} className="border-t border-border-soft">
+                          <td className="py-1 pr-2 font-medium">{label}</td>
+                          <td className="py-1 pr-2"><input value={sup[hk]} onChange={(e) => setHoras(hk, Number(e.target.value.replace(",", ".")) || 0)} className="input input-compacto w-16 text-right" inputMode="decimal" /></td>
+                          <td className="py-1 pr-2">
+                            <select value={chaveCargo(ref)} onChange={(e) => { const [cargo, senioridade, tipo_contratacao] = e.target.value.split("|"); setServico(srv, { cargo, senioridade, tipo_contratacao }); }} className="input input-compacto w-full">
+                              {!cargos.some((c) => chaveCargo(c) === chaveCargo(ref)) && <option value={chaveCargo(ref)}>{ref.cargo} · {ref.senioridade} · {ref.tipo_contratacao}</option>}
+                              {cargos.map((c) => <option key={chaveCargo(c)} value={chaveCargo(c)}>{c.cargo} · {c.senioridade} · {c.tipo_contratacao} — R$ {c.valor_hora}/h</option>)}
+                            </select>
+                          </td>
+                          <td className="py-1 pr-2 text-right tabular-nums">R$ {taxaHora(ref).toLocaleString("pt-BR")}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <CargoManager cargos={cargos} />
+          </div>
+        )}
+
+        {aba === "parametros" && (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {cardGrupo("Margens e tabela comercial")}
+              {cardGrupo("Plano fechado para marca pequena")}
+              <div className="flex flex-col gap-3">
+                {cardGrupo("Elegibilidade do Mind")}
+                {cardGrupo("Piso de preço por faturamento (lógica de valor)")}
+                <div className="rounded-lg border border-border-soft p-3">
+                  <h3 className="text-[12.5px] font-medium">Opções de preço</h3>
+                  <label className="mt-2 flex items-center gap-2 text-[12px]"><input type="checkbox" checked={arred} onChange={(e) => { setSalvo(false); setArred(e.target.checked); }} className="accent-wine" /> Arredondar a mensalidade (termina em 9, degraus de 30)</label>
+                  <label className="mt-2 flex items-center gap-2 text-[12px]"><input type="checkbox" checked={pisoAtivo} onChange={(e) => { setSalvo(false); setPisoAtivo(e.target.checked); }} className="accent-wine" /> Aplicar o piso de preço por faturamento</label>
+                </div>
+              </div>
+            </div>
+            <SimuladorDesconto bases={bases} />
+          </div>
+        )}
       </div>
-      <div className="mt-3 rounded-xl border border-border-soft p-3">
-        <h3 className="text-[12.5px] font-medium">Suporte (horas por cliente/mês e cargo)</h3>
-        <p className="mb-2 mt-0.5 text-[11px] text-text-muted">Escolha o cargo de cada serviço; o custo da hora vem da lista de cargos. Benchmark: reativo 2-4 h, CS 1,5-3 h, monitoramento 2-5 h.</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[11.5px]">
-            <thead><tr className="text-left text-text-faint"><th className="py-1 pr-2 font-medium">Serviço</th><th className="py-1 pr-2 font-medium">Horas/mês</th><th className="py-1 pr-2 font-medium">Cargo · senioridade · contratação</th><th className="py-1 pr-2 text-right font-medium">R$/h</th></tr></thead>
-            <tbody>
-              {([["reativo", "Suporte reativo (chamados)", "reativo_horas"], ["cs", "CS ativo (retenção e adoção)", "cs_horas"], ["monitoramento", "Monitoramento / DevOps", "monitoramento_horas"]] as const).map(([srv, label, hk]) => {
-                const ref = sup[srv];
-                return (
-                  <tr key={srv} className="border-t border-border-soft">
-                    <td className="py-1 pr-2 font-medium">{label}</td>
-                    <td className="py-1 pr-2"><input value={sup[hk]} onChange={(e) => setHoras(hk, Number(e.target.value.replace(",", ".")) || 0)} className="input input-compacto w-16 text-right" inputMode="decimal" /></td>
-                    <td className="py-1 pr-2">
-                      <select value={chaveCargo(ref)} onChange={(e) => { const [cargo, senioridade, tipo_contratacao] = e.target.value.split("|"); setServico(srv, { cargo, senioridade, tipo_contratacao }); }} className="input input-compacto w-full">
-                        {!cargos.some((c) => chaveCargo(c) === chaveCargo(ref)) && <option value={chaveCargo(ref)}>{ref.cargo} · {ref.senioridade} · {ref.tipo_contratacao}</option>}
-                        {cargos.map((c) => <option key={chaveCargo(c)} value={chaveCargo(c)}>{c.cargo} · {c.senioridade} · {c.tipo_contratacao} — R$ {c.valor_hora}/h</option>)}
-                      </select>
-                    </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">R$ {taxaHora(ref).toLocaleString("pt-BR")}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <CargoManager cargos={cargos} />
-      <div className="mt-3 flex items-center gap-3">
-        <button type="button" disabled={pendente} onClick={salvar} className="rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white disabled:opacity-60">{pendente ? "Salvando…" : "Salvar parâmetros"}</button>
-        {salvo && <span className="text-[11.5px] text-success">Salvo — as próximas propostas usam estes valores; as salvas não mudam.</span>}
-        {erro && <span className="text-[11.5px] text-danger">{erro}</span>}
-      </div>
+
+      {aba !== "taxas" && barraSalvar}
     </div>
   );
 }

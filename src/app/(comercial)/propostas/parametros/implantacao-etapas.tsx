@@ -32,6 +32,7 @@ export function ImplantacaoEtapas({ etapas, cargos, onChange }: { etapas: EtapaI
               <th className="py-1 pr-2 text-right font-medium">Horas</th>
               <th className="py-1 pr-2 text-right font-medium">R$/h</th>
               <th className="py-1 pr-2 text-right font-medium">Total</th>
+              <th className="py-1 pr-2 text-center font-medium">Só não-nativo</th>
               <th />
             </tr>
           </thead>
@@ -57,10 +58,11 @@ export function ImplantacaoEtapas({ etapas, cargos, onChange }: { etapas: EtapaI
                 <td className="py-1 pr-2 text-right">{e.tipo === "servico" ? "—" : <input value={e.horas} onChange={(ev) => setEtapa(i, { horas: num(ev.target.value) })} className="input input-compacto w-16 text-right" inputMode="decimal" />}</td>
                 <td className="py-1 pr-2 text-right tabular-nums">{e.tipo === "servico" ? <input value={e.custo_direto} onChange={(ev) => setEtapa(i, { custo_direto: num(ev.target.value) })} className="input input-compacto w-24 text-right" inputMode="decimal" placeholder="custo R$" /> : brl(Number(e.valor_hora) || 0)}</td>
                 <td className="py-1 pr-2 text-right font-medium tabular-nums">{brl(totalEtapa(e))}</td>
+                <td className="py-1 pr-2 text-center"><input type="checkbox" checked={!!e.so_nao_nativo} onChange={(ev) => setEtapa(i, { so_nao_nativo: ev.target.checked })} className="accent-wine" title="Esta etapa só entra quando a integração não é nativa" /></td>
                 <td className="py-1 text-right"><button type="button" onClick={() => remover(i)} className="text-[11px] text-text-faint hover:text-danger">×</button></td>
               </tr>
             ))}
-            {etapas.length === 0 && <tr><td colSpan={6} className="py-2 text-[11px] text-text-faint">Nenhuma etapa. Adicione as etapas da implantação.</td></tr>}
+            {etapas.length === 0 && <tr><td colSpan={7} className="py-2 text-[11px] text-text-faint">Nenhuma etapa. Adicione as etapas da implantação.</td></tr>}
           </tbody>
           <tfoot>
             <tr className="border-t border-border">
@@ -68,6 +70,7 @@ export function ImplantacaoEtapas({ etapas, cargos, onChange }: { etapas: EtapaI
               <td className="py-1.5 pr-2 text-right font-semibold tabular-nums">{horasTotal}h</td>
               <td />
               <td className="py-1.5 pr-2 text-right font-semibold tabular-nums text-primary-deep">{brl(custoTotal)}</td>
+              <td />
               <td />
             </tr>
           </tfoot>
