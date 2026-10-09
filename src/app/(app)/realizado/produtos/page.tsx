@@ -37,6 +37,7 @@ export default async function ProdutosRealizadoPage() {
         <h2 className="font-heading text-sm font-semibold">Plano de produto</h2>
         <p className="mt-0.5 text-[12.5px] text-text-muted">Participação, datas de teste e modelo de cobrança por módulo e funcionalidade.</p>
         <Link href="/produtos/participacao" className="mt-2 inline-block rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white">Abrir plano de produto →</Link>
+        <Link href="/produtos/catalogo" className="mt-2 ml-2 inline-block rounded-lg border border-border px-3.5 py-2 text-[12px] font-medium text-text-muted hover:border-primary-fill hover:text-primary-deep">Catálogo de módulos e blocos →</Link>
       </div>
       <TaxasPagamentoCard taxas={taxas} />
     </div>

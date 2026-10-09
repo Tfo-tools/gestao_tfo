@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { carregarBasesProposta } from "@/lib/precificacao-bases";
 import { ParametrosForm } from "./parametros-form";
-import { CatalogoForm } from "./catalogo-form";
 import { SimuladorDesconto } from "./simulador-desconto";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +30,6 @@ export default async function ParametrosPropostaPage() {
       </p>
       <ParametrosForm params={bases.params} />
       <SimuladorDesconto bases={bases} />
-      <CatalogoForm modulos={bases.modulos} blocos={bases.blocos} />
     </div>
   );
 }

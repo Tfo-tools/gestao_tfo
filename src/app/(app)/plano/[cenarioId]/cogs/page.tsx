@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { carregarBasesProposta } from "@/lib/precificacao-bases";
 import { ParametrosForm } from "@/app/(comercial)/propostas/parametros/parametros-form";
-import { CatalogoForm } from "@/app/(comercial)/propostas/parametros/catalogo-form";
 import { SimuladorDesconto } from "@/app/(comercial)/propostas/parametros/simulador-desconto";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +33,6 @@ export default async function CogsDoPlanoPage({ params }: { params: Promise<{ ce
       </p>
       <ParametrosForm params={bases.params} />
       <SimuladorDesconto bases={bases} />
-      <CatalogoForm modulos={bases.modulos} blocos={bases.blocos} />
     </div>
   );
 }
