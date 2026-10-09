@@ -118,6 +118,42 @@ export async function salvarPerfis(perfis: (Partial<PerfilSimulado> & { id: stri
   return { error: null };
 }
 
+/** Estrutura — adiciona uma funcionalidade (bloco) a um módulo. */
+export async function adicionarFuncionalidade(modulo_id: string, nome = "Nova funcionalidade"): Promise<{ error: string | null; id?: string }> {
+  const { supabase, ok } = await socia();
+  if (!ok) return { error: "Só as sócias editam o produto." };
+  const { data: ult } = await supabase.from("catalogo_blocos").select("ordem").eq("modulo_id", modulo_id).order("ordem", { ascending: false }).limit(1).maybeSingle();
+  const ordem = (Number(ult?.ordem) || 0) + 1;
+  const { data, error } = await supabase
+    .from("catalogo_blocos")
+    .insert({ modulo_id, nome, ordem, ativo: true, peso_pct: 0, adesao_pct: 1, custo_processamento_mes: 0 })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  revalida();
+  return { error: null, id: data?.id };
+}
+
+/** Estrutura — renomeia uma funcionalidade. */
+export async function renomearFuncionalidade(id: string, nome: string): Promise<{ error: string | null }> {
+  const { supabase, ok } = await socia();
+  if (!ok) return { error: "Só as sócias editam o produto." };
+  const { error } = await supabase.from("catalogo_blocos").update({ nome: nome.trim() || "Sem nome" }).eq("id", id);
+  if (error) return { error: error.message };
+  revalida();
+  return { error: null };
+}
+
+/** Estrutura — exclui uma funcionalidade. */
+export async function excluirFuncionalidade(id: string): Promise<{ error: string | null }> {
+  const { supabase, ok } = await socia();
+  if (!ok) return { error: "Só as sócias editam o produto." };
+  const { error } = await supabase.from("catalogo_blocos").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalida();
+  return { error: null };
+}
+
 export async function excluirPerfil(id: string): Promise<{ error: string | null }> {
   const { supabase, ok } = await socia();
   if (!ok) return { error: "Só as sócias editam os perfis." };

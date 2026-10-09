@@ -24,11 +24,11 @@ export type LinhaProduto = {
   crescimento_fases: CrescimentoFases;
 };
 
-/** Cor de fundo do cabeçalho de cada módulo, para separar os blocos na planilha. */
+/** Cor de fundo da faixa de cada produto (amarelo, azul bem claro, cinza). */
 export const COR_MODULO: Record<string, string> = {
-  mind: "bg-[#fbe9ec]",
-  skills: "bg-[#fcf4da]",
-  price: "bg-[#e9f3ec]",
+  mind: "bg-[#fcf4da]",   // amarelo
+  skills: "bg-[#e8f1fb]", // azul bem claro
+  price: "bg-[#f0f1f3]",  // cinza
 };
 export const COR_MODULO_FALLBACK = "bg-surface-muted";
 

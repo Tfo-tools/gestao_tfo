@@ -108,8 +108,8 @@ export function CrescimentoTab({ modulos, blocos }: { modulos: ModuloRow[]; bloc
                   <td colSpan={1 + FASES_CRESCIMENTO.length * 2} className="px-4 py-1.5 font-heading text-[12.5px] font-semibold">{l.moduloNome}</td>
                 </tr>
               ) : (
-                <tr key={l.key} className="border-t border-border-soft">
-                  <td className="py-1.5 pl-4 pr-2">{l.nome}</td>
+                <tr key={l.key} className={`border-t border-border-soft ${l.tipo === "modulo" ? COR_MODULO[l.moduloCodigo] ?? COR_MODULO_FALLBACK : ""}`}>
+                  <td className={`py-1.5 pl-4 pr-2 ${l.tipo === "modulo" ? "font-heading text-[12.5px] font-semibold" : ""}`}>{l.nome}</td>
                   {FASES_CRESCIMENTO.map((f) => {
                     const c = cres[l.id]?.[f.key] ?? {};
                     return (
