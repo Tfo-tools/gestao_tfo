@@ -32,6 +32,7 @@ export default async function ParticipacaoProdutoPage() {
         Tela 1 de 3. Para cada módulo e funcionalidade: a participação esperada (quantos clientes contratam), a data de início dos testes e o modelo de cobrança (pago, com valor fixo ou calculado, ou gratuito). As próximas telas usam isto para projetar crescimento, churn e o custo médio por cliente.
       </p>
       <ParticipacaoForm modulos={(modulos ?? []) as never} blocos={(blocos ?? []) as never} />
+      <div><Link href="/produtos/crescimento" className="inline-block rounded-lg border border-border px-3.5 py-2 text-[12px] font-medium text-text-muted hover:border-primary-fill hover:text-primary-deep">Próxima: crescimento e churn →</Link></div>
     </div>
   );
 }
