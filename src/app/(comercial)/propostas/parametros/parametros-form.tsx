@@ -8,6 +8,7 @@ import type { TaxaPagamento } from "@/lib/taxas-pagamento";
 import { CargoManager } from "./cargo-manager";
 import { ImplantacaoEtapas } from "./implantacao-etapas";
 import { CustoFuncionalidades } from "./custo-funcionalidades";
+import { ImplantacaoPreview } from "./implantacao-preview";
 import { SimuladorDesconto } from "./simulador-desconto";
 import { TaxasPagamentoCard } from "@/app/(app)/configuracoes/taxas-pagamento-card";
 import { salvarParametrosPrecificacao } from "./actions";
@@ -17,13 +18,19 @@ type Caminho = string; // "estimativa.faturamento_por_loja"
 const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: string; tipo?: "pct" | "num" | "int"; ajuda?: string }[] }[] = [
   {
     titulo: "Margens e tabela comercial",
-    nota: "A margem alvo entra na fórmula do preço. A tabela comercial é até onde o vendedor desconta sem validação das sócias.",
+    nota: "A margem alvo da mensalidade entra na fórmula do preço. A tabela comercial é até onde o vendedor desconta sem validação das sócias. A margem e o desconto da implantação ficam na aba Implantação.",
     campos: [
       { k: "margens.mensalidade_pct", label: "Margem alvo da mensalidade", tipo: "pct" },
-      { k: "margens.implantacao_pct", label: "Margem alvo da implantação", tipo: "pct" },
       { k: "tabela_comercial.desconto_max_mensalidade_pct", label: "Desconto máximo sem validação · mensalidade", tipo: "pct" },
-      { k: "tabela_comercial.desconto_max_implantacao_pct", label: "Desconto máximo sem validação · implantação", tipo: "pct" },
       { k: "imposto.aliquota_fixa", label: "Alíquota de imposto usada no preço", tipo: "pct", ajuda: "Simples: 6% no Anexo III primeira faixa; o app vai ler do Base quando o plano estiver refeito" },
+    ],
+  },
+  {
+    titulo: "Margem e desconto da implantação",
+    nota: "A margem alvo entra na fórmula do preço da implantação; o desconto máximo é até onde o vendedor baixa sem validação.",
+    campos: [
+      { k: "margens.implantacao_pct", label: "Margem alvo da implantação", tipo: "pct" },
+      { k: "tabela_comercial.desconto_max_implantacao_pct", label: "Desconto máximo sem validação · implantação", tipo: "pct" },
     ],
   },
   {
@@ -124,9 +131,9 @@ type Sup = ParametrosPrecificacao["suporte"];
 type Aba = "infra" | "implantacao" | "taxas" | "suporte" | "parametros";
 const ABAS: { key: Aba; label: string }[] = [
   { key: "infra", label: "Infra" },
-  { key: "implantacao", label: "Implantação" },
   { key: "taxas", label: "Taxas" },
   { key: "suporte", label: "Suporte e CS" },
+  { key: "implantacao", label: "Implantação" },
   { key: "parametros", label: "Parâmetros + simulador" },
 ];
 
@@ -232,11 +239,17 @@ export function ParametrosForm({ params, cargos, taxas, bases }: { params: Param
         )}
 
         {aba === "implantacao" && (
-          <div className="rounded-lg border border-border-soft p-3">
-            <h3 className="text-[12.5px] font-medium">Implantação</h3>
-            <p className="mb-2 mt-0.5 text-[11px] text-text-muted">Pacote por cliente. Cada etapa é mão de obra (o cargo puxa o custo/hora) ou um serviço com custo direto. Marque &quot;só não-nativo&quot; nas etapas que só valem quando a integração não é pronta (ex.: construir o conector).</p>
-            <ImplantacaoEtapas etapas={etapas} cargos={cargos} onChange={(e) => { setSalvo(false); setEtapas(e); }} />
-            <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-1.5 sm:grid-cols-2 lg:max-w-md">{grupo("Implantação")?.campos.map(campoLabel)}</div>
+          <div className="flex flex-col gap-3">
+            <div className="rounded-lg border border-border-soft p-3">
+              <h3 className="text-[12.5px] font-medium">Implantação</h3>
+              <p className="mb-2 mt-0.5 text-[11px] text-text-muted">Pacote por cliente. Cada etapa é mão de obra (o cargo puxa o custo/hora) ou um serviço com custo direto. Marque &quot;só não-nativo&quot; nas etapas que só valem quando a integração não é pronta (ex.: construir o conector).</p>
+              <ImplantacaoEtapas etapas={etapas} cargos={cargos} onChange={(e) => { setSalvo(false); setEtapas(e); }} />
+              <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-4">
+                {grupo("Implantação")?.campos.map(campoLabel)}
+                {grupo("Margem e desconto da implantação")?.campos.map(campoLabel)}
+              </div>
+            </div>
+            <ImplantacaoPreview params={montar()} bases={bases} />
           </div>
         )}
 
