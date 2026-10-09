@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { TaxasPagamentoCard } from "../../configuracoes/taxas-pagamento-card";
@@ -31,6 +32,11 @@ export default async function ProdutosRealizadoPage() {
         <p className="mt-1 max-w-3xl text-[13px] text-text-muted">
           Onde ficam as taxas e, em breve, os preços de produto que valem para o negócio operando. Você monta no plano Base; quando começar a realizar, estes valores passam a valer e o plano fica para planejar cenários. Hoje: as taxas de pagamento (Asaas), que a proposta comercial e o custo do plano leem.
         </p>
+      </div>
+      <div className="rounded-xl border border-border bg-surface p-5">
+        <h2 className="font-heading text-sm font-semibold">Plano de produto</h2>
+        <p className="mt-0.5 text-[12.5px] text-text-muted">Participação, datas de teste e modelo de cobrança por módulo e funcionalidade.</p>
+        <Link href="/produtos/participacao" className="mt-2 inline-block rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white">Abrir plano de produto →</Link>
       </div>
       <TaxasPagamentoCard taxas={taxas} />
     </div>
