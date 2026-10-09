@@ -61,3 +61,29 @@ export async function salvarModulo(m: { id: string; nome: string; descricao: str
   revalidatePath("/propostas", "layout");
   return { error: null };
 }
+
+export type CargoEntrada = { id?: string; area: string; cargo: string; senioridade: string; tipo_contratacao: string; valor_hora: number };
+
+/** Adiciona ou edita um cargo e seu custo/hora na tabela de custo/hora (lista usada no suporte). */
+export async function salvarCargo(c: CargoEntrada): Promise<{ error: string | null }> {
+  const { supabase, user, ok } = await socia();
+  if (!user) return { error: "Sessão expirada — entre de novo." };
+  if (!ok) return { error: "Só as sócias editam a lista de cargos." };
+  if (!c.cargo.trim()) return { error: "Informe o cargo." };
+  const linha = { area: c.area.trim() || "Geral", cargo: c.cargo.trim(), senioridade: c.senioridade, tipo_contratacao: c.tipo_contratacao, valor_hora: Math.max(0, Number(c.valor_hora) || 0) };
+  const resp = c.id
+    ? await supabase.from("tabela_custo_hora").update(linha).eq("id", c.id)
+    : await supabase.from("tabela_custo_hora").insert(linha);
+  if (resp.error) return { error: `Não foi possível salvar o cargo: ${resp.error.message}` };
+  revalidatePath("/propostas", "layout");
+  return { error: null };
+}
+
+export async function excluirCargo(id: string): Promise<{ error: string | null }> {
+  const { user, ok, supabase } = await socia();
+  if (!user || !ok) return { error: "Só as sócias editam a lista de cargos." };
+  const { error } = await supabase.from("tabela_custo_hora").delete().eq("id", id);
+  if (error) return { error: "Não foi possível excluir." };
+  revalidatePath("/propostas", "layout");
+  return { error: null };
+}

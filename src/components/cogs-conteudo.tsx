@@ -14,7 +14,7 @@ export function CogsConteudo({ bases, taxas, clientesAno1 }: { bases: BasesPropo
   return (
     <div className="flex flex-col gap-4">
       <CustoMedioPanel bases={bases} clientesAno1={clientesAno1} />
-      <ParametrosForm params={bases.params} />
+      <ParametrosForm params={bases.params} cargos={bases.cargos} />
       <TaxasPagamentoCard taxas={taxas} />
       <SimuladorDesconto bases={bases} />
     </div>

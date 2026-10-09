@@ -24,11 +24,11 @@ export default async function ParametrosPropostaPage() {
       </div>
       <p className="max-w-3xl text-[12.5px] text-text-muted">
         O que a proposta lê do plano Base hoje: custo fixo de infraestrutura {bases.bases.custo_fixo_infra_mes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/mês,
-        {" "}{bases.bases.clientes_previstos_mes} clientes previstos em {bases.mes}, custo da hora de suporte {bases.bases.custo_hora_suporte.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })},
+        {" "}{bases.bases.clientes_previstos_mes} clientes previstos em {bases.mes}, custo da hora do suporte conforme o cargo selecionado,
         {" "}implantação {bases.bases.horas_implantacao_padrao} h = {bases.bases.custo_implantacao_padrao.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} (etapas cadastradas no Base),
         {" "}{bases.bases.taxas.length} taxas vigentes. Esses números mudam nas telas de origem (Plano → Custos, Produtos → implantação, Configurações → Taxas); aqui ficam as regras.
       </p>
-      <ParametrosForm params={bases.params} />
+      <ParametrosForm params={bases.params} cargos={bases.cargos} />
       <SimuladorDesconto bases={bases} />
     </div>
   );

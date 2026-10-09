@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { custoPorGb, type ParametrosPrecificacao } from "@/lib/precificacao";
+import type { CargoHora } from "@/lib/precificacao-bases";
+import { CargoManager } from "./cargo-manager";
 import { salvarParametrosPrecificacao } from "./actions";
 
 type Caminho = string; // "estimativa.faturamento_por_loja"
@@ -16,18 +18,6 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
       { k: "tabela_comercial.desconto_max_mensalidade_pct", label: "Desconto máximo sem validação · mensalidade", tipo: "pct" },
       { k: "tabela_comercial.desconto_max_implantacao_pct", label: "Desconto máximo sem validação · implantação", tipo: "pct" },
       { k: "imposto.aliquota_fixa", label: "Alíquota de imposto usada no preço", tipo: "pct", ajuda: "Simples: 6% no Anexo III primeira faixa; o app vai ler do Base quando o plano estiver refeito" },
-    ],
-  },
-  {
-    titulo: "Suporte (horas por cliente/mês)",
-    nota: "Três serviços de COGS, em horas fixas por cliente ao mês (benchmark mid-market: reativo 2-4 h, CS 1,5-3 h, monitoramento 2-5 h). Multiplicadas pelo custo da hora do cargo.",
-    campos: [
-      { k: "suporte.reativo_horas", label: "Suporte reativo (chamados) — h/mês", tipo: "num" },
-      { k: "suporte.cs_horas", label: "CS ativo (retenção e adoção) — h/mês", tipo: "num" },
-      { k: "suporte.monitoramento_horas", label: "Monitoramento / DevOps — h/mês", tipo: "num" },
-      { k: "suporte.cargo", label: "Cargo (tabela de custo/hora)" },
-      { k: "suporte.senioridade", label: "Senioridade (junior, pleno, senior)" },
-      { k: "suporte.tipo_contratacao", label: "Contratação (clt, pj)" },
     ],
   },
   {
@@ -128,13 +118,20 @@ function set(obj: Record<string, unknown>, caminho: string, valor: unknown) {
   o[partes[partes.length - 1]] = valor;
 }
 
-export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
+type Sup = ParametrosPrecificacao["suporte"];
+
+export function ParametrosForm({ params, cargos }: { params: ParametrosPrecificacao; cargos: CargoHora[] }) {
   const inicial: Record<string, string> = {};
   for (const g of GRUPOS) for (const c of g.campos) {
     const v = get(params, c.k);
     inicial[c.k] = v == null ? "" : c.tipo === "pct" ? String(Number(v) * 100).replace(".", ",") : String(v).replace(".", ",");
   }
   const [valores, setValores] = useState(inicial);
+  const [sup, setSup] = useState<Sup>(params.suporte);
+  const chaveCargo = (r: { cargo: string; senioridade: string; tipo_contratacao: string }) => `${r.cargo}|${r.senioridade}|${r.tipo_contratacao}`;
+  const taxaHora = (r: { cargo: string; senioridade: string; tipo_contratacao: string }) => cargos.find((c) => c.cargo === r.cargo && c.senioridade === r.senioridade && c.tipo_contratacao === r.tipo_contratacao)?.valor_hora ?? 0;
+  const setServico = (srv: "reativo" | "cs" | "monitoramento", patch: Partial<Sup["reativo"]>) => { setSalvo(false); setSup((x) => ({ ...x, [srv]: { ...x[srv], ...patch } })); };
+  const setHoras = (campo: "reativo_horas" | "cs_horas" | "monitoramento_horas", v: number) => { setSalvo(false); setSup((x) => ({ ...x, [campo]: v })); };
   const [arred, setArred] = useState(!!params.arredondar_90);
   const [pisoAtivo, setPisoAtivo] = useState(!!params.piso_por_faturamento?.ativo);
   const [erro, setErro] = useState<string | null>(null);
@@ -150,6 +147,7 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
       if (!Number.isFinite(n)) continue;
       set(novo, c.k, c.tipo === "pct" ? n / 100 : c.tipo === "int" ? Math.round(n) : n);
     }
+    set(novo, "suporte", sup);
     set(novo, "arredondar_90", arred);
     set(novo, "piso_por_faturamento.ativo", pisoAtivo);
     set(novo, "rateio.modo", "fixo");
@@ -197,6 +195,34 @@ export function ParametrosForm({ params }: { params: ParametrosPrecificacao }) {
           </label>
         </div>
       </div>
+      <div className="mt-3 rounded-xl border border-border-soft p-3">
+        <h3 className="text-[12.5px] font-medium">Suporte (horas por cliente/mês e cargo)</h3>
+        <p className="mb-2 mt-0.5 text-[11px] text-text-muted">Escolha o cargo de cada serviço; o custo da hora vem da lista de cargos. Benchmark: reativo 2-4 h, CS 1,5-3 h, monitoramento 2-5 h.</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11.5px]">
+            <thead><tr className="text-left text-text-faint"><th className="py-1 pr-2 font-medium">Serviço</th><th className="py-1 pr-2 font-medium">Horas/mês</th><th className="py-1 pr-2 font-medium">Cargo · senioridade · contratação</th><th className="py-1 pr-2 text-right font-medium">R$/h</th></tr></thead>
+            <tbody>
+              {([["reativo", "Suporte reativo (chamados)", "reativo_horas"], ["cs", "CS ativo (retenção e adoção)", "cs_horas"], ["monitoramento", "Monitoramento / DevOps", "monitoramento_horas"]] as const).map(([srv, label, hk]) => {
+                const ref = sup[srv];
+                return (
+                  <tr key={srv} className="border-t border-border-soft">
+                    <td className="py-1 pr-2 font-medium">{label}</td>
+                    <td className="py-1 pr-2"><input value={sup[hk]} onChange={(e) => setHoras(hk, Number(e.target.value.replace(",", ".")) || 0)} className="input input-compacto w-16 text-right" inputMode="decimal" /></td>
+                    <td className="py-1 pr-2">
+                      <select value={chaveCargo(ref)} onChange={(e) => { const [cargo, senioridade, tipo_contratacao] = e.target.value.split("|"); setServico(srv, { cargo, senioridade, tipo_contratacao }); }} className="input input-compacto w-full">
+                        {!cargos.some((c) => chaveCargo(c) === chaveCargo(ref)) && <option value={chaveCargo(ref)}>{ref.cargo} · {ref.senioridade} · {ref.tipo_contratacao}</option>}
+                        {cargos.map((c) => <option key={chaveCargo(c)} value={chaveCargo(c)}>{c.cargo} · {c.senioridade} · {c.tipo_contratacao} — R$ {c.valor_hora}/h</option>)}
+                      </select>
+                    </td>
+                    <td className="py-1 pr-2 text-right tabular-nums">R$ {taxaHora(ref).toLocaleString("pt-BR")}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <CargoManager cargos={cargos} />
       <div className="mt-3 flex items-center gap-3">
         <button type="button" disabled={pendente} onClick={salvar} className="rounded-lg bg-wine-deep px-3.5 py-2 text-[12px] font-medium text-white disabled:opacity-60">{pendente ? "Salvando…" : "Salvar parâmetros"}</button>
         {salvo && <span className="text-[11.5px] text-success">Salvo — as próximas propostas usam estes valores; as salvas não mudam.</span>}

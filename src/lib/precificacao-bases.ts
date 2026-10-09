@@ -7,6 +7,8 @@ import type { BasesDoPlano, Bloco, Modulo, ParametrosPrecificacao } from "@/lib/
  * cenário Base no mês da proposta, custo fixo de infraestrutura, clientes previstos, custo da hora
  * de suporte e o pacote de implantação (etapas × horas × R$/h). Nada de preço digitado.
  */
+export type CargoHora = { id: string; area: string; cargo: string; senioridade: string; tipo_contratacao: string; valor_hora: number };
+
 export type BasesProposta = {
   modulos: Modulo[];
   blocos: Bloco[];
@@ -16,6 +18,8 @@ export type BasesProposta = {
   cenario: { id: string; nome: string } | null;
   mes: string;
   avisos: string[];
+  /** lista de cargos e custo/hora para os seletores de suporte */
+  cargos: CargoHora[];
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,19 +70,18 @@ export async function carregarBasesProposta(supabase: Db, mesIso = new Date().to
     avisos.push("Nenhum cenário marcado como Base.");
   }
 
-  // Custo da hora do cargo de suporte (média do negócio)
-  let custo_hora_suporte = 0;
-  if (params.suporte) {
-    const { data: hora } = await supabase
-      .from("tabela_custo_hora")
-      .select("valor_hora")
-      .eq("cargo", params.suporte.cargo)
-      .eq("tipo_contratacao", params.suporte.tipo_contratacao)
-      .eq("senioridade", params.suporte.senioridade)
-      .maybeSingle();
-    custo_hora_suporte = Number(hora?.valor_hora ?? 0);
-    if (!hora) avisos.push(`Sem custo da hora para ${params.suporte.cargo} (${params.suporte.senioridade}, ${params.suporte.tipo_contratacao}) na tabela de custo/hora.`);
-  }
+  // Custo da hora por serviço, pela seleção de cargo na tabela de custo/hora.
+  const { data: cargosRaw } = await supabase.from("tabela_custo_hora").select("id, area, cargo, senioridade, tipo_contratacao, valor_hora").order("area").order("cargo");
+  const cargos = ((cargosRaw ?? []) as CargoHora[]);
+  const rate = (ref?: { cargo?: string; senioridade?: string; tipo_contratacao?: string }) => {
+    if (!ref?.cargo) return 0;
+    const m = cargos.find((c) => c.cargo === ref.cargo && c.senioridade === ref.senioridade && c.tipo_contratacao === ref.tipo_contratacao);
+    if (!m) avisos.push(`Sem custo da hora para ${ref.cargo} (${ref.senioridade}, ${ref.tipo_contratacao}).`);
+    return Number(m?.valor_hora ?? 0);
+  };
+  const custo_hora_reativo = rate(params.suporte?.reativo);
+  const custo_hora_cs = rate(params.suporte?.cs);
+  const custo_hora_monitoramento = rate(params.suporte?.monitoramento);
 
   const aliquota_imposto = params.imposto?.aliquota_fixa ?? 0.06;
 
@@ -86,7 +89,8 @@ export async function carregarBasesProposta(supabase: Db, mesIso = new Date().to
     modulos: ((modulosRaw ?? []) as Modulo[]),
     blocos: ((blocosRaw ?? []) as Bloco[]).map((b) => ({ ...b, peso_pct: Number(b.peso_pct), adesao_pct: Number(b.adesao_pct), custo_processamento_mes: Number(b.custo_processamento_mes ?? 0), regra_perfil: (b.regra_perfil ?? {}) as Bloco["regra_perfil"] })),
     params,
-    bases: { custo_fixo_infra_mes, clientes_previstos_mes, custo_hora_suporte, custo_implantacao_padrao, horas_implantacao_padrao, aliquota_imposto, taxas },
+    bases: { custo_fixo_infra_mes, clientes_previstos_mes, custo_hora_reativo, custo_hora_cs, custo_hora_monitoramento, custo_implantacao_padrao, horas_implantacao_padrao, aliquota_imposto, taxas },
+    cargos,
     cenario: cenarioBase ? { id: cenarioBase.id, nome: cenarioBase.nome } : null,
     mes: mesIso,
     avisos,

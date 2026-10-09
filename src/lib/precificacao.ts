@@ -31,7 +31,7 @@ export type ParametrosPrecificacao = {
   custo_fixo_infra_mes: number;
   rateio: { modo: "clientes_previstos" | "fixo"; clientes_fixo: number };
   /** suporte = reativo (fração que abre chamado × horas) + proativo (base + por GB de dados) */
-  suporte: { reativo_horas: number; cs_horas: number; monitoramento_horas: number; cargo: string; tipo_contratacao: string; senioridade: string };
+  suporte: { reativo_horas: number; cs_horas: number; monitoramento_horas: number; reativo: CargoRef; cs: CargoRef; monitoramento: CargoRef };
   margens: { mensalidade_pct: number; implantacao_pct: number };
   tabela_comercial: { desconto_max_mensalidade_pct: number; desconto_max_implantacao_pct: number };
   implantacao: { prazo_dias: number; reducao_integracao_pct: number; prazos_permitidos: PrazoPagamento[]; margem_fixa_parcela: boolean;
@@ -45,6 +45,8 @@ export type ParametrosPrecificacao = {
   piso_por_faturamento: { ativo: boolean; faturamento_min: number; preco_min: number };
   arredondar_90: boolean;
 };
+
+export type CargoRef = { cargo: string; senioridade: string; tipo_contratacao: string };
 
 export type Modulo = { id: string; codigo: string; nome: string; descricao: string | null; ordem: number; ativo: boolean; contem_codigo: string | null };
 export type Bloco = {
@@ -92,8 +94,10 @@ export type BasesDoPlano = {
   custo_fixo_infra_mes: number;
   /** clientes ativos previstos no cenário Base no mês */
   clientes_previstos_mes: number;
-  /** custo da hora do cargo de suporte (tabela de custo/hora) */
-  custo_hora_suporte: number;
+  /** custo da hora por serviço, resolvido pela seleção de cargo (tabela de custo/hora) */
+  custo_hora_reativo: number;
+  custo_hora_cs: number;
+  custo_hora_monitoramento: number;
   /** horas × R$/h das etapas de implantação cadastradas no Base (pacote padrão) */
   custo_implantacao_padrao: number;
   horas_implantacao_padrao: number;
@@ -260,14 +264,14 @@ export function calcularProposta(args: {
   custos.push({ componente: "Plataforma (rateio)", modulo: null, valor: rateio, detalhe: fixoInfra > 0 ? `R$ ${fixoInfra.toFixed(2)} ÷ ${clientesRateio} clientes` : "custo fixo zero", conta: "1.1.1" });
   // Suporte como DEMANDA por cliente: reativo (quem abre chamado × horas) + proativo (monitoramento
   // dos dados, cresce com o volume). Nada por usuário — a pesquisa de nuvem mostrou que dado é o que pesa.
-  const chR = bases.custo_hora_suporte;
   const hRe = params.suporte.reativo_horas ?? 0;
   const hCs = params.suporte.cs_horas ?? 0;
   const hMon = params.suporte.monitoramento_horas ?? 0;
-  const suporte = (hRe + hCs + hMon) * chR;
-  custos.push({ componente: "Suporte reativo (chamados)", modulo: null, valor: hRe * chR, detalhe: `${hRe} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
-  custos.push({ componente: "CS ativo (retenção e adoção)", modulo: null, valor: hCs * chR, detalhe: `${hCs} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
-  custos.push({ componente: "Monitoramento / DevOps", modulo: null, valor: hMon * chR, detalhe: `${hMon} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
+  const cRe = bases.custo_hora_reativo, cCs = bases.custo_hora_cs, cMon = bases.custo_hora_monitoramento;
+  const suporte = hRe * cRe + hCs * cCs + hMon * cMon;
+  custos.push({ componente: "Suporte reativo (chamados)", modulo: null, valor: hRe * cRe, detalhe: `${hRe} h × R$ ${cRe.toFixed(2)}/h`, conta: "1.1.3" });
+  custos.push({ componente: "CS ativo (retenção e adoção)", modulo: null, valor: hCs * cCs, detalhe: `${hCs} h × R$ ${cCs.toFixed(2)}/h`, conta: "1.1.3" });
+  custos.push({ componente: "Monitoramento / DevOps", modulo: null, valor: hMon * cMon, detalhe: `${hMon} h × R$ ${cMon.toFixed(2)}/h`, conta: "1.1.3" });
   const custo_total_mes = custos.reduce((s, c) => s + c.valor, 0);
 
   const tx = taxaPara(bases.taxas, pagamento.meio_mensalidade, "mensal");
