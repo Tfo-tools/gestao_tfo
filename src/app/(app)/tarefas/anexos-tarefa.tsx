@@ -73,16 +73,25 @@ export function AnexosTarefa({ tarefaId, anexos }: { tarefaId: string; anexos: A
       <input
         ref={inputRef}
         type="file"
+        multiple
         className="hidden"
         disabled={pending}
         onChange={(e) => {
-          const arquivo = e.target.files?.[0];
-          if (!arquivo) return;
+          const arquivos = Array.from(e.target.files ?? []);
+          if (inputRef.current) inputRef.current.value = "";
+          if (arquivos.length === 0) return;
           setErro(null);
           startTransition(async () => {
-            const r = await anexarNaTarefa(tarefaId, arquivo);
-            if (r.error) setErro(r.error);
-            if (inputRef.current) inputRef.current.value = "";
+            const falhas: string[] = [];
+            for (const arquivo of arquivos) {
+              try {
+                const r = await anexarNaTarefa(tarefaId, arquivo);
+                if (r.error) falhas.push(`${arquivo.name}: ${r.error}`);
+              } catch {
+                falhas.push(`${arquivo.name}: falhou o envio (arquivo muito grande?)`);
+              }
+            }
+            if (falhas.length > 0) setErro(falhas.length === arquivos.length ? falhas[0] : `${falhas.length} de ${arquivos.length} não anexaram: ${falhas[0]}`);
           });
         }}
       />
@@ -91,9 +100,9 @@ export function AnexosTarefa({ tarefaId, anexos }: { tarefaId: string; anexos: A
         disabled={pending}
         onClick={() => inputRef.current?.click()}
         className="text-[10.5px] text-text-muted hover:text-primary-deep disabled:opacity-50"
-        title={`Documento, planilha ou print (até ${LIMITE_ANEXO_MB} MB) — vai pro Drive compartilhado e abre editável. Vídeo: guarde no Drive à mão e cole o link na descrição.`}
+        title={`Um ou vários documentos, planilhas ou prints (até ${LIMITE_ANEXO_MB} MB cada) — vão pro Drive compartilhado e abrem editáveis. Vídeo: guarde no Drive à mão e cole o link na descrição.`}
       >
-        {pending ? "enviando…" : "+ arquivo"}
+        {pending ? "enviando…" : "+ arquivos"}
       </button>
       {erro && <span className="text-[10px] text-danger">{erro}</span>}
     </div>
