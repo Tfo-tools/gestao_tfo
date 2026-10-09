@@ -133,7 +133,12 @@ export function PropostaEditor({ bases, proposta, socia }: { bases: BasesPropost
           <section className="rounded-xl border border-border bg-surface px-4 py-3">
             <h2 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-faint">2 · Perfil do cliente</h2>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-              <Campo label="Faturamento anual (R$)" ajuda="Prioridade: divide a venda entre canais e estima as peças"><input value={perfil.faturamento_anual ?? ""} onChange={(e) => setP({ faturamento_anual: e.target.value === "" ? null : num(e.target.value) })} disabled={!editavel} className="input" inputMode="numeric" /></Campo>
+              <Campo label="Faturamento anual (R$)" ajuda="Valor cheio em reais. Ex.: 18000000 = R$ 18 mi (não 18000)">
+                <input value={perfil.faturamento_anual ?? ""} onChange={(e) => setP({ faturamento_anual: e.target.value === "" ? null : num(e.target.value) })} disabled={!editavel} className="input" inputMode="numeric" />
+                {perfil.faturamento_anual != null && perfil.faturamento_anual > 0 && (
+                  <span className={`mt-0.5 block text-[10.5px] ${perfil.faturamento_anual < 1e6 ? "text-warning" : "text-text-faint"}`}>= {perfil.faturamento_anual.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })} · {(perfil.faturamento_anual / 1e6).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} mi</span>
+                )}
+              </Campo>
               <Campo label="Produção anual (peças)"><input value={perfil.producao_anual_pecas ?? ""} onChange={(e) => setP({ producao_anual_pecas: e.target.value === "" ? null : num(e.target.value) })} disabled={!editavel} className="input" inputMode="numeric" /></Campo>
               <Campo label="Compra de pronto (peças/ano)"><input value={perfil.compra_pronto_pecas ?? ""} onChange={(e) => setP({ compra_pronto_pecas: e.target.value === "" ? null : num(e.target.value) })} disabled={!editavel} className="input" inputMode="numeric" /></Campo>
               <Campo label="Preço médio de venda (R$)" ajuda={`Vazio = R$ ${bases.params.estimativa?.preco_medio_padrao ?? 100}`}><input value={perfil.preco_medio ?? ""} onChange={(e) => setP({ preco_medio: e.target.value === "" ? null : num(e.target.value) })} disabled={!editavel} className="input" inputMode="decimal" /></Campo>
@@ -167,7 +172,7 @@ export function PropostaEditor({ bases, proposta, socia }: { bases: BasesPropost
                 return (
                   <div key={m.id} className={`rounded-lg border px-3 py-2 ${ligado ? "border-primary-fill bg-primary-soft/30" : "border-border-soft"}`}>
                     <label className="flex items-start gap-2">
-                      <input type="checkbox" checked={ligado && !mindBloqueado} disabled={!editavel || mindBloqueado} onChange={() => alternarModulo(m.codigo)} className="mt-0.5 accent-wine" />
+                      <input type="checkbox" checked={ligado} disabled={!editavel || (mindBloqueado && !ligado)} onChange={() => alternarModulo(m.codigo)} className="mt-0.5 accent-wine" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
                           <span className="text-[12.5px] font-medium">{m.nome}</span>
