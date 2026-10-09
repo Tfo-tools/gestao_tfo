@@ -35,8 +35,8 @@ export type ParametrosPrecificacao = {
   margens: { mensalidade_pct: number; implantacao_pct: number };
   tabela_comercial: { desconto_max_mensalidade_pct: number; desconto_max_implantacao_pct: number };
   implantacao: { prazo_dias: number; reducao_integracao_pct: number; prazos_permitidos: PrazoPagamento[]; margem_fixa_parcela: boolean;
-    /** horas de implantação por módulo (Mind é o piso) + por GB de dados; custo/h vem do Base */
-    horas_mind: number; horas_skills: number; horas_price: number; horas_por_gb: number };
+    /** etapas da implantação: mão de obra (cargo × horas × R$/h) ou serviço (custo direto) */
+    etapas: EtapaImplantacao[] };
   /** elegibilidade do Mind por faturamento: mínimo e faturamento ideal */
   elegibilidade: { mind_faturamento_min: number; mind_faturamento_ideal: number };
   imposto: { modo: "fixo" | "base"; aliquota_fixa: number };
@@ -47,6 +47,7 @@ export type ParametrosPrecificacao = {
 };
 
 export type CargoRef = { cargo: string; senioridade: string; tipo_contratacao: string };
+export type EtapaImplantacao = { nome: string; dono: string | null; tipo: "mao_obra" | "servico"; cargo: string; senioridade: string; tipo_contratacao: string; horas: number; valor_hora: number; custo_direto: number };
 
 export type Modulo = { id: string; codigo: string; nome: string; descricao: string | null; ordem: number; ativo: boolean; contem_codigo: string | null };
 export type Bloco = {
@@ -324,17 +325,14 @@ export function calcularProposta(args: {
 
   // Implantação: pacote fixo; integração pronta reduz as horas
   let implantacao: ResultadoPreco["implantacao"] = null;
-  if (pagamento.meio_implantacao && pagamento.prazo_implantacao && bases.horas_implantacao_padrao > 0) {
+  const etapasImpl = params.implantacao.etapas ?? [];
+  if (pagamento.meio_implantacao && pagamento.prazo_implantacao && etapasImpl.length > 0) {
     const fator = perfil.integracao_pronta ? 1 - params.implantacao.reducao_integracao_pct : 1;
-    // Horas de implantação = soma dos módulos escolhidos (Mind é o piso) + extra por volume de dados;
-    // o custo da hora vem das etapas do Base (média). Integração pronta reduz pelo fator editável.
-    const im = params.implantacao;
-    const custoHoraImpl = bases.horas_implantacao_padrao > 0 ? bases.custo_implantacao_padrao / bases.horas_implantacao_padrao : 90;
-    const horasModulos = (codigos.has("mind") ? (im.horas_mind ?? 0) : 0)
-      + (codigos.has("skills_hc") || codigos.has("skills_completo") ? (im.horas_skills ?? 0) : 0)
-      + (codigos.has("price") ? (im.horas_price ?? 0) : 0);
-    const horas = (horasModulos + (im.horas_por_gb ?? 0) * gbUsado) * fator;
-    const custo = horas * custoHoraImpl;
+    // Custo e horas vêm das etapas: mão de obra (horas × R$/h do cargo) ou serviço (custo direto).
+    const custoBase = etapasImpl.reduce((acc, e) => acc + (e.tipo === "servico" ? (Number(e.custo_direto) || 0) : (Number(e.horas) || 0) * (Number(e.valor_hora) || 0)), 0);
+    const horasBase = etapasImpl.reduce((acc, e) => acc + (e.tipo === "servico" ? 0 : (Number(e.horas) || 0)), 0);
+    const custo = custoBase * fator;
+    const horas = horasBase * fator;
     const txi = taxaPara(bases.taxas, pagamento.meio_implantacao, pagamento.prazo_implantacao);
     if (!txi) alertas.push(`Sem taxa cadastrada para ${pagamento.meio_implantacao} ${pagamento.prazo_implantacao} na implantação.`);
     const parcelas = parcelasDe(pagamento.prazo_implantacao);

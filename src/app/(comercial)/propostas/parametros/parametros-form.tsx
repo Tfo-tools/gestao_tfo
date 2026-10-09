@@ -3,7 +3,9 @@
 import { useState, useTransition } from "react";
 import { custoPorGb, type ParametrosPrecificacao } from "@/lib/precificacao";
 import type { CargoHora } from "@/lib/precificacao-bases";
+import type { EtapaImplantacao } from "@/lib/precificacao";
 import { CargoManager } from "./cargo-manager";
+import { ImplantacaoEtapas } from "./implantacao-etapas";
 import { salvarParametrosPrecificacao } from "./actions";
 
 type Caminho = string; // "estimativa.faturamento_por_loja"
@@ -31,12 +33,8 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
   },
   {
     titulo: "Implantação",
-    nota: "Pacote fixo por cliente, independente dos módulos. Horas e custo vêm das etapas cadastradas no plano Base.",
+    nota: "Prazo e redução por integração pronta; as etapas ficam na tabela acima.",
     campos: [
-      { k: "implantacao.horas_mind", label: "Horas de implantação do Mind (piso)", tipo: "num" },
-      { k: "implantacao.horas_skills", label: "Horas de implantação do Skills", tipo: "num" },
-      { k: "implantacao.horas_price", label: "Horas de implantação do Price", tipo: "num" },
-      { k: "implantacao.horas_por_gb", label: "Horas extras por GB de dados", tipo: "num", ajuda: "Para implantação mais pesada em cliente com muito dado; deixe 0 até medir" },
       { k: "implantacao.prazo_dias", label: "Prazo para o cliente (dias)", tipo: "int" },
       { k: "implantacao.reducao_integracao_pct", label: "Redução com ERP integrado (ex.: Matriz Sistemas)", tipo: "pct", ajuda: "Chute inicial; ajuste quando medir com a Amabillis" },
     ],
@@ -132,6 +130,7 @@ export function ParametrosForm({ params, cargos }: { params: ParametrosPrecifica
   const taxaHora = (r: { cargo: string; senioridade: string; tipo_contratacao: string }) => cargos.find((c) => c.cargo === r.cargo && c.senioridade === r.senioridade && c.tipo_contratacao === r.tipo_contratacao)?.valor_hora ?? 0;
   const setServico = (srv: "reativo" | "cs" | "monitoramento", patch: Partial<Sup["reativo"]>) => { setSalvo(false); setSup((x) => ({ ...x, [srv]: { ...x[srv], ...patch } })); };
   const setHoras = (campo: "reativo_horas" | "cs_horas" | "monitoramento_horas", v: number) => { setSalvo(false); setSup((x) => ({ ...x, [campo]: v })); };
+  const [etapas, setEtapas] = useState<EtapaImplantacao[]>(params.implantacao.etapas ?? []);
   const [arred, setArred] = useState(!!params.arredondar_90);
   const [pisoAtivo, setPisoAtivo] = useState(!!params.piso_por_faturamento?.ativo);
   const [erro, setErro] = useState<string | null>(null);
@@ -148,6 +147,7 @@ export function ParametrosForm({ params, cargos }: { params: ParametrosPrecifica
       set(novo, c.k, c.tipo === "pct" ? n / 100 : c.tipo === "int" ? Math.round(n) : n);
     }
     set(novo, "suporte", sup);
+    set(novo, "implantacao.etapas", etapas);
     set(novo, "arredondar_90", arred);
     set(novo, "piso_por_faturamento.ativo", pisoAtivo);
     set(novo, "rateio.modo", "fixo");
@@ -163,36 +163,56 @@ export function ParametrosForm({ params, cargos }: { params: ParametrosPrecifica
   };
   const custoGb = (() => { try { return custoPorGb(montar().custo_gb); } catch { return 0; } })();
 
+  const campoLabel = (c: { k: Caminho; label: string; tipo?: "pct" | "num" | "int"; ajuda?: string }) => (
+    <label key={c.k} className="flex flex-col gap-0.5 text-[11.5px]">
+      <span className="text-text-muted">{c.label}{c.tipo === "pct" ? " (%)" : ""}</span>
+      <input value={valores[c.k] ?? ""} onChange={(e) => { setSalvo(false); setValores((v) => ({ ...v, [c.k]: e.target.value })); }} className="input input-compacto" inputMode={c.tipo ? "decimal" : "text"} />
+      {c.ajuda && <span className="text-[10px] text-text-faint">{c.ajuda}</span>}
+    </label>
+  );
+  const grupo = (titulo: string) => GRUPOS.find((g) => g.titulo === titulo);
+  const cardGrupo = (titulo: string) => {
+    const g = grupo(titulo);
+    if (!g) return null;
+    return (
+      <div className="rounded-lg border border-border-soft p-3">
+        <h3 className="text-[12.5px] font-medium">{g.titulo}</h3>
+        <p className="mb-2 mt-0.5 text-[11px] text-text-muted">{g.nota}</p>
+        <div className="grid grid-cols-1 gap-x-3 gap-y-1.5">{g.campos.map(campoLabel)}</div>
+      </div>
+    );
+  };
+
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-heading text-sm font-semibold">Parâmetros de precificação</h2>
         <span className="text-[11.5px] text-text-muted">Custo por GB resultante: <b>R$ {custoGb.toFixed(2).replace(".", ",")}</b>/mês</span>
       </div>
-      <div className="mt-3 grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {GRUPOS.map((g) => (
-          <div key={g.titulo} className="rounded-lg border border-border-soft p-3">
-            <h3 className="text-[12.5px] font-medium">{g.titulo}</h3>
-            <p className="mb-2 mt-0.5 text-[11px] text-text-muted">{g.nota}</p>
-            <div className="grid grid-cols-1 gap-x-3 gap-y-1.5">
-              {g.campos.map((c) => (
-                <label key={c.k} className="flex flex-col gap-0.5 text-[11.5px]">
-                  <span className="text-text-muted">{c.label}{c.tipo === "pct" ? " (%)" : ""}</span>
-                  <input value={valores[c.k] ?? ""} onChange={(e) => { setSalvo(false); setValores((v) => ({ ...v, [c.k]: e.target.value })); }} className="input input-compacto" inputMode={c.tipo ? "decimal" : "text"} />
-                  {c.ajuda && <span className="text-[10px] text-text-faint">{c.ajuda}</span>}
-                </label>
-              ))}
+      <div className="mt-3 flex flex-col gap-3">
+        <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {cardGrupo("Margens e tabela comercial")}
+          {cardGrupo("Plano fechado para marca pequena")}
+          <div className="flex flex-col gap-3">
+            {cardGrupo("Elegibilidade do Mind")}
+            {cardGrupo("Piso de preço por faturamento (lógica de valor)")}
+            <div className="rounded-lg border border-border-soft p-3">
+              <h3 className="text-[12.5px] font-medium">Opções de preço</h3>
+              <label className="mt-2 flex items-center gap-2 text-[12px]"><input type="checkbox" checked={arred} onChange={(e) => { setSalvo(false); setArred(e.target.checked); }} className="accent-wine" /> Arredondar a mensalidade (termina em 9, degraus de 30)</label>
+              <label className="mt-2 flex items-center gap-2 text-[12px]"><input type="checkbox" checked={pisoAtivo} onChange={(e) => { setSalvo(false); setPisoAtivo(e.target.checked); }} className="accent-wine" /> Aplicar o piso de preço por faturamento</label>
             </div>
           </div>
-        ))}
+        </div>
         <div className="rounded-lg border border-border-soft p-3">
-          <h3 className="text-[12.5px] font-medium">Opções de preço</h3>
-          <label className="mt-2 flex items-center gap-2 text-[12px]">
-            <input type="checkbox" checked={arred} onChange={(e) => { setSalvo(false); setArred(e.target.checked); }} className="accent-wine" /> Arredondar a mensalidade (termina em 9, degraus de 30)
-          </label>
-          <label className="mt-2 flex items-center gap-2 text-[12px]">
-            <input type="checkbox" checked={pisoAtivo} onChange={(e) => { setSalvo(false); setPisoAtivo(e.target.checked); }} className="accent-wine" /> Aplicar o piso de preço por faturamento
-          </label>
+          <h3 className="text-[12.5px] font-medium">Implantação</h3>
+          <p className="mb-2 mt-0.5 text-[11px] text-text-muted">Pacote por cliente. Cada etapa é mão de obra (o cargo puxa o custo/hora) ou um serviço com custo direto. Integração pronta reduz o custo.</p>
+          <ImplantacaoEtapas etapas={etapas} cargos={cargos} onChange={(e) => { setSalvo(false); setEtapas(e); }} />
+          <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-1.5 sm:grid-cols-2 lg:max-w-md">{grupo("Implantação")?.campos.map(campoLabel)}</div>
+        </div>
+        <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {cardGrupo("Infraestrutura, rateio e processamento")}
+          {cardGrupo("Custo do banco de dados")}
+          {cardGrupo("Regras de estimativa do volume")}
         </div>
       </div>
       <div className="mt-3 rounded-xl border border-border-soft p-3">
