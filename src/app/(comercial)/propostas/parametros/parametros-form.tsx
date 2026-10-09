@@ -220,9 +220,11 @@ export function ParametrosForm({ params, cargos, taxas, bases }: { params: Param
       <div className="mt-3">
         {aba === "infra" && (
           <div className="flex flex-col gap-3">
-            <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {cardGrupo("Infraestrutura, rateio e processamento")}
-              {cardGrupo("Custo do banco de dados")}
+            <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
+              <div className="flex flex-col gap-3">
+                {cardGrupo("Infraestrutura, rateio e processamento")}
+                {cardGrupo("Custo do banco de dados")}
+              </div>
               {cardGrupo("Regras de estimativa do volume")}
             </div>
             <CustoFuncionalidades modulos={bases.modulos} blocos={bases.blocos} />

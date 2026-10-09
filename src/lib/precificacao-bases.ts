@@ -86,7 +86,7 @@ export async function carregarBasesProposta(supabase: Db, mesIso = new Date().to
   const aliquota_imposto = params.imposto?.aliquota_fixa ?? 0.06;
 
   return {
-    modulos: ((modulosRaw ?? []) as Modulo[]),
+    modulos: ((modulosRaw ?? []) as Modulo[]).map((m) => ({ ...m, custo_processamento_mes: Number(m.custo_processamento_mes ?? 0), proc_periodo: m.proc_periodo ?? null, proc_dias: m.proc_dias == null ? null : Number(m.proc_dias), proc_fracao_volume: m.proc_fracao_volume == null ? 1 : Number(m.proc_fracao_volume) })),
     blocos: ((blocosRaw ?? []) as Bloco[]).map((b) => ({ ...b, peso_pct: Number(b.peso_pct), adesao_pct: Number(b.adesao_pct), custo_processamento_mes: Number(b.custo_processamento_mes ?? 0), proc_periodo: b.proc_periodo ?? null, proc_dias: b.proc_dias == null ? null : Number(b.proc_dias), proc_fracao_volume: b.proc_fracao_volume == null ? 1 : Number(b.proc_fracao_volume), regra_perfil: (b.regra_perfil ?? {}) as Bloco["regra_perfil"] })),
     params,
     bases: { custo_fixo_infra_mes, clientes_previstos_mes, custo_hora_reativo, custo_hora_cs, custo_hora_monitoramento, custo_implantacao_padrao, horas_implantacao_padrao, aliquota_imposto, taxas },

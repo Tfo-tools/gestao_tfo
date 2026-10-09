@@ -140,15 +140,15 @@ export async function adicionarFuncionalidade(modulo_id: string, nome = "Nova fu
   return { error: null, id: data?.id };
 }
 
-/** COGS/Infra — salva o processamento por funcionalidade (período, dias, fração do volume). */
+/** COGS/Infra — salva o processamento por funcionalidade/módulo (período, dias, fração do volume). */
 export async function salvarProcFuncionalidades(
-  itens: { id: string; proc_periodo: string | null; proc_dias: number | null; proc_fracao_volume: number | null; custo_processamento_mes: number | null }[],
+  itens: { id: string; tipo: "modulo" | "bloco"; proc_periodo: string | null; proc_dias: number | null; proc_fracao_volume: number | null; custo_processamento_mes: number | null }[],
 ): Promise<{ error: string | null }> {
   const { supabase, ok } = await socia();
   if (!ok) return { error: "Só as sócias editam o COGS." };
   for (const it of itens) {
     const { error } = await supabase
-      .from("catalogo_blocos")
+      .from(it.tipo === "modulo" ? "catalogo_modulos" : "catalogo_blocos")
       .update({
         proc_periodo: it.proc_periodo || null,
         proc_dias: it.proc_dias == null || !Number.isFinite(Number(it.proc_dias)) ? null : Number(it.proc_dias),

@@ -50,7 +50,9 @@ export type ParametrosPrecificacao = {
 export type CargoRef = { cargo: string; senioridade: string; tipo_contratacao: string };
 export type EtapaImplantacao = { nome: string; dono: string | null; tipo: "mao_obra" | "servico"; cargo: string; senioridade: string; tipo_contratacao: string; horas: number; valor_hora: number; custo_direto: number; /** só entra quando a integração NÃO é nativa (ex.: construir conector customizado) */ so_nao_nativo?: boolean };
 
-export type Modulo = { id: string; codigo: string; nome: string; descricao: string | null; ordem: number; ativo: boolean; contem_codigo: string | null };
+export type Modulo = { id: string; codigo: string; nome: string; descricao: string | null; ordem: number; ativo: boolean; contem_codigo: string | null;
+  /** processamento do módulo vendido inteiro (Mind/Price, sem funcionalidades) */
+  custo_processamento_mes?: number; proc_periodo?: string | null; proc_dias?: number | null; proc_fracao_volume?: number | null };
 export type Bloco = {
   id: string; modulo_id: string; codigo: string; nome: string; descricao: string | null; peso_pct: number;
   regra_perfil: { remove_se?: string[]; motivo?: string }; adesao_pct: number; ordem: number; ativo: boolean;
@@ -254,6 +256,9 @@ export function calcularProposta(args: {
     args.blocos
       .filter((b) => b.modulo_id === m.id && b.ativo && blocoAtivoNaSelecao(b))
       .reduce((acc, b) => acc + custoProcFuncionalidade(b, gbDoModulo(m.codigo), proc_gb_passada), 0);
+  // Módulo vendido inteiro (sem funcionalidades): o processamento mora no próprio módulo.
+  const procModuloInteiro = (m: Modulo): number =>
+    args.blocos.some((b) => b.modulo_id === m.id && b.ativo) ? 0 : custoProcFuncionalidade(m, gbDoModulo(m.codigo), proc_gb_passada);
   // Custo DIRETO do módulo = dado (armazenamento) + processamento no banco (ambos crescem com o GB) + blocos pesados.
   const custoDiretoModulo = (codigo: string): number => gbDoModulo(codigo) * (custo_gb + proc_gb);
   const custos: LinhaCusto[] = [];
@@ -265,6 +270,8 @@ export function calcularProposta(args: {
     if (proc_gb > 0) custos.push({ componente: "Processamento", modulo: m.codigo, valor: gb * proc_gb, detalhe: `${gb.toFixed(2)} GB × R$ ${proc_gb.toFixed(2)}/GB (consultas e agregações no banco)`, conta: "1.1.1" });
     const cb = custoBlocosDoModulo(m);
     if (cb > 0) custos.push({ componente: "Processamento de blocos", modulo: m.codigo, valor: cb, detalhe: "blocos pesados ativos (ex.: orçamento)", conta: "1.1.1" });
+    const pm = procModuloInteiro(m);
+    if (pm > 0) custos.push({ componente: "Processamento (produto inteiro)", modulo: m.codigo, valor: pm, detalhe: "reprocessamento por período do módulo", conta: "1.1.1" });
   }
   // Rateio do custo fixo da plataforma (instância, plano, domínio): uma vez por cliente.
   // Usa o número do Base; se o Base ainda não tem, cai no valor manual dos parâmetros.
@@ -294,7 +301,7 @@ export function calcularProposta(args: {
   const mensalidade_formula = divisor > 0 ? (custo_total_mes + taxaFixo) / divisor : 0;
 
   // Por módulo: preço rateado pelo custo direto de cada um (custos comuns divididos igualmente)
-  const custoDireto = new Map(escolhidos.map((m) => [m.codigo, custoDiretoModulo(m.codigo) + custoBlocosDoModulo(m)]));
+  const custoDireto = new Map(escolhidos.map((m) => [m.codigo, custoDiretoModulo(m.codigo) + custoBlocosDoModulo(m) + procModuloInteiro(m)]));
   const comuns = rateio + suporte;
   const nMod = Math.max(1, escolhidos.length);
   const custoModulo = (codigo: string) => (custoDireto.get(codigo) ?? 0) + comuns / nMod;
