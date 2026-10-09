@@ -34,7 +34,11 @@ export type ParametrosPrecificacao = {
   suporte: { contato_mes_pct: number; horas_por_contato: number; proativo_horas_base: number; proativo_horas_por_gb: number; cargo: string; tipo_contratacao: string; senioridade: string };
   margens: { mensalidade_pct: number; implantacao_pct: number };
   tabela_comercial: { desconto_max_mensalidade_pct: number; desconto_max_implantacao_pct: number };
-  implantacao: { prazo_dias: number; reducao_integracao_pct: number; prazos_permitidos: PrazoPagamento[]; margem_fixa_parcela: boolean };
+  implantacao: { prazo_dias: number; reducao_integracao_pct: number; prazos_permitidos: PrazoPagamento[]; margem_fixa_parcela: boolean;
+    /** horas de implantação por módulo (Mind é o piso) + por GB de dados; custo/h vem do Base */
+    horas_mind: number; horas_skills: number; horas_price: number; horas_por_gb: number };
+  /** elegibilidade do Mind por faturamento: mínimo e faturamento ideal */
+  elegibilidade: { mind_faturamento_min: number; mind_faturamento_ideal: number };
   imposto: { modo: "fixo" | "base"; aliquota_fixa: number };
   plano_pequeno: { ativo: boolean; nome: string; preco_mensal: number; faturamento_max: number; lojas_max: number; usuarios_max: number; modulos: string[]; meios: MeioPagamento[] };
   /** piso de preço por faturamento: cliente grande paga no mínimo isto, mesmo sem canais (lógica de valor) */
@@ -214,6 +218,12 @@ export function calcularProposta(args: {
   for (const m of modulosAtivos) if (m.contem_codigo && codigos.has(m.codigo)) codigos.delete(m.contem_codigo);
   const escolhidos = modulosAtivos.filter((m) => codigos.has(m.codigo)).sort((a, b) => a.ordem - b.ordem);
 
+  const fatAnual = perfil.faturamento_anual ?? 0;
+  const eleg = params.elegibilidade;
+  if (codigos.has("mind") && eleg) {
+    if (fatAnual > 0 && fatAnual < eleg.mind_faturamento_min) alertas.push(`Fashion Mind não é elegível para faturamento abaixo de R$ ${(eleg.mind_faturamento_min / 1e6).toLocaleString("pt-BR")} mi.`);
+    else if (fatAnual > 0 && fatAnual < eleg.mind_faturamento_ideal) alertas.push(`Fashion Mind: avaliar caso a caso — o ideal é a partir de R$ ${(eleg.mind_faturamento_ideal / 1e6).toLocaleString("pt-BR")} mi.`);
+  }
   const volume = estimarVolume(perfil, params.estimativa);
   if (volume.base_estimativa === "Falta dado") alertas.push("Informe o faturamento anual ou as peças por ano para estimar o uso de banco.");
   const custo_gb = custoPorGb(params.custo_gb);
@@ -309,8 +319,15 @@ export function calcularProposta(args: {
   let implantacao: ResultadoPreco["implantacao"] = null;
   if (pagamento.meio_implantacao && pagamento.prazo_implantacao && bases.horas_implantacao_padrao > 0) {
     const fator = perfil.integracao_pronta ? 1 - params.implantacao.reducao_integracao_pct : 1;
-    const horas = bases.horas_implantacao_padrao * fator;
-    const custo = bases.custo_implantacao_padrao * fator;
+    // Horas de implantação = soma dos módulos escolhidos (Mind é o piso) + extra por volume de dados;
+    // o custo da hora vem das etapas do Base (média). Integração pronta reduz pelo fator editável.
+    const im = params.implantacao;
+    const custoHoraImpl = bases.horas_implantacao_padrao > 0 ? bases.custo_implantacao_padrao / bases.horas_implantacao_padrao : 90;
+    const horasModulos = (codigos.has("mind") ? (im.horas_mind ?? 0) : 0)
+      + (codigos.has("skills_hc") || codigos.has("skills_completo") ? (im.horas_skills ?? 0) : 0)
+      + (codigos.has("price") ? (im.horas_price ?? 0) : 0);
+    const horas = (horasModulos + (im.horas_por_gb ?? 0) * gbUsado) * fator;
+    const custo = horas * custoHoraImpl;
     const txi = taxaPara(bases.taxas, pagamento.meio_implantacao, pagamento.prazo_implantacao);
     if (!txi) alertas.push(`Sem taxa cadastrada para ${pagamento.meio_implantacao} ${pagamento.prazo_implantacao} na implantação.`);
     const parcelas = parcelasDe(pagamento.prazo_implantacao);

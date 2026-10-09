@@ -162,17 +162,19 @@ export function PropostaEditor({ bases, proposta, socia }: { bases: BasesPropost
             <div className="flex flex-col gap-2">
               {modulosAtivos.map((m) => {
                 const ligado = selecao.modulos.includes(m.codigo);
+                const mindBloqueado = m.codigo === "mind" && (perfil.faturamento_anual ?? 0) > 0 && (perfil.faturamento_anual ?? 0) < (bases.params.elegibilidade?.mind_faturamento_min ?? 0);
                 const res = r.por_modulo.find((x) => x.codigo === m.codigo);
                 return (
                   <div key={m.id} className={`rounded-lg border px-3 py-2 ${ligado ? "border-primary-fill bg-primary-soft/30" : "border-border-soft"}`}>
                     <label className="flex items-start gap-2">
-                      <input type="checkbox" checked={ligado} disabled={!editavel} onChange={() => alternarModulo(m.codigo)} className="mt-0.5 accent-wine" />
+                      <input type="checkbox" checked={ligado && !mindBloqueado} disabled={!editavel || mindBloqueado} onChange={() => alternarModulo(m.codigo)} className="mt-0.5 accent-wine" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
                           <span className="text-[12.5px] font-medium">{m.nome}</span>
                           {ligado && res && <span className="tabular-nums text-[12px] font-medium text-primary-deep">{brl(res.preco)}/mês</span>}
                         </span>
                         {m.descricao && <span className="block text-[11px] text-text-muted">{m.descricao}</span>}
+                        {mindBloqueado && <span className="mt-0.5 block text-[11px] text-warning">Não elegível abaixo de R$ {((bases.params.elegibilidade?.mind_faturamento_min ?? 0) / 1e6).toLocaleString("pt-BR")} mi de faturamento.</span>}
                       </span>
                     </label>
                     {ligado && res && res.blocos.length > 0 && (

@@ -44,8 +44,20 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
     titulo: "Implantação",
     nota: "Pacote fixo por cliente, independente dos módulos. Horas e custo vêm das etapas cadastradas no plano Base.",
     campos: [
+      { k: "implantacao.horas_mind", label: "Horas de implantação do Mind (piso)", tipo: "num" },
+      { k: "implantacao.horas_skills", label: "Horas de implantação do Skills", tipo: "num" },
+      { k: "implantacao.horas_price", label: "Horas de implantação do Price", tipo: "num" },
+      { k: "implantacao.horas_por_gb", label: "Horas extras por GB de dados", tipo: "num", ajuda: "Para implantação mais pesada em cliente com muito dado; deixe 0 até medir" },
       { k: "implantacao.prazo_dias", label: "Prazo para o cliente (dias)", tipo: "int" },
-      { k: "implantacao.reducao_integracao_pct", label: "Redução com ERP integrado (ex.: Matriz Sistemas)", tipo: "pct" },
+      { k: "implantacao.reducao_integracao_pct", label: "Redução com ERP integrado (ex.: Matriz Sistemas)", tipo: "pct", ajuda: "Chute inicial; ajuste quando medir com a Amabillis" },
+    ],
+  },
+  {
+    titulo: "Elegibilidade do Mind",
+    nota: "O Fashion Mind não é vendido abaixo de um faturamento. Entre o mínimo e o ideal, a proposta avisa para avaliar caso a caso.",
+    campos: [
+      { k: "elegibilidade.mind_faturamento_min", label: "Faturamento mínimo para o Mind (R$/ano)", tipo: "num" },
+      { k: "elegibilidade.mind_faturamento_ideal", label: "Faturamento ideal do Mind (R$/ano)", tipo: "num" },
     ],
   },
   {
