@@ -92,3 +92,29 @@ export async function carregarBasesProposta(supabase: Db, mesIso = new Date().to
     avisos,
   };
 }
+
+// ── Projeção de clientes a partir das curvas de crescimento (etapa 3/4) ──────────────────────────
+import { projetarPlataforma, type FaseCrescimento } from "@/lib/projecao-clientes";
+
+/** Clientes ativos previstos na plataforma ao fim do mês informado (padrão: 12 = 1º ano). */
+export async function carregarClientesProjetados(supabase: Db, mesAlvo = 12): Promise<number> {
+  const [{ data: mods }, { data: params }] = await Promise.all([
+    supabase.from("catalogo_modulos").select("codigo, nome, crescimento, data_inicio_testes").eq("ativo", true).order("ordem"),
+    supabase.from("parametros_precificacao").select("valor").eq("id", 1).maybeSingle(),
+  ]);
+  const padrao = ((params?.valor as { crescimento_padrao?: FaseCrescimento[] } | null)?.crescimento_padrao ?? []);
+  const linhas = ((mods ?? []) as { codigo: string; nome: string; crescimento: FaseCrescimento[] | null; data_inicio_testes: string | null }[]);
+  const datas = linhas.map((m) => m.data_inicio_testes).filter(Boolean) as string[];
+  const base = datas.length ? datas.sort()[0] : null;
+  const offset = (d: string | null) => {
+    if (!base || !d) return 0;
+    const a = new Date(base), b = new Date(d);
+    return Math.max(0, (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()));
+  };
+  const horizonte = Math.max(mesAlvo, 12);
+  const { total } = projetarPlataforma(
+    linhas.map((m) => ({ codigo: m.codigo, nome: m.nome, fases: (m.crescimento && m.crescimento.length ? m.crescimento : padrao), offsetMes: offset(m.data_inicio_testes) })),
+    horizonte,
+  );
+  return total[Math.min(horizonte - 1, mesAlvo - 1)] ?? 0;
+}
