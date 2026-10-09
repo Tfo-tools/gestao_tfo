@@ -1,31 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import Link from "next/link";
 import { calcularProposta, PERFIL_VAZIO, type PerfilCliente } from "@/lib/precificacao";
 import type { BasesProposta } from "@/lib/precificacao-bases";
+import { clienteMedioPonderado, type PerfilSimulado } from "@/lib/perfis";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 /**
- * Projeção de custo médio e margem (etapa 4). Usa os clientes previstos no 1º ano (das curvas de
- * crescimento) e um perfil médio de referência, editável, com todos os módulos ativos. Mostra o
- * custo médio por cliente, a mensalidade média e a margem resultante. É referência, não é por cliente.
+ * Projeção de custo médio e margem. O "cliente médio" vem da ponderação dos perfis (Produto → Perfis)
+ * pela participação de cada um. Mostra o custo médio por cliente, a mensalidade média e a margem. Sem
+ * perfis cadastrados, cai num perfil de referência (50 mi, 25 lojas).
  */
-export function CustoMedioPanel({ bases, clientesAno1 }: { bases: BasesProposta; clientesAno1: number }) {
-  const [fatMi, setFatMi] = useState(50);
-  const [lojas, setLojas] = useState(25);
+export function CustoMedioPanel({ bases, clientesAno1, perfis }: { bases: BasesProposta; clientesAno1: number; perfis: PerfilSimulado[] }) {
   const codigos = useMemo(() => bases.modulos.filter((m) => m.ativo).map((m) => m.codigo), [bases.modulos]);
+  const { perfil: medio, participacaoTotal } = useMemo(() => clienteMedioPonderado(perfis), [perfis]);
+  const temPerfis = participacaoTotal > 0;
 
-  const r = useMemo(() => {
-    const perfil = { ...PERFIL_VAZIO, faturamento_anual: fatMi * 1e6, lojas, atacado: true, ecommerce: true, preco_medio: 200 } as PerfilCliente;
-    return calcularProposta({
-      perfil,
-      selecao: { modulos: codigos, blocos: [], plano_pequeno: false },
-      pagamento: { meio_mensalidade: "boleto", meio_implantacao: null, prazo_implantacao: null },
-      desconto: { mensalidade_pct: 0, implantacao_pct: 0, motivo: "" },
-      modulos: bases.modulos, blocos: bases.blocos, params: bases.params, bases: bases.bases,
-    });
-  }, [fatMi, lojas, codigos, bases]);
+  const perfil: PerfilCliente = temPerfis
+    ? { ...medio, preco_medio: medio.preco_medio || 200 }
+    : { ...PERFIL_VAZIO, faturamento_anual: 50e6, lojas: 25, atacado: true, ecommerce: true, preco_medio: 200 };
+
+  const r = useMemo(
+    () =>
+      calcularProposta({
+        perfil,
+        selecao: { modulos: codigos, blocos: [], plano_pequeno: false },
+        pagamento: { meio_mensalidade: "boleto", meio_implantacao: null, prazo_implantacao: null },
+        desconto: { mensalidade_pct: 0, implantacao_pct: 0, motivo: "" },
+        modulos: bases.modulos, blocos: bases.blocos, params: bases.params, bases: bases.bases,
+      }),
+    [perfil, codigos, bases],
+  );
 
   return (
     <div className="rounded-xl border border-border bg-wine-deep p-4 text-white">
@@ -39,12 +46,13 @@ export function CustoMedioPanel({ bases, clientesAno1 }: { bases: BasesProposta;
             <span className="text-[13px]">Margem: <b className="text-[18px]">{(r.margem_resultante_mensalidade * 100).toFixed(0)}%</b></span>
           </div>
         </div>
-        <div className="flex items-end gap-2 text-[11.5px]">
-          <label className="flex flex-col gap-0.5">Perfil médio (R$ mi)<input value={fatMi} onChange={(e) => setFatMi(Number(e.target.value.replace(",", ".")) || 0)} className="input input-compacto w-20 text-right text-text" inputMode="decimal" /></label>
-          <label className="flex flex-col gap-0.5">Lojas<input value={lojas} onChange={(e) => setLojas(Math.max(0, Math.round(Number(e.target.value) || 0)))} className="input input-compacto w-16 text-right text-text" inputMode="numeric" /></label>
-        </div>
+        <Link href="/realizado/produtos" className="rounded-lg border border-white/30 px-2.5 py-1 text-[11.5px] text-white/90 hover:bg-white/10">Editar perfis →</Link>
       </div>
-      <p className="mt-1 text-[11px] text-white/70">Perfil médio de referência com todos os módulos ativos. Ajuste os parâmetros abaixo e veja o efeito aqui.</p>
+      <p className="mt-1 text-[11px] text-white/70">
+        {temPerfis
+          ? <>Cliente médio ponderado pelos perfis: faturamento {brl(perfil.faturamento_anual ?? 0)}, {Math.round(perfil.lojas)} lojas{perfil.atacado ? ", atacado" : ""}. Participação somada {(participacaoTotal * 100).toFixed(0)}%.</>
+          : <>Sem perfis cadastrados — usando perfil de referência (50 mi, 25 lojas). Cadastre os perfis em Produto → Perfis para o cálculo seguir o seu mix.</>}
+      </p>
     </div>
   );
 }
