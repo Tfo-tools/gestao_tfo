@@ -27,6 +27,12 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
     ? await supabase.from("cenarios").select("nome").eq("id", cenario.cenario_origem_id).maybeSingle()
     : { data: null };
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: perfilUsuario } = user ? await supabase.from("profiles").select("papel").eq("id", user.id).maybeSingle() : { data: null };
+  const ehSocia = perfilUsuario?.papel === "socia";
+
   const resumo = await agregarPorCenario(supabase, cenarioId);
   // Indicadores do período do cenário (data_inicio → data_fim), o mesmo recorte das outras telas.
   const metricas = computeMetricas(resumo.linhasPeriodo, resumo.totalInvestido, resumo.aportes.capitalNovoPorMes);
@@ -111,31 +117,57 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
       />
       <MetasForm cenarioId={cenarioId} metas={cenario} />
 
-      <div className="mt-5 flex flex-col gap-3">
-        <LinhaPlano
-          href={`/plano/${cenarioId}/vendas`}
-          titulo="Vendas"
-          descricao="Crescimento por fase, churn, funil, planos de preço e módulos — todos os produtos numa tela só."
-          status={`${produtosCount ?? 0} produto${(produtosCount ?? 0) === 1 ? "" : "s"} · ${fasesCount ?? 0} fase${(fasesCount ?? 0) === 1 ? "" : "s"} com data definida`}
-        />
-        <LinhaPlano
-          href={`/plano/${cenarioId}/custos`}
-          titulo="Plano de Custos"
-          descricao="Um card por tipo de custo (CSP, Marketing, Desenvolvimento...) — a mesma linguagem de Lançamentos."
-          status={`${custosFixosCount ?? 0} fixo · ${custosVariaveisCount ?? 0} variável · ${custosEmpresaCount ?? 0} da empresa`}
-        />
-        <LinhaPlano
-          href={`/contratacoes?cenario=${cenarioId}`}
-          titulo="Contratações planejadas"
-          descricao="Equipe além do modelo de alocação padrão — cargo, CLT ou PJ, quando entra."
-          status={`${contratacoesCount ?? 0} contratação${(contratacoesCount ?? 0) === 1 ? "" : "ões"} registradas`}
-        />
-        <LinhaPlano
-          href="/fomento"
-          titulo="Captação vinculada"
-          descricao="Programas de fomento/investimento ligados a este cenário."
-          status={`${programasCount ?? 0} programa${(programasCount ?? 0) === 1 ? "" : "s"} vinculado${(programasCount ?? 0) === 1 ? "" : "s"}`}
-        />
+      {/* Atalhos no formato das linhas do DRE: Receita, COGS, Despesas (OpEx) e P&D. */}
+      <div className="mt-5 flex flex-col gap-5">
+        <GrupoDRE titulo="Receita">
+          <LinhaPlano
+            href={`/plano/${cenarioId}/vendas`}
+            titulo="Plano de vendas"
+            descricao="Crescimento por fase, churn, funil, planos de preço e módulos — todos os produtos numa tela só."
+            status={`${produtosCount ?? 0} produto${(produtosCount ?? 0) === 1 ? "" : "s"} · ${fasesCount ?? 0} fase${(fasesCount ?? 0) === 1 ? "" : "s"} com data definida`}
+          />
+        </GrupoDRE>
+
+        <GrupoDRE titulo="COGS · custo do serviço prestado">
+          {ehSocia && (
+            <LinhaPlano
+              href={`/plano/${cenarioId}/cogs`}
+              titulo="Custos do produto e tabela comercial"
+              descricao="Espelho da tela de Produtos: volume, processamento, suporte, margem, catálogo e simulador de desconto. Só sócias; o vendedor não vê."
+              status="definir critérios de preço e desconto"
+            />
+          )}
+          <LinhaPlano
+            href={`/plano/${cenarioId}/custos`}
+            titulo="Plano de custos de produção"
+            descricao="Um card por tipo de custo (infraestrutura, suporte, implantação...) — a mesma linguagem de Lançamentos."
+            status={`${custosFixosCount ?? 0} fixo · ${custosVariaveisCount ?? 0} variável · ${custosEmpresaCount ?? 0} da empresa`}
+          />
+        </GrupoDRE>
+
+        <GrupoDRE titulo="Despesas operacionais · Vendas (OpEx)">
+          <LinhaPlano
+            href={`/contratacoes?cenario=${cenarioId}`}
+            titulo="Contratações planejadas"
+            descricao="Equipe além do modelo de alocação padrão — cargo, CLT ou PJ, quando entra."
+            status={`${contratacoesCount ?? 0} contratação${(contratacoesCount ?? 0) === 1 ? "" : "ões"} registradas`}
+          />
+          <LinhaPlano
+            href="/fomento"
+            titulo="Captação vinculada"
+            descricao="Programas de fomento/investimento ligados a este cenário."
+            status={`${programasCount ?? 0} programa${(programasCount ?? 0) === 1 ? "" : "s"} vinculado${(programasCount ?? 0) === 1 ? "" : "s"}`}
+          />
+        </GrupoDRE>
+
+        <GrupoDRE titulo="P&D · pesquisa e desenvolvimento">
+          <LinhaPlano
+            href={`/plano/${cenarioId}/custos`}
+            titulo="Desenvolvimento do produto"
+            descricao="Horas e custos de produto em desenvolvimento (roadmap), dentro do Plano de custos."
+            status="no Plano de custos, card Desenvolvimento"
+          />
+        </GrupoDRE>
       </div>
 
       {/* Edição mora aqui; Relatórios só mostra (link "editar" de lá cai em #destinacao). */}
@@ -143,6 +175,15 @@ export default async function PlanoHubPage({ params }: { params: Promise<{ cenar
         <AlocacaoInvestimento cenarioId={cenarioId} itens={alocacoes ?? []} nomeCenario={cenario.nome} />
       </div>
     </div>
+  );
+}
+
+function GrupoDRE({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-faint">{titulo}</h2>
+      <div className="flex flex-col gap-2">{children}</div>
+    </section>
   );
 }
 
