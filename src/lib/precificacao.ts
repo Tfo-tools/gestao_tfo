@@ -31,7 +31,7 @@ export type ParametrosPrecificacao = {
   custo_fixo_infra_mes: number;
   rateio: { modo: "clientes_previstos" | "fixo"; clientes_fixo: number };
   /** suporte = reativo (fração que abre chamado × horas) + proativo (base + por GB de dados) */
-  suporte: { contato_mes_pct: number; horas_por_contato: number; proativo_horas_base: number; proativo_horas_por_gb: number; cargo: string; tipo_contratacao: string; senioridade: string };
+  suporte: { reativo_horas: number; cs_horas: number; monitoramento_horas: number; cargo: string; tipo_contratacao: string; senioridade: string };
   margens: { mensalidade_pct: number; implantacao_pct: number };
   tabela_comercial: { desconto_max_mensalidade_pct: number; desconto_max_implantacao_pct: number };
   implantacao: { prazo_dias: number; reducao_integracao_pct: number; prazos_permitidos: PrazoPagamento[]; margem_fixa_parcela: boolean;
@@ -261,11 +261,13 @@ export function calcularProposta(args: {
   // Suporte como DEMANDA por cliente: reativo (quem abre chamado × horas) + proativo (monitoramento
   // dos dados, cresce com o volume). Nada por usuário — a pesquisa de nuvem mostrou que dado é o que pesa.
   const chR = bases.custo_hora_suporte;
-  const hReativo = (params.suporte.contato_mes_pct ?? 0) * (params.suporte.horas_por_contato ?? 0);
-  const hProativo = (params.suporte.proativo_horas_base ?? 0) + (params.suporte.proativo_horas_por_gb ?? 0) * gbUsado;
-  const suporte = (hReativo + hProativo) * chR;
-  custos.push({ componente: "Suporte reativo (chamados)", modulo: null, valor: hReativo * chR, detalhe: `${((params.suporte.contato_mes_pct ?? 0) * 100).toFixed(0)}% abrem chamado × ${params.suporte.horas_por_contato ?? 0} h = ${hReativo.toFixed(2)} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
-  custos.push({ componente: "CS ativo e monitoramento", modulo: null, valor: hProativo * chR, detalhe: `${params.suporte.proativo_horas_base ?? 0} h de CS + ${((params.suporte.proativo_horas_por_gb ?? 0) * gbUsado).toFixed(2)} h por dados = ${hProativo.toFixed(2)} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
+  const hRe = params.suporte.reativo_horas ?? 0;
+  const hCs = params.suporte.cs_horas ?? 0;
+  const hMon = params.suporte.monitoramento_horas ?? 0;
+  const suporte = (hRe + hCs + hMon) * chR;
+  custos.push({ componente: "Suporte reativo (chamados)", modulo: null, valor: hRe * chR, detalhe: `${hRe} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
+  custos.push({ componente: "CS ativo (retenção e adoção)", modulo: null, valor: hCs * chR, detalhe: `${hCs} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
+  custos.push({ componente: "Monitoramento / DevOps", modulo: null, valor: hMon * chR, detalhe: `${hMon} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
   const custo_total_mes = custos.reduce((s, c) => s + c.valor, 0);
 
   const tx = taxaPara(bases.taxas, pagamento.meio_mensalidade, "mensal");

@@ -19,13 +19,12 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
     ],
   },
   {
-    titulo: "Suporte (demanda por cliente)",
-    nota: "Três partes: suporte REATIVO (o cliente abre chamado), CS ATIVO (a equipe de sucesso cuida de usabilidade e experiência, horas fixas por cliente) e MONITORAMENTO de dados (conferir envio/erros, cresce com o volume). Todos entram no custo.",
+    titulo: "Suporte (horas por cliente/mês)",
+    nota: "Três serviços de COGS, em horas fixas por cliente ao mês (benchmark mid-market: reativo 2-4 h, CS 1,5-3 h, monitoramento 2-5 h). Multiplicadas pelo custo da hora do cargo.",
     campos: [
-      { k: "suporte.contato_mes_pct", label: "Clientes que abrem chamado no mês", tipo: "pct", ajuda: "Mercado B2B: 10% a 30%" },
-      { k: "suporte.horas_por_contato", label: "Horas por atendimento", tipo: "num" },
-      { k: "suporte.proativo_horas_base", label: "CS ativo: horas fixas por cliente/mês (usabilidade, cadência)", tipo: "num" },
-      { k: "suporte.proativo_horas_por_gb", label: "Monitoramento de dados: horas por GB", tipo: "num", ajuda: "Conferir envio, erros e bugs; cresce com o volume" },
+      { k: "suporte.reativo_horas", label: "Suporte reativo (chamados) — h/mês", tipo: "num" },
+      { k: "suporte.cs_horas", label: "CS ativo (retenção e adoção) — h/mês", tipo: "num" },
+      { k: "suporte.monitoramento_horas", label: "Monitoramento / DevOps — h/mês", tipo: "num" },
       { k: "suporte.cargo", label: "Cargo (tabela de custo/hora)" },
       { k: "suporte.senioridade", label: "Senioridade (junior, pleno, senior)" },
       { k: "suporte.tipo_contratacao", label: "Contratação (clt, pj)" },
