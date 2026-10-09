@@ -260,11 +260,12 @@ export function calcularProposta(args: {
   custos.push({ componente: "Plataforma (rateio)", modulo: null, valor: rateio, detalhe: fixoInfra > 0 ? `R$ ${fixoInfra.toFixed(2)} ÷ ${clientesRateio} clientes` : "custo fixo zero", conta: "1.1.1" });
   // Suporte como DEMANDA por cliente: reativo (quem abre chamado × horas) + proativo (monitoramento
   // dos dados, cresce com o volume). Nada por usuário — a pesquisa de nuvem mostrou que dado é o que pesa.
+  const chR = bases.custo_hora_suporte;
   const hReativo = (params.suporte.contato_mes_pct ?? 0) * (params.suporte.horas_por_contato ?? 0);
   const hProativo = (params.suporte.proativo_horas_base ?? 0) + (params.suporte.proativo_horas_por_gb ?? 0) * gbUsado;
-  const horasSuporte = hReativo + hProativo;
-  const suporte = horasSuporte * bases.custo_hora_suporte;
-  custos.push({ componente: "Suporte (demanda do cliente)", modulo: null, valor: suporte, detalhe: `reativo ${hReativo.toFixed(2)} h + proativo ${hProativo.toFixed(2)} h = ${horasSuporte.toFixed(2)} h × R$ ${bases.custo_hora_suporte.toFixed(2)}/h`, conta: "1.1.3" });
+  const suporte = (hReativo + hProativo) * chR;
+  custos.push({ componente: "Suporte reativo (chamados)", modulo: null, valor: hReativo * chR, detalhe: `${((params.suporte.contato_mes_pct ?? 0) * 100).toFixed(0)}% abrem chamado × ${params.suporte.horas_por_contato ?? 0} h = ${hReativo.toFixed(2)} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
+  custos.push({ componente: "CS ativo e monitoramento", modulo: null, valor: hProativo * chR, detalhe: `${params.suporte.proativo_horas_base ?? 0} h de CS + ${((params.suporte.proativo_horas_por_gb ?? 0) * gbUsado).toFixed(2)} h por dados = ${hProativo.toFixed(2)} h × R$ ${chR.toFixed(2)}/h`, conta: "1.1.3" });
   const custo_total_mes = custos.reduce((s, c) => s + c.valor, 0);
 
   const tx = taxaPara(bases.taxas, pagamento.meio_mensalidade, "mensal");

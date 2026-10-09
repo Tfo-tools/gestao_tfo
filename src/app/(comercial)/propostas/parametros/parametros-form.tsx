@@ -20,12 +20,12 @@ const GRUPOS: { titulo: string; nota: string; campos: { k: Caminho; label: strin
   },
   {
     titulo: "Suporte (demanda por cliente)",
-    nota: "Não é um valor fixo igual para todos: é a demanda esperada. Reativo = fração de clientes que abre chamado × horas por atendimento. Proativo = a equipe que confere se os dados chegaram certos e corrige erros, crescendo com o volume de dados. Padrões vindos de médias de mercado; ajuste à vontade.",
+    nota: "Três partes: suporte REATIVO (o cliente abre chamado), CS ATIVO (a equipe de sucesso cuida de usabilidade e experiência, horas fixas por cliente) e MONITORAMENTO de dados (conferir envio/erros, cresce com o volume). Todos entram no custo.",
     campos: [
       { k: "suporte.contato_mes_pct", label: "Clientes que abrem chamado no mês", tipo: "pct", ajuda: "Mercado B2B: 10% a 30%" },
       { k: "suporte.horas_por_contato", label: "Horas por atendimento", tipo: "num" },
-      { k: "suporte.proativo_horas_base", label: "Monitoramento: horas fixas por cliente/mês", tipo: "num" },
-      { k: "suporte.proativo_horas_por_gb", label: "Monitoramento: horas extras por GB de dados", tipo: "num", ajuda: "Quanto mais dados, mais acompanhamento" },
+      { k: "suporte.proativo_horas_base", label: "CS ativo: horas fixas por cliente/mês (usabilidade, cadência)", tipo: "num" },
+      { k: "suporte.proativo_horas_por_gb", label: "Monitoramento de dados: horas por GB", tipo: "num", ajuda: "Conferir envio, erros e bugs; cresce com o volume" },
       { k: "suporte.cargo", label: "Cargo (tabela de custo/hora)" },
       { k: "suporte.senioridade", label: "Senioridade (junior, pleno, senior)" },
       { k: "suporte.tipo_contratacao", label: "Contratação (clt, pj)" },
