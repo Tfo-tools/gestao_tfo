@@ -3,7 +3,7 @@ import { contaGoogleConectada, listarProximosEventos } from "@/lib/google-calend
 import { iaConfigurada } from "@/lib/ia";
 import { AgendaManager, type ReuniaoAgendada } from "./agenda-manager";
 import { lerEventosIcs } from "@/lib/agenda-icloud";
-import { AtasSemReuniao, type Ata } from "./atas-manager";
+import { AtasSemReuniao, HistoricoAtas, type Ata } from "./atas-manager";
 import { FathomCard } from "./fathom-card";
 import { fathomApiConfigurada } from "@/lib/fathom";
 import type { TarefaComPrazo } from "./calendario-semana";
@@ -138,6 +138,10 @@ export default async function AgendaPage() {
         pessoas={pessoas ?? []}
         iaConfigurada={iaConfigurada()}
       />
+
+      {/* Histórico de todas as atas (passadas inclusive), com busca — porta de entrada para atas
+          antigas que ficam presas ao compromisso dentro da janela do calendário. */}
+      <HistoricoAtas atas={(atas ?? []) as Ata[]} pessoas={pessoas ?? []} iaConfigurada={iaConfigurada()} />
 
       {/* Conectado, vira uma linha apagada no rodapé; só aparece como card enquanto não está. */}
       <FathomCard conectado={Boolean(fathomWebhook?.id)} criadoEm={fathomWebhook?.created_at ?? null} apiConfigurada={fathomApiConfigurada()} />

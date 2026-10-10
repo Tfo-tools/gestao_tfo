@@ -58,6 +58,60 @@ export function AtasSemReuniao({ atas, pessoas, iaConfigurada }: { atas: Ata[]; 
   );
 }
 
+/** Histórico de todas as atas (passadas inclusive), com busca. Fica numa seção da Agenda para dar
+ * acesso às atas antigas, que de outro jeito só aparecem presas ao compromisso dentro da janela do
+ * calendário. Cada item abre o conteúdo (resumo/transcrição) e as ações de IA, reusando AtaConteudo. */
+export function HistoricoAtas({ atas, pessoas, iaConfigurada }: { atas: Ata[]; pessoas: Pessoa[]; iaConfigurada: boolean }) {
+  const [busca, setBusca] = useState("");
+  const [abertas, setAbertas] = useState<Set<string>>(new Set());
+  const alternar = (id: string) =>
+    setAbertas((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const filtro = busca.trim().toLowerCase();
+  const lista = filtro
+    ? atas.filter((a) => a.titulo.toLowerCase().includes(filtro) || (a.participantes ?? "").toLowerCase().includes(filtro) || a.conteudo.toLowerCase().includes(filtro))
+    : atas;
+
+  return (
+    <section className="mt-5 rounded-xl border border-border bg-surface px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[13px] font-semibold">Histórico de atas</h2>
+        <span className="text-[11px] text-text-muted">{atas.length} ata{atas.length === 1 ? "" : "s"} no total</span>
+      </div>
+      <input
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+        placeholder="Buscar por título, participante ou conteúdo…"
+        className="input mt-2 w-full"
+      />
+      {atas.length === 0 ? (
+        <p className="mt-3 text-[12px] text-text-muted">Ainda não há atas. Elas entram automaticamente pelo Fathom ou ao adicionar uma ata numa reunião.</p>
+      ) : lista.length === 0 ? (
+        <p className="mt-3 text-[12px] text-text-muted">Nenhuma ata encontrada para “{busca}”.</p>
+      ) : (
+        <ul className="mt-2 flex flex-col gap-1.5">
+          {lista.map((ata) => (
+            <li key={ata.id} className="rounded-lg border border-border-soft px-3 py-2">
+              <button type="button" onClick={() => alternar(ata.id)} className="flex w-full items-center justify-between gap-3 text-left">
+                <span className="text-[12.5px] font-medium">{ata.titulo}</span>
+                <span className="shrink-0 text-[11px] text-text-muted">
+                  {ata.data_reuniao.split("-").reverse().join("/")}
+                  {ata.participantes ? ` · ${ata.participantes}` : ""} {abertas.has(ata.id) ? "▲" : "▾"}
+                </span>
+              </button>
+              {abertas.has(ata.id) && <AtaConteudo ata={ata} pessoas={pessoas} iaConfigurada={iaConfigurada} onEditar={() => {}} />}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /** Campo de ata embutido dentro de cada reunião/compromisso (não é mais uma lista separada) — no
  * máximo uma ata por reunião. `chave` identifica de qual reunião é: uma marcada pelo app
  * (reuniao_id) ou um compromisso do Google (google_event_id). */
@@ -170,7 +224,7 @@ function AtaForm({
   );
 }
 
-function AtaConteudo({
+export function AtaConteudo({
   ata,
   pessoas,
   iaConfigurada,
