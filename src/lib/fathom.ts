@@ -92,11 +92,11 @@ export function montarAta(payload: FathomPayload): { titulo: string; data_reunia
   if (resumo) partes.push(`## Resumo (Fathom)\n${resumo}`);
   const acoes = (payload.action_items ?? []).map((a) => a.description?.trim()).filter((d): d is string => Boolean(d));
   if (acoes.length > 0) partes.push(`## Ações marcadas pelo Fathom\n${acoes.map((a) => `- ${a}`).join("\n")}`);
-  const transcricao = transcricaoParaTexto(payload.transcript);
-  if (transcricao) partes.push(`## Transcrição\n${transcricao}`);
-  if (payload.share_url || payload.url) partes.push(`Gravação: ${payload.share_url || payload.url}`);
+  // A ata guarda só o resumo e as ações — não a transcrição crua (que inclui tangentes/debates). A
+  // gravação completa fica no Fathom, pelo link, para quem quiser.
+  if (payload.share_url || payload.url) partes.push(`Gravação completa: ${payload.share_url || payload.url}`);
 
-  return { titulo, data_reuniao, participantes, conteudo: partes.join("\n\n") || "(ata sem conteúdo — o webhook chegou sem transcrição nem resumo)" };
+  return { titulo, data_reuniao, participantes, conteudo: partes.join("\n\n") || "(ata sem conteúdo — o webhook chegou sem resumo)" };
 }
 
 const API_BASE = "https://api.fathom.ai/external/v1";

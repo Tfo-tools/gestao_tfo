@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { iaConfigurada, extrairAcoesDaAta } from "@/lib/ia";
 import { listarEventosEntre } from "@/lib/google-calendar";
-import { buscarTranscricaoFathom, extrairRecordingId, montarAta, verificarAssinaturaFathom, type FathomPayload } from "@/lib/fathom";
+import { extrairRecordingId, montarAta, verificarAssinaturaFathom, type FathomPayload } from "@/lib/fathom";
 import { maisParecida } from "@/lib/similaridade";
 
 /**
@@ -104,10 +104,7 @@ export async function POST(request: NextRequest) {
   }
 
   const dados = payload as unknown as FathomPayload;
-  if (!dados.transcript || dados.transcript.length === 0) {
-    const transcricao = await buscarTranscricaoFathom(recordingId);
-    if (transcricao) dados.transcript = transcricao;
-  }
+  // A ata guarda só resumo + ações (não a transcrição crua), então não buscamos a transcrição.
   const ata = montarAta(dados);
   const admin = createAdminClient();
 
