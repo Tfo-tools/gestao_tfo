@@ -80,7 +80,7 @@ export function HistoricoAtas({ atas, pessoas, iaConfigurada }: { atas: Ata[]; p
     <section className="mt-5 rounded-xl border border-border bg-surface px-4 py-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-[13px] font-semibold">Histórico de atas</h2>
-        <span className="text-[11px] text-text-muted">{atas.length} ata{atas.length === 1 ? "" : "s"} no total</span>
+        <span className="text-[11px] text-text-muted">{atas.length} ata{atas.length === 1 ? "" : "s"} · guardadas por 60 dias</span>
       </div>
       <input
         value={busca}

@@ -29,6 +29,15 @@ export async function GET(request: NextRequest) {
     console.error("Rotinas: falha ao gerar ocorrências", e);
   }
 
+  // Retenção de atas: guardamos no máximo 60 dias. Atas de reuniões mais antigas são apagadas (a
+  // gravação completa segue no Fathom). Isolado para não derrubar os lembretes.
+  try {
+    const corteAtas = hojeISO(-60);
+    await createAdminClient().from("reuniao_atas").delete().lt("data_reuniao", corteAtas);
+  } catch (e) {
+    console.error("Atas: falha na retenção de 60 dias", e);
+  }
+
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
   const vapidSubject = process.env.VAPID_SUBJECT;
