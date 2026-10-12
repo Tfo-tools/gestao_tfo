@@ -24,6 +24,9 @@ import {
  * recebe vazio e não manda nada.
  */
 export const dynamic = "force-dynamic";
+// Mais fôlego que o padrão: numa manhã de cold start, o Google pode demorar; sem isto a função
+// estoura o limite curto e o Atalho recebe "tempo limite". As fontes externas já têm timeout de 8s.
+export const maxDuration = 30;
 
 const MINUTOS_ANTES = 15;
 const HORA_SEMENTE = "08:01";

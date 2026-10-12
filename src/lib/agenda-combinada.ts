@@ -23,6 +23,15 @@ export type EventoAgenda = {
 
 const FUSO = "America/Sao_Paulo";
 
+/** Resolve com o fallback se a promessa demorar além de `ms` ou falhar — uma fonte lenta (Google numa
+ * manhã de cold start) não pode pendurar o feed inteiro até o timeout da função. */
+function comTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p.catch(() => fallback),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 export async function carregarAgendaCombinada(diasAFrente = 2): Promise<EventoAgenda[]> {
   const supabase = createAdminClient();
   const [{ data: conexoes }, { data: perfis }] = await Promise.all([
@@ -41,10 +50,11 @@ export async function carregarAgendaCombinada(diasAFrente = 2): Promise<EventoAg
     Promise.all(
       conexoesOrdenadas.map(async (c) => ({
         origem: c.profile_id === null ? "Compartilhada (contato)" : (nomePorPerfil.get(c.profile_id) ?? "Agenda pessoal"),
-        eventos: await listarProximosEventos(diasAFrente, 50, c.profile_id),
+        // 8s por agenda: se o Google demorar, volta vazio e o resumo sai com o resto (pendências etc.).
+        eventos: await comTimeout(listarProximosEventos(diasAFrente, 50, c.profile_id), 8000, []),
       })),
     ),
-    eventosIcloudTodasSocias(agora, ate),
+    comTimeout(eventosIcloudTodasSocias(agora, ate), 8000, []),
   ]);
   // iCloud (convite do marido etc.) entra por último, rotulado "Pessoal (nome)".
   const listas = [
