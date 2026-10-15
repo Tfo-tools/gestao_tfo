@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { acessoDrive, enviarParaDrive, lixeiraDrive } from "@/lib/google-drive";
+import { headers } from "next/headers";
+import { acessoDrive, enviarParaDrive, iniciarUploadDrive, lixeiraDrive, obterArquivoDrive } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 import { LIMITE_ANEXO_MB } from "./limites";
@@ -237,10 +238,21 @@ export async function excluirFaseProjeto(id: string): Promise<{ error: string | 
   return { error: null };
 }
 
-export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{ error: string | null }> {
-  if (!arquivo || arquivo.size === 0) return { error: "Escolha um arquivo." };
+export type MetaAnexo = { nome: string; tipo: string; tamanho: number };
+export type InicioAnexo =
+  | { error: string }
+  | { error: null; destino: "drive"; uploadUrl: string }
+  | { error: null; destino: "storage"; caminho: string; token: string };
+
+/**
+ * Anexar é em duas etapas porque o arquivo NÃO passa pelo servidor: a Vercel recusa corpo acima de
+ * ~4,5 MB, bem abaixo do LIMITE_ANEXO_MB. Aqui o servidor só abre a sessão (Drive) ou assina a URL
+ * (Storage, reserva); o navegador manda os bytes direto e depois chama `concluirAnexo`.
+ */
+export async function iniciarAnexo(tarefaId: string, meta: MetaAnexo): Promise<InicioAnexo> {
+  if (!meta?.nome || !meta.tamanho) return { error: "Escolha um arquivo." };
   // Documento/planilha/print cabe folgado; vídeo é o que estoura o 1 GB do plano grátis.
-  if (arquivo.size > LIMITE_ANEXO_MB * 1024 * 1024) {
+  if (meta.tamanho > LIMITE_ANEXO_MB * 1024 * 1024) {
     return { error: `Arquivo maior que ${LIMITE_ANEXO_MB} MB — guarde no Drive e cole o link na descrição.` };
   }
 
@@ -248,51 +260,103 @@ export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada — entre de novo." };
 
   // NFC: o Finder do macOS grava acento decomposto e a Storage recusa esse nome com 400.
-  const nome = nomeArquivoSeguro(arquivo.name);
+  const nome = nomeArquivoSeguro(meta.nome);
 
   // 1) Drive compartilhado (Espaço TFO/Arquivos_tarefas, nome da tarefa no fim do arquivo):
   //    docx/xlsx/pptx viram Docs/Sheets/Slides e abrem editáveis pras duas.
-  const acesso = await acessoDrive(user?.id ?? null);
+  const acesso = await acessoDrive(user.id);
   const { data: tarefa } = acesso ? await supabase.from("tarefas").select("titulo").eq("id", tarefaId).maybeSingle() : { data: null };
   if (acesso && tarefa) {
-    {
-      const noDrive = await enviarParaDrive(acesso, { nome, tipo: arquivo.type, bytes: await arquivo.arrayBuffer() }, tarefa.titulo);
-      if (noDrive) {
-        const { error } = await supabase.from("anexos_tarefa").insert({
-          tarefa_id: tarefaId,
-          nome_arquivo: nome,
-          caminho_arquivo: null,
-          tipo_mime: noDrive.mime,
-          tamanho_bytes: arquivo.size,
-          enviado_por: user?.id ?? null,
-          drive_file_id: noDrive.id,
-          url: noDrive.url,
-        });
-        if (error) return { error: "Subiu no Drive, mas não registrou o anexo." };
-        revalidatePath("/tarefas");
-        return { error: null };
-      }
-    }
+    const origem = (await headers()).get("origin");
+    const uploadUrl = await iniciarUploadDrive(acesso, { nome, tipo: meta.tipo, tamanho: meta.tamanho }, tarefa.titulo, origem);
+    if (uploadUrl) return { error: null, destino: "drive", uploadUrl };
   }
 
   // 2) Reserva: Storage do Supabase (como era antes do Drive) — abre só pra baixar.
-  const path = `tarefas/${tarefaId}/${Date.now()}-${nome}`;
-  const { error: uploadError } = await supabase.storage.from("comprovantes").upload(path, arquivo, { contentType: arquivo.type });
-  if (uploadError) return { error: "Não foi possível subir o arquivo." };
+  const caminho = `tarefas/${tarefaId}/${Date.now()}-${nome}`;
+  const { data, error } = await supabase.storage.from("comprovantes").createSignedUploadUrl(caminho);
+  if (error || !data) return { error: "Não foi possível preparar o envio." };
+  return { error: null, destino: "storage", caminho, token: data.token };
+}
 
+export async function concluirAnexo(
+  tarefaId: string,
+  dados: MetaAnexo & ({ destino: "drive"; driveFileId: string } | { destino: "storage"; caminho: string }),
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada — entre de novo." };
+  const nome = nomeArquivoSeguro(dados.nome);
+
+  if (dados.destino === "drive") {
+    // Não confiar no id que veio do navegador: conferir que o arquivo existe e está na nossa pasta.
+    const acesso = await acessoDrive(user.id);
+    const noDrive = acesso && dados.driveFileId ? await obterArquivoDrive(acesso, dados.driveFileId) : null;
+    if (!acesso || !noDrive || noDrive.trashed || !noDrive.parents.includes(acesso.pastaRaizId)) {
+      return { error: "O Drive não confirmou o arquivo — tente de novo." };
+    }
+    const { error } = await supabase.from("anexos_tarefa").insert({
+      tarefa_id: tarefaId,
+      nome_arquivo: nome,
+      caminho_arquivo: null,
+      tipo_mime: noDrive.mime,
+      tamanho_bytes: dados.tamanho,
+      enviado_por: user.id,
+      drive_file_id: noDrive.id,
+      url: noDrive.url,
+    });
+    if (error) return { error: "Subiu no Drive, mas não registrou o anexo." };
+    revalidatePath("/tarefas");
+    return { error: null };
+  }
+
+  // Storage: só aceita caminho dentro da pasta desta tarefa (foi o servidor que o gerou).
+  if (!dados.caminho.startsWith(`tarefas/${tarefaId}/`)) return { error: "Caminho do arquivo inválido." };
   const { error } = await supabase.from("anexos_tarefa").insert({
     tarefa_id: tarefaId,
     nome_arquivo: nome,
-    caminho_arquivo: path,
-    tipo_mime: arquivo.type,
-    tamanho_bytes: arquivo.size,
-    enviado_por: user?.id ?? null,
+    caminho_arquivo: dados.caminho,
+    tipo_mime: dados.tipo,
+    tamanho_bytes: dados.tamanho,
+    enviado_por: user.id,
   });
   if (error) return { error: "Não foi possível registrar o anexo." };
   revalidatePath("/tarefas");
   return { error: null };
+}
+
+/**
+ * Caminho antigo, pelo servidor: o navegador só usa como reserva, em arquivo pequeno, se o envio
+ * direto falhar (CORS, rede). Acima de ~4,5 MB a Vercel recusa antes de chegar aqui.
+ */
+export async function anexarNaTarefa(tarefaId: string, arquivo: File): Promise<{ error: string | null }> {
+  if (!arquivo || arquivo.size === 0) return { error: "Escolha um arquivo." };
+  if (arquivo.size > LIMITE_ANEXO_MB * 1024 * 1024) {
+    return { error: `Arquivo maior que ${LIMITE_ANEXO_MB} MB — guarde no Drive e cole o link na descrição.` };
+  }
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada — entre de novo." };
+  const nome = nomeArquivoSeguro(arquivo.name);
+
+  const acesso = await acessoDrive(user.id);
+  const { data: tarefa } = acesso ? await supabase.from("tarefas").select("titulo").eq("id", tarefaId).maybeSingle() : { data: null };
+  if (acesso && tarefa) {
+    const noDrive = await enviarParaDrive(acesso, { nome, tipo: arquivo.type, bytes: await arquivo.arrayBuffer() }, tarefa.titulo);
+    if (noDrive) return concluirAnexo(tarefaId, { nome, tipo: arquivo.type, tamanho: arquivo.size, destino: "drive", driveFileId: noDrive.id });
+  }
+
+  const caminho = `tarefas/${tarefaId}/${Date.now()}-${nome}`;
+  const { error: uploadError } = await supabase.storage.from("comprovantes").upload(caminho, arquivo, { contentType: arquivo.type });
+  if (uploadError) return { error: "Não foi possível subir o arquivo." };
+  return concluirAnexo(tarefaId, { nome, tipo: arquivo.type, tamanho: arquivo.size, destino: "storage", caminho });
 }
 
 export async function excluirAnexoTarefa(id: string, caminho: string | null, driveFileId: string | null = null): Promise<{ error: string | null }> {

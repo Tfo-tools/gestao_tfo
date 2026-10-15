@@ -123,6 +123,49 @@ export async function enviarParaDrive(acesso: AcessoDrive, arquivo: { nome: stri
 }
 
 /**
+ * Abre uma sessão de upload "resumable" no Drive e devolve a URL da sessão. O navegador manda os
+ * bytes direto nessa URL (PUT), sem passar pela Vercel — que recusa corpo acima de ~4,5 MB. A URL
+ * já carrega a autorização, então o navegador não precisa do token. `origem` é o Origin do
+ * navegador: o Google o usa pra responder o CORS das requisições seguintes.
+ */
+export async function iniciarUploadDrive(
+  acesso: AcessoDrive,
+  arquivo: { nome: string; tipo: string; tamanho: number },
+  tituloTarefa: string,
+  origem: string | null,
+): Promise<string | null> {
+  const destino = CONVERSAO[arquivo.tipo];
+  const nome = nomeNoDrive(arquivo.nome, tituloTarefa, !!destino);
+  const metadados = { name: nome, parents: [acesso.pastaRaizId], ...(destino ? { mimeType: destino } : {}) };
+  const resp = await fetch(`${UPLOAD}/files?uploadType=resumable&supportsAllDrives=true&fields=id,webViewLink,mimeType`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${acesso.token}`,
+      "Content-Type": "application/json; charset=UTF-8",
+      "X-Upload-Content-Type": arquivo.tipo || "application/octet-stream",
+      "X-Upload-Content-Length": String(arquivo.tamanho),
+      ...(origem ? { Origin: origem } : {}),
+    },
+    body: JSON.stringify(metadados),
+  });
+  if (!resp.ok) {
+    console.error("Drive: abrir sessão de upload falhou:", resp.status, await resp.text());
+    return null;
+  }
+  return resp.headers.get("location");
+}
+
+/** Metadados de um arquivo do Drive — usado pra conferir o que o navegador diz ter enviado. */
+export async function obterArquivoDrive(acesso: AcessoDrive, fileId: string): Promise<(ArquivoDrive & { parents: string[]; trashed: boolean }) | null> {
+  const resp = await fetch(`${API}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id,webViewLink,mimeType,parents,trashed`, {
+    headers: { Authorization: `Bearer ${acesso.token}` },
+  });
+  if (!resp.ok) return null;
+  const d = (await resp.json()) as { id: string; webViewLink: string; mimeType: string; parents?: string[]; trashed?: boolean };
+  return { id: d.id, url: d.webViewLink, mime: d.mimeType, parents: d.parents ?? [], trashed: !!d.trashed };
+}
+
+/**
  * Garante que o arquivo está direto em Arquivos_tarefas com o nome padrão (sem subpasta por tarefa).
  * Idempotente: se já está certo, não mexe. Devolve true quando mudou algo.
  */
