@@ -21,7 +21,7 @@ const BANCOS: Banco[] = [
     url: "https://pudtwbkwfftwwukbappm.supabase.co",
     anonKey:
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1ZHR3Ymt3ZmZ0d3d1a2JhcHBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5NTc3NDAsImV4cCI6MjEwNjUzMzc0MH0.KiDL1AisR39PnSH9Oo-Cn-IcZ3KXIQ9FwesfK6eX2zg",
-    tabela: "equipe",
+    tabela: "eventos",
   },
   // Eventos: NÃO tem Supabase (grava na planilha Google via Apps Script, que não pausa). Quando o
   // app for refeito com banco próprio, entra aqui.
@@ -29,10 +29,11 @@ const BANCOS: Banco[] = [
 
 async function tocar(b: Banco): Promise<{ nome: string; ok: boolean; status: number; statusAuth?: number; detalhe?: string }> {
   try {
-    // 1) Consulta de tabela pelo PostgREST: chega ao Postgres. 200/206 = leu; 401/403 = a RLS barrou o
-    //    anônimo, mas o banco foi consultado do mesmo jeito. 404 = tabela não existe (ajustar `tabela`).
+    // 1) Consulta de tabela pelo PostgREST: chega ao Postgres. 200/206 = leu; 400/401/403/404 = o
+    //    PostgREST respondeu (RLS, coluna ou tabela), ou seja, o projeto está de pé e foi usado.
+    //    5xx ou falha de rede = pausado ou fora do ar.
     const rest = await fetch(`${b.url}/rest/v1/${b.tabela}?select=id&limit=1`, { headers: { apikey: b.anonKey }, cache: "no-store" });
-    const bancoConsultado = rest.ok || rest.status === 401 || rest.status === 403;
+    const bancoConsultado = rest.status > 0 && rest.status < 500;
     // 2) Auth, como antes — serve de segundo sinal de que o projeto está de pé.
     const auth = await fetch(`${b.url}/auth/v1/settings`, { headers: { apikey: b.anonKey }, cache: "no-store" });
     const ok = bancoConsultado && auth.ok;
