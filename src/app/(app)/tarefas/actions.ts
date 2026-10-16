@@ -6,6 +6,7 @@ import { acessoDrive, enviarParaDrive, iniciarUploadDrive, lixeiraDrive, obterAr
 import { createClient } from "@/lib/supabase/server";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 import { gerarOcorrenciasRotinas } from "@/lib/rotinas";
+import { COLUNAS_GRADE, type ColunaGrade } from "./grade-colunas";
 import { LIMITE_ANEXO_MB } from "./limites";
 
 export type TarefaFormState = { error: string | null; success?: boolean };
@@ -203,9 +204,28 @@ export async function criarProjeto(_prev: TarefaFormState, formData: FormData): 
   return { error: null, success: true };
 }
 
-/** Uma linha da grade de projeto (estilo quadro do monday): só o essencial. `id` = tarefa que já existe. */
-export type LinhaProjetoRapido = { id?: string | null; titulo: string; responsavel_id: string | null; prazo: string | null; depende_de_linha: number | null };
+/** Uma linha da grade de projeto (estilo quadro do monday). `id` = tarefa que já existe. Campo ausente = coluna desligada. */
+export type LinhaProjetoRapido = {
+  id?: string | null;
+  titulo: string;
+  responsavel_id: string | null;
+  prazo: string | null;
+  depende_de_linha: number | null;
+  data_inicio?: string | null;
+  fase_id?: string | null;
+  status?: string | null;
+  /** Texto "a, b, c" como na tela; vira lista ao gravar. */
+  etiquetas?: string | null;
+  area?: string | null;
+  descricao?: string | null;
+};
 export type ProjetoRapidoState = TarefaFormState & { projetoId?: string; criadas?: number };
+
+const dataOuNull = (v: unknown) => (v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null);
+const textoOuNull = (v: unknown) => {
+  const t = String(v ?? "").trim();
+  return t ? t : null;
+};
 
 function lerLinhas(formData: FormData): LinhaProjetoRapido[] | null {
   let brutas: unknown = [];
@@ -221,11 +241,41 @@ function lerLinhas(formData: FormData): LinhaProjetoRapido[] | null {
         id: r.id ? String(r.id) : null,
         titulo: String(r.titulo ?? "").trim(),
         responsavel_id: r.responsavel_id ? String(r.responsavel_id) : null,
-        prazo: r.prazo && /^\d{4}-\d{2}-\d{2}$/.test(String(r.prazo)) ? String(r.prazo) : null,
+        prazo: dataOuNull(r.prazo),
         depende_de_linha: typeof r.depende_de_linha === "number" ? r.depende_de_linha : null,
+        data_inicio: dataOuNull(r.data_inicio),
+        fase_id: r.fase_id ? String(r.fase_id) : null,
+        status: ["a_fazer", "fazendo", "feito"].includes(String(r.status)) ? String(r.status) : null,
+        etiquetas: textoOuNull(r.etiquetas),
+        area: textoOuNull(r.area),
+        descricao: textoOuNull(r.descricao),
       };
     })
     .filter((l) => l.titulo);
+}
+
+/** Colunas ligadas na grade (campo `colunas`, JSON). Só o que está ligado é gravado — o resto fica como estava. */
+function lerColunas(formData: FormData): Set<ColunaGrade> {
+  try {
+    const lista = JSON.parse(String(formData.get("colunas") || "[]"));
+    return new Set((Array.isArray(lista) ? lista : []).filter((c): c is ColunaGrade => COLUNAS_GRADE.includes(c)));
+  } catch {
+    return new Set(["responsavel", "prazo", "depende"]);
+  }
+}
+
+/** Os campos da tarefa que a linha manda gravar, conforme as colunas ligadas. */
+function camposDaLinha(l: LinhaProjetoRapido, colunas: Set<ColunaGrade>): Record<string, unknown> {
+  const campos: Record<string, unknown> = { titulo: l.titulo };
+  if (colunas.has("responsavel")) campos.responsavel_id = l.responsavel_id;
+  if (colunas.has("prazo")) campos.prazo = l.prazo;
+  if (colunas.has("inicio")) campos.data_inicio = l.data_inicio ?? null;
+  if (colunas.has("fase")) campos.fase_id = l.fase_id ?? null;
+  if (colunas.has("status") && l.status) campos.status = l.status;
+  if (colunas.has("etiquetas")) campos.etiquetas = [...new Set((l.etiquetas ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  if (colunas.has("area")) campos.area = l.area ?? null;
+  if (colunas.has("descricao")) campos.descricao = l.descricao ?? null;
+  return campos;
 }
 
 /**
@@ -240,6 +290,7 @@ export async function salvarGradeProjeto(_prev: ProjetoRapidoState, formData: Fo
   if (!nome) return { error: "Dê um nome pro projeto." };
   const linhas = lerLinhas(formData);
   if (!linhas) return { error: "Não entendi as tarefas da grade." };
+  const colunas = lerColunas(formData);
 
   const supabase = await createClient();
   const {
@@ -261,14 +312,14 @@ export async function salvarGradeProjeto(_prev: ProjetoRapidoState, formData: Fo
     if (l.id && idsDoProjeto.has(l.id)) {
       const { error } = await supabase
         .from("tarefas")
-        .update({ titulo: l.titulo, responsavel_id: l.responsavel_id, prazo: l.prazo, updated_at: new Date().toISOString() })
+        .update({ ...camposDaLinha(l, colunas), updated_at: new Date().toISOString() })
         .eq("id", l.id);
       if (error) return { error: `Não foi possível salvar a linha ${i + 1}.`, projetoId };
       idPorLinha.set(i, l.id);
     } else {
       const { data, error } = await supabase
         .from("tarefas")
-        .insert({ titulo: l.titulo, responsavel_id: l.responsavel_id, prazo: l.prazo, projeto_id: projetoId, status: "a_fazer", ordem: ordemBase++, criado_por: user?.id ?? null })
+        .insert({ status: "a_fazer", ...camposDaLinha(l, colunas), projeto_id: projetoId, ordem: ordemBase++, criado_por: user?.id ?? null })
         .select("id")
         .single();
       if (error || !data) return { error: `Não foi possível criar a linha ${i + 1}.`, projetoId };
@@ -276,6 +327,10 @@ export async function salvarGradeProjeto(_prev: ProjetoRapidoState, formData: Fo
     }
   }
 
+  if (!colunas.has("depende")) {
+    revalidatePath("/tarefas");
+    return { error: null, success: true, projetoId, criadas: linhas.filter((l) => !l.id).length };
+  }
   const ids = [...idPorLinha.values()];
   const desejadas = new Set(
     linhas
@@ -306,6 +361,7 @@ export async function criarProjetoRapido(_prev: ProjetoRapidoState, formData: Fo
   if (!nome) return { error: "Dê um nome pro projeto." };
   const linhas = lerLinhas(formData);
   if (!linhas) return { error: "Não entendi as tarefas da grade." };
+  const colunas = lerColunas(formData);
 
   const supabase = await createClient();
   const {
@@ -323,11 +379,11 @@ export async function criarProjetoRapido(_prev: ProjetoRapidoState, formData: Fo
       .from("tarefas")
       .insert(
         linhas.map((l, i) => ({
-          titulo: l.titulo,
-          responsavel_id: l.responsavel_id,
-          prazo: l.prazo,
-          projeto_id: projeto.id,
           status: "a_fazer",
+          ...camposDaLinha(l, colunas),
+          // Fase é do projeto; projeto novo ainda não tem fase.
+          fase_id: null,
+          projeto_id: projeto.id,
           ordem: i,
           criado_por: user?.id ?? null,
         })),
@@ -337,7 +393,7 @@ export async function criarProjetoRapido(_prev: ProjetoRapidoState, formData: Fo
 
     // "Depende da linha N": a ordem foi gravada em `ordem`, então dá pra casar linha ↔ id criado.
     const idPorLinha = new Map((criadas as { id: string; ordem: number }[]).map((t) => [t.ordem, t.id]));
-    const deps = linhas
+    const deps = !colunas.has("depende") ? [] : linhas
       .map((l, i) => ({ tarefa_id: idPorLinha.get(i), depende_de_id: l.depende_de_linha != null && l.depende_de_linha !== i ? idPorLinha.get(l.depende_de_linha) : undefined }))
       .filter((d): d is { tarefa_id: string; depende_de_id: string } => !!d.tarefa_id && !!d.depende_de_id);
     if (deps.length > 0) await supabase.from("tarefa_dependencias").insert(deps);

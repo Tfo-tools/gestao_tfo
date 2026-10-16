@@ -289,7 +289,21 @@ export default async function TarefasPage({
           dados={dados}
           projetoInicial={projetoInicial}
           fasesProduto={fasesProduto}
-          tarefasGrade={todas.map((t) => ({ id: t.id, titulo: t.titulo, responsavel_id: t.responsavel_id, prazo: t.prazo, projeto_id: t.projeto_id, parent_id: t.parent_id, status: t.status, ordem: t.ordem }))}
+          tarefasGrade={todas.map((t) => ({
+            id: t.id,
+            titulo: t.titulo,
+            responsavel_id: t.responsavel_id,
+            prazo: t.prazo,
+            data_inicio: t.data_inicio,
+            fase_id: t.fase_id,
+            status: t.status,
+            etiquetas: t.etiquetas,
+            area: t.area,
+            descricao: t.descricao,
+            projeto_id: t.projeto_id,
+            parent_id: t.parent_id,
+            ordem: t.ordem,
+          }))}
           dependeDe={dependeDe}
         />
       </div>

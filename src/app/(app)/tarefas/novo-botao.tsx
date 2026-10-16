@@ -58,7 +58,7 @@ export function NovoBotao({
 
   if (modo === "projeto") {
     // Se a lista está filtrada num projeto, a grade já abre nele.
-    return <NovoProjetoRapido pessoas={dados.pessoas} projetos={dados.projetos} tarefas={tarefasGrade} dependeDe={dependeDe} fasesProduto={fasesProduto} projetoInicial={projetoInicial} aoFechar={fechar} />;
+    return <NovoProjetoRapido pessoas={dados.pessoas} projetos={dados.projetos} fases={dados.fases} tarefas={tarefasGrade} dependeDe={dependeDe} fasesProduto={fasesProduto} projetoInicial={projetoInicial} aoFechar={fechar} />;
   }
   return <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} abertoInicial aoConcluir={fechar} compacto />;
 }
