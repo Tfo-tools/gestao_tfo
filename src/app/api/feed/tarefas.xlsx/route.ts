@@ -7,7 +7,8 @@ import { linkCurtoTarefa } from "@/lib/agenda-combinada";
 /**
  * Exporta TODAS as tarefas pra Excel, pra revisão geral fora do app: uma aba por projeto (com as
  * subtarefas logo abaixo da mãe), uma aba por etiqueta e uma lista plana. Entra com a sessão
- * (link "Exportar Excel" em Tarefas) ou com o token do feed (?token=), que é o que o Mac usa.
+ * (link "Exportar Excel" em Tarefas) ou com o token do feed (?token=). Mora em /api/feed porque o
+ * proxy só deixa passar sem login o que está ali — a rota confere o acesso por conta própria.
  */
 export const dynamic = "force-dynamic";
 

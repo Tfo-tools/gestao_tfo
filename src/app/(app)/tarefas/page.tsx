@@ -330,7 +330,7 @@ export default async function TarefasPage({
           ))}
         </span>
         <BuscaTarefas valor={busca} montarLink={link({})} />
-        <a href="/api/tarefas/export" title="Baixar todas as tarefas em Excel (por projeto, por etiqueta e lista)" className="text-[11px] text-text-muted underline hover:text-primary-deep">
+        <a href="/api/feed/tarefas.xlsx" title="Baixar todas as tarefas em Excel (por projeto, por etiqueta e lista)" className="text-[11px] text-text-muted underline hover:text-primary-deep">
           Exportar Excel
         </a>
         <FerramentasBarra
