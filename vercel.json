@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/manter-ativos",
-      "schedule": "0 12 */4 * *"
+      "schedule": "0 12 */2 * *"
     }
   ]
 }
