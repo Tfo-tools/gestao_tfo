@@ -183,8 +183,16 @@ export default async function TarefasPage({
     produtos: produtos ?? [],
     projetos,
     fases,
-    // Dependência é entre tarefas; subtarefa (parent_id) não entra na lista.
-    candidatasDependencia: todas.filter((t) => !t.parent_id).map((t) => ({ id: t.id, titulo: t.titulo, projeto_id: t.projeto_id, status: t.status })),
+    // "Depende de" é uma busca: tarefa ou subtarefa, de qualquer projeto (o mesmo projeto vem primeiro).
+    candidatasDependencia: todas.map((t) => ({
+      id: t.id,
+      titulo: t.titulo,
+      projeto_id: t.projeto_id,
+      status: t.status,
+      parent_id: t.parent_id,
+      mae_titulo: t.parent_id ? (porId.get(t.parent_id)?.titulo ?? null) : null,
+      projeto_nome: t.projeto_id ? (projetos.find((p) => p.id === t.projeto_id)?.nome ?? null) : null,
+    })),
     anexos: anexosPorTarefa,
     notas: notasPorTarefa,
     usuarioId: user?.id ?? null,

@@ -56,7 +56,8 @@ export async function GET(request: NextRequest) {
 
   if (formato === "texto") {
     const proximos = Number(request.nextUrl.searchParams.get("proximos"));
-    if (!(proximos > 0)) return textoPlano(textoResumoHoje(eventos, await carregarPendencias()));
+    // Resumo da manhã pro WhatsApp: cada tarefa leva o link curto que abre direto no app.
+    if (!(proximos > 0)) return textoPlano(textoResumoHoje(eventos, await carregarPendencias(), { comLinks: true }));
 
     const emBreve = eventosEmBreve(eventos, proximos);
     if (emBreve.length === 0) return textoPlano("");

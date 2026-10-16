@@ -113,7 +113,18 @@ function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export type Pendencia = { texto: string; venceHoje: boolean; quando: "atrasada" | "hoje" | "amanha" };
+export type Pendencia = { texto: string; venceHoje: boolean; quando: "atrasada" | "hoje" | "amanha"; /** Link curto que abre a tarefa no app (só tarefas). */ link?: string };
+
+/** Endereço público do app, pra montar links que funcionam fora dele (WhatsApp, push). */
+export function urlBaseApp(): string {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://gestao.thefashionoffice.online").replace(/\/$/, "");
+}
+
+/** Link curto da tarefa: /t/<8 primeiros caracteres do id> — a rota /t resolve pelo prefixo e abre
+ * /tarefas?tarefa=<id>. Curto o bastante pra não poluir a mensagem do WhatsApp. */
+export function linkCurtoTarefa(id: string): string {
+  return `${urlBaseApp()}/t/${id.slice(0, 8)}`;
+}
 
 /** Contas e faturas de cartão que vencem hoje ou amanhã, e tarefas abertas até amanhã — inclusive as
  * atrasadas: tarefa não some do resumo enquanto não for concluída, só muda de bloco. Mesmo recorte do
@@ -128,7 +139,7 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
     supabase.from("despesas").select("descricao, valor_total, data_gasto").eq("comprovado", false).in("data_gasto", dias),
     supabase.from("despesa_parcelas").select("valor, data_prevista, despesas(descricao)").eq("status", "prevista").in("data_prevista", dias),
     supabase.from("ativo_parcelas").select("valor, data_prevista, ativos(descricao)").eq("status", "prevista").in("data_prevista", dias),
-    supabase.from("tarefas").select("titulo, prazo, responsavel_id, participantes").neq("status", "feito").lte("prazo", amanha).order("prazo"),
+    supabase.from("tarefas").select("id, titulo, prazo, responsavel_id, participantes, parent_id").neq("status", "feito").lte("prazo", amanha).order("prazo"),
     supabase.from("profiles").select("id, nome"),
   ]);
 
@@ -154,23 +165,47 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
       return [p.id, n.charAt(0).toUpperCase() + n.slice(1)];
     }),
   );
+  // Subtarefa com prazo: mostra a tarefa-mãe junto ("Mãe › atividade"), senão ninguém acha no app;
+  // e se a mãe já está feita, a atividade não cobra mais ninguém.
+  const maes = await carregarMaes((tarefas ?? []).map((t) => t.parent_id as string | null));
   for (const t of tarefas ?? []) {
     const ids = [t.responsavel_id, ...((t.participantes as string[] | null) ?? [])].filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
     const quem = ids.map((id) => primeiroNome.get(id)).filter(Boolean).join(" + ");
     if (!t.prazo) continue;
+    const mae = t.parent_id ? maes.get(t.parent_id as string) : undefined;
+    if (t.parent_id && mae?.status === "feito") continue;
     const atrasada = t.prazo < hoje;
     const diasAtraso = atrasada ? Math.round((new Date(`${hoje}T00:00:00Z`).getTime() - new Date(`${t.prazo}T00:00:00Z`).getTime()) / 86400000) : 0;
     const marca = atrasada ? ` (há ${diasAtraso} ${diasAtraso === 1 ? "dia" : "dias"})` : "";
     itens.push({
-      texto: `✅ ${t.titulo}${quem ? ` — ${quem}` : ""}${marca}`,
+      texto: `✅ ${rotuloTarefa(t.titulo, mae?.titulo)}${quem ? ` — ${quem}` : ""}${marca}`,
       venceHoje: t.prazo === hoje,
       quando: atrasada ? "atrasada" : t.prazo === hoje ? "hoje" : "amanha",
+      link: linkCurtoTarefa(t.id as string),
     });
   }
   return itens;
 }
 
-export function textoResumoHoje(eventos: EventoAgenda[], pendencias: Pendencia[] = []) {
+/** "Mãe › atividade" quando é subtarefa; só o título quando é tarefa. */
+export function rotuloTarefa(titulo: string, tituloMae?: string | null): string {
+  return tituloMae ? `${tituloMae} › ${titulo}` : titulo;
+}
+
+/** Título e status das tarefas-mãe das subtarefas listadas (uma consulta só). */
+export async function carregarMaes(parentIds: (string | null)[]): Promise<Map<string, { titulo: string; status: string }>> {
+  const ids = [...new Set(parentIds.filter((id): id is string => !!id))];
+  if (ids.length === 0) return new Map();
+  const { data } = await createAdminClient().from("tarefas").select("id, titulo, status").in("id", ids);
+  return new Map((data ?? []).map((m) => [m.id as string, { titulo: m.titulo as string, status: m.status as string }]));
+}
+
+/**
+ * Mensagem da manhã. `comLinks`: cada tarefa ganha o link curto numa linha abaixo — no WhatsApp não
+ * existe "clique aqui" com hiperlink escondido, só o endereço mesmo vira clicável. No push fica sem
+ * (a notificação já abre o app).
+ */
+export function textoResumoHoje(eventos: EventoAgenda[], pendencias: Pendencia[] = [], opcoes: { comLinks?: boolean } = {}) {
   const deHoje = eventosDeHoje(eventos);
   const blocos: string[] = [];
 
@@ -184,9 +219,10 @@ export function textoResumoHoje(eventos: EventoAgenda[], pendencias: Pendencia[]
   const atrasadas = pendencias.filter((p) => p.quando === "atrasada");
   const vencemHoje = pendencias.filter((p) => p.quando === "hoje");
   const vencemAmanha = pendencias.filter((p) => p.quando === "amanha");
-  if (atrasadas.length > 0) blocos.push(`⚠️ Atrasadas (ficam aqui até concluir):\n${atrasadas.map((p) => p.texto).join("\n")}`);
-  if (vencemHoje.length > 0) blocos.push(`Vence hoje:\n${vencemHoje.map((p) => p.texto).join("\n")}`);
-  if (vencemAmanha.length > 0) blocos.push(`Vence amanhã:\n${vencemAmanha.map((p) => p.texto).join("\n")}`);
+  const linha = (p: Pendencia) => (opcoes.comLinks && p.link ? `${p.texto}\n   ↳ ${p.link}` : p.texto);
+  if (atrasadas.length > 0) blocos.push(`⚠️ Atrasadas (ficam aqui até concluir):\n${atrasadas.map(linha).join("\n")}`);
+  if (vencemHoje.length > 0) blocos.push(`Vence hoje:\n${vencemHoje.map(linha).join("\n")}`);
+  if (vencemAmanha.length > 0) blocos.push(`Vence amanhã:\n${vencemAmanha.map(linha).join("\n")}`);
 
   return blocos.join("\n\n");
 }

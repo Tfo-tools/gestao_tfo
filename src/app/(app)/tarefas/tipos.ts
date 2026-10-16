@@ -61,6 +61,18 @@ export type NotaTarefa = { id: string; tarefa_id: string; texto: string; autor_i
 
 export type Dependencia = { tarefa_id: string; depende_de_id: string };
 
+/** O que a busca de "depende de" precisa saber de cada tarefa ou subtarefa pra achar e rotular. */
+export type CandidataDependencia = {
+  id: string;
+  titulo: string;
+  projeto_id: string | null;
+  status: string;
+  parent_id: string | null;
+  /** Título da tarefa-mãe, quando é subtarefa — aparece como "Mãe › atividade". */
+  mae_titulo: string | null;
+  projeto_nome: string | null;
+};
+
 export type TarefaNo = Tarefa & {
   filhas: TarefaNo[];
   /** Tarefas das quais esta depende e que ainda não estão feitas — se houver, está bloqueada. */

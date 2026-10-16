@@ -5,7 +5,7 @@ import { useAcaoEdicao } from "@/lib/use-acao-edicao";
 import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, tornarAtividadeDe, type TarefaFormState } from "./actions";
 import { CamposTarefa } from "./campos-tarefa";
 import { useCardAberto } from "./cards-contexto";
-import { achatar, STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type FaseProjeto, type NotaTarefa, type Pessoa, type Produto, type Projeto, type Tarefa, type TarefaNo } from "./tipos";
+import { achatar, STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type CandidataDependencia, type FaseProjeto, type NotaTarefa, type Pessoa, type Produto, type Projeto, type TarefaNo } from "./tipos";
 import { AnexosTarefa } from "./anexos-tarefa";
 import { NotasTarefa } from "./notas-tarefa";
 
@@ -14,7 +14,7 @@ export type DadosFormulario = {
   produtos: Produto[];
   projetos: Projeto[];
   fases: FaseProjeto[];
-  candidatasDependencia: Pick<Tarefa, "id" | "titulo" | "projeto_id" | "status">[];
+  candidatasDependencia: CandidataDependencia[];
   /** Arquivos por tarefa (anexos_tarefa), pra caixinha mostrar sem buscar de novo. */
   anexos: Map<string, AnexoTarefa[]>;
   /** Observações por tarefa (tarefa_notas), em ordem de data. */
@@ -416,7 +416,7 @@ export function TarefaCard({
           >
             <option value="">escolha a tarefa principal…</option>
             {[...dados.candidatasDependencia]
-              .filter((c) => c.id !== no.id && c.status !== "feito")
+              .filter((c) => c.id !== no.id && c.status !== "feito" && !c.parent_id)
               .sort((a, b) => Number((b.projeto_id ?? "") === (no.projeto_id ?? "")) - Number((a.projeto_id ?? "") === (no.projeto_id ?? "")) || a.titulo.localeCompare(b.titulo))
               .map((c) => (
                 <option key={c.id} value={c.id}>

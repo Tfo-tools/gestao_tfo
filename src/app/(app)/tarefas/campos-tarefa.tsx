@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import type { FaseProjeto, Pessoa, Produto, Projeto, Tarefa } from "./tipos";
+import { BuscaDependencias } from "./busca-dependencias";
+import type { CandidataDependencia, FaseProjeto, Pessoa, Produto, Projeto, Tarefa } from "./tipos";
 
 const rotulo = "mb-0.5 block text-[10px] text-text-faint";
 
 /**
  * Campos compartilhados entre "nova tarefa" e "editar" — em grade de 2 colunas pra caber numa
- * caixinha. Essencial em cima (título, responsável, prazo, projeto, fase); o resto atrás de
- * "mais opções". Fase só lista as do projeto escolhido; "depende de" só tarefas do mesmo projeto.
+ * caixinha. Ordem (decisão de 16/10/2026): essencial em cima (título, responsável, prazo, projeto,
+ * fase), descrição e subtarefas sempre à vista, o resto atrás de "mais opções" e, no fim, "depende
+ * de" como busca (tarefa ou subtarefa, por palavra do título) em vez de lista.
  */
 export function CamposTarefa({
   tarefa,
@@ -30,7 +32,7 @@ export function CamposTarefa({
   produtos: Produto[];
   projetos: Projeto[];
   fases: FaseProjeto[];
-  candidatasDependencia: Pick<Tarefa, "id" | "titulo" | "projeto_id" | "status">[];
+  candidatasDependencia: CandidataDependencia[];
   dependeDe?: string[];
   projetoInicial?: string | null;
   faseInicial?: string | null;
@@ -47,7 +49,6 @@ export function CamposTarefa({
   const [mais, setMais] = useState(abrirTudo);
 
   const fasesDoProjeto = fases.filter((f) => f.projeto_id === projetoId);
-  const candidatas = candidatasDependencia.filter((c) => c.id !== tarefa?.id && (c.projeto_id ?? "") === (projetoId || ""));
 
   if (modoSubtarefa) {
     return (
@@ -145,9 +146,27 @@ export function CamposTarefa({
         </div>
       )}
 
+      <div className="col-span-2">
+        <label className={rotulo}>Descrição (o que você quer dizer com a tarefa, se precisar explicar)</label>
+        <textarea name="descricao" rows={2} defaultValue={tarefa?.descricao ?? ""} placeholder="opcional" className="input input-compacto w-full" />
+      </div>
+
+      {comSubtarefas && (
+        <div className="col-span-2">
+          <label className={rotulo}>Subtarefas (uma por linha)</label>
+          <textarea
+            name="subtarefas"
+            rows={3}
+            placeholder={"Levantar documentos\nPreencher formulário\nEnviar ao contador"}
+            className="input input-compacto w-full"
+          />
+          <p className="mt-0.5 text-[10px] text-text-faint">Herdam projeto, fase e responsável desta tarefa — dá pra ajustar cada uma depois.</p>
+        </div>
+      )}
+
       {!mais && (
         <button type="button" onClick={() => setMais(true)} className="col-span-2 text-left text-[10.5px] text-text-muted underline">
-          mais opções (início, etiquetas, tema, descrição, depende de)
+          mais opções (início, etiquetas, tema, produtos)
         </button>
       )}
 
@@ -178,37 +197,13 @@ export function CamposTarefa({
               </div>
             </div>
           )}
-          <div className="col-span-2">
-            <label className={rotulo}>Descrição</label>
-            <textarea name="descricao" rows={2} defaultValue={tarefa?.descricao ?? ""} className="input input-compacto w-full" />
-          </div>
-          {comSubtarefas && (
-            <div className="col-span-2">
-              <label className={rotulo}>Subtarefas (uma por linha)</label>
-              <textarea
-                name="subtarefas"
-                rows={3}
-                placeholder={"Levantar documentos\nPreencher formulário\nEnviar ao contador"}
-                className="input input-compacto w-full"
-              />
-              <p className="mt-0.5 text-[10px] text-text-faint">Herdam projeto, fase e responsável desta tarefa — dá pra ajustar cada uma depois.</p>
-            </div>
-          )}
-          {candidatas.length > 0 && (
-            <div className="col-span-2">
-              <label className={rotulo}>Depende de (só libera depois que estas ficarem feitas)</label>
-              <div className="flex max-h-28 flex-col gap-0.5 overflow-y-auto">
-                {candidatas.map((c) => (
-                  <label key={c.id} className="flex items-center gap-1.5 text-[11px]">
-                    <input type="checkbox" name="depende_de" value={c.id} defaultChecked={dependeDe.includes(c.id)} />
-                    <span className={`truncate ${c.status === "feito" ? "text-text-faint line-through" : ""}`}>{c.titulo}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
+
+      <div className="col-span-2">
+        <label className={rotulo}>Depende de (só libera depois que estas ficarem feitas)</label>
+        <BuscaDependencias candidatas={candidatasDependencia} iniciais={dependeDe} excluirId={tarefa?.id} projetoAtual={projetoId === "__novo" ? null : projetoId || null} />
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import webpush from "web-push";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { gerarOcorrenciasRotinas } from "@/lib/rotinas";
+import { carregarMaes, rotuloTarefa } from "@/lib/agenda-combinada";
 
 function hojeISO(offsetDias = 0) {
   const d = new Date();
@@ -128,18 +129,22 @@ export async function GET(request: NextRequest) {
 
   const { data: tarefas } = await supabase
     .from("tarefas")
-    .select("id, titulo, prazo, responsavel_id")
+    .select("id, titulo, prazo, responsavel_id, parent_id")
     .neq("status", "feito")
     .in("prazo", [hoje, amanha])
     .not("responsavel_id", "is", null);
 
+  // Subtarefa: mostra a mãe junto e não cobra se a mãe já está feita. O link abre a própria tarefa.
+  const maes = await carregarMaes((tarefas ?? []).map((t) => t.parent_id as string | null));
   for (const t of tarefas ?? []) {
+    const mae = t.parent_id ? maes.get(t.parent_id as string) : undefined;
+    if (t.parent_id && mae?.status === "feito") continue;
     const venceHoje = t.prazo === hoje;
     lembretes.push({
       usuarioId: t.responsavel_id as string,
       title: venceHoje ? "Tarefa vence hoje" : "Tarefa vence amanhã",
-      body: t.titulo,
-      url: "/tarefas",
+      body: rotuloTarefa(t.titulo, mae?.titulo),
+      url: `/tarefas?tarefa=${t.id}`,
     });
   }
 
