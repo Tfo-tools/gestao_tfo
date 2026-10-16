@@ -72,7 +72,7 @@ export function ProjetosPanel({
               await formAction(fd);
               formRef.current?.reset();
             }}
-            className="grid grid-cols-[1fr_2fr_auto_auto] items-end gap-2 border-t border-border-soft pt-2"
+            className="grid grid-cols-[1fr_2fr_auto] items-end gap-2 border-t border-border-soft pt-2"
           >
             <div>
               <label className="mb-0.5 block text-[10px] text-text-faint">Novo projeto</label>
@@ -82,21 +82,10 @@ export function ProjetosPanel({
               <label className="mb-0.5 block text-[10px] text-text-faint">Objetivo</label>
               <input name="objetivo" placeholder="Ex: atingir as metas de conversão da fase de validação" className="input input-compacto w-full" />
             </div>
-            <div>
-              <label className="mb-0.5 block text-[10px] text-text-faint">Serve à fase de produto</label>
-              <select name="produto_fase_id" className="input input-compacto w-[180px]">
-                <option value="">—</option>
-                {fasesProduto.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
             <button type="submit" disabled={pending} className="rounded-md bg-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-white disabled:opacity-60">
               {pending ? "…" : "+ Projeto"}
             </button>
-            {state.error && <p className="col-span-4 text-[11px] text-danger">{state.error}</p>}
+            {state.error && <p className="col-span-3 text-[11px] text-danger">{state.error}</p>}
           </form>
         </div>
       )}
@@ -133,17 +122,6 @@ function ProjetoItem({
         <div className="min-w-[200px] flex-[2]">
           <label className="mb-1 block text-[10.5px] text-text-faint">Objetivo</label>
           <input name="objetivo" defaultValue={projeto.objetivo ?? ""} className="input input-compacto w-full" />
-        </div>
-        <div>
-          <label className="mb-1 block text-[10.5px] text-text-faint">Fase de produto</label>
-          <select name="produto_fase_id" defaultValue={projeto.produto_fase_id ?? ""} className="input input-compacto w-[180px]">
-            <option value="">—</option>
-            {fasesProduto.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
-            ))}
-          </select>
         </div>
         <div>
           <label className="mb-1 block text-[10.5px] text-text-faint">Status</label>

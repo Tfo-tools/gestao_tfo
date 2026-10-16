@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { NovoProjetoRapido, type TarefaParaGrade } from "./novo-projeto-rapido";
 import { NovaTarefaCard, type DadosFormulario } from "./tarefa-card";
-import type { FaseProdutoOpcao } from "./tipos";
 
 /**
  * O "+" do topo pergunta o que criar: uma tarefa (formulário de sempre) ou um projeto com a grade
@@ -13,13 +12,11 @@ import type { FaseProdutoOpcao } from "./tipos";
 export function NovoBotao({
   dados,
   projetoInicial,
-  fasesProduto,
   tarefasGrade,
   dependeDe,
 }: {
   dados: DadosFormulario;
   projetoInicial: string | null;
-  fasesProduto: FaseProdutoOpcao[];
   tarefasGrade: TarefaParaGrade[];
   dependeDe: Map<string, string[]>;
 }) {
@@ -58,7 +55,7 @@ export function NovoBotao({
 
   if (modo === "projeto") {
     // Se a lista está filtrada num projeto, a grade já abre nele.
-    return <NovoProjetoRapido pessoas={dados.pessoas} projetos={dados.projetos} fases={dados.fases} tarefas={tarefasGrade} dependeDe={dependeDe} fasesProduto={fasesProduto} projetoInicial={projetoInicial} aoFechar={fechar} />;
+    return <NovoProjetoRapido pessoas={dados.pessoas} projetos={dados.projetos} fases={dados.fases} tarefas={tarefasGrade} dependeDe={dependeDe} projetoInicial={projetoInicial} aoFechar={fechar} />;
   }
   return <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} abertoInicial aoConcluir={fechar} compacto />;
 }

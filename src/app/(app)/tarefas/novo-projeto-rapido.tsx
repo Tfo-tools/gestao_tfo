@@ -4,7 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { criarProjetoRapido, salvarGradeProjeto, type LinhaProjetoRapido, type ProjetoRapidoState } from "./actions";
 import { CHAVE_COLUNAS_GRADE, COLUNAS_GRADE, COLUNAS_PADRAO, ROTULO_COLUNA, type ColunaGrade } from "./grade-colunas";
-import { STATUS_LABEL, STATUS_ORDEM, type FaseProdutoOpcao, type FaseProjeto, type Pessoa, type Projeto } from "./tipos";
+import { STATUS_LABEL, STATUS_ORDEM, type FaseProjeto, type Pessoa, type Projeto } from "./tipos";
 
 /** O que a grade precisa de cada tarefa já existente (só as principais, não as atividades). */
 export type TarefaParaGrade = {
@@ -73,7 +73,6 @@ export function NovoProjetoRapido({
   fases,
   tarefas,
   dependeDe,
-  fasesProduto,
   projetoInicial = null,
   aoFechar,
 }: {
@@ -82,7 +81,6 @@ export function NovoProjetoRapido({
   fases: FaseProjeto[];
   tarefas: TarefaParaGrade[];
   dependeDe: Map<string, string[]>;
-  fasesProduto: FaseProdutoOpcao[];
   projetoInicial?: string | null;
   aoFechar: () => void;
 }) {
@@ -226,7 +224,7 @@ export function NovoProjetoRapido({
         <input type="hidden" name="linhas" value={JSON.stringify(linhas)} />
         <input type="hidden" name="colunas" value={JSON.stringify(visiveis)} />
         <input type="hidden" name="projeto_id" value={projetoId} />
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[auto_1fr_2fr_auto]">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[auto_1fr_2fr]">
           <div>
             <label className={rotulo}>Projeto</label>
             <select value={projetoId} onChange={(e) => trocarProjeto(e.target.value)} className="input input-compacto w-full sm:w-[200px]">
@@ -248,19 +246,6 @@ export function NovoProjetoRapido({
             <label className={rotulo}>Objetivo (opcional)</label>
             <input key={`obj-${projetoId}`} name="objetivo" defaultValue={projeto?.objetivo ?? ""} placeholder="Ex: atingir as metas de conversão da fase de validação" className={celula} />
           </div>
-          {!projeto && fasesProduto.length > 0 && (
-            <div>
-              <label className={rotulo}>Serve à fase de produto</label>
-              <select name="produto_fase_id" className="input input-compacto w-full sm:w-[180px]">
-                <option value="">—</option>
-                {fasesProduto.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
         </div>
 
         {/* Escolha de colunas: o que você quer preencher ou editar rápido. Fica guardado no navegador. */}

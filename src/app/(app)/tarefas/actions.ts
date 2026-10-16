@@ -35,7 +35,6 @@ function camposTarefa(fd: FormData) {
     responsavel_id: opcional(fd, "responsavel_id"),
     prazo: opcional(fd, "prazo"),
     data_inicio: opcional(fd, "data_inicio"),
-    produtos: lista(fd, "produtos"),
     area: opcional(fd, "area"),
     projeto_id: opcional(fd, "projeto_id"),
     fase_id: opcional(fd, "fase_id"),
@@ -196,7 +195,6 @@ export async function criarProjeto(_prev: TarefaFormState, formData: FormData): 
   const { error } = await supabase.from("projetos").insert({
     nome,
     objetivo: opcional(formData, "objetivo"),
-    produto_fase_id: opcional(formData, "produto_fase_id"),
     criado_por: user?.id ?? null,
   });
   if (error) return { error: "Não foi possível criar o projeto." };
@@ -369,7 +367,7 @@ export async function criarProjetoRapido(_prev: ProjetoRapidoState, formData: Fo
   } = await supabase.auth.getUser();
   const { data: projeto, error } = await supabase
     .from("projetos")
-    .insert({ nome, objetivo: opcional(formData, "objetivo"), produto_fase_id: opcional(formData, "produto_fase_id"), criado_por: user?.id ?? null })
+    .insert({ nome, objetivo: opcional(formData, "objetivo"), criado_por: user?.id ?? null })
     .select("id")
     .single();
   if (error || !projeto) return { error: "Não foi possível criar o projeto." };
@@ -413,7 +411,6 @@ export async function atualizarProjeto(_prev: TarefaFormState, formData: FormDat
     .update({
       nome,
       objetivo: opcional(formData, "objetivo"),
-      produto_fase_id: opcional(formData, "produto_fase_id"),
       status: texto(formData, "status") || "ativo",
       updated_at: new Date().toISOString(),
     })

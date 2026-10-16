@@ -15,7 +15,6 @@ const rotulo = "mb-0.5 block text-[10px] text-text-faint";
 export function CamposTarefa({
   tarefa,
   pessoas,
-  produtos,
   projetos,
   fases,
   candidatasDependencia,
@@ -29,7 +28,8 @@ export function CamposTarefa({
 }: {
   tarefa?: Tarefa;
   pessoas: Pessoa[];
-  produtos: Produto[];
+  /** Produto deixou de ser campo da tarefa (decisão de 16/10/2026: vai na etiqueta); fica só pra compatibilidade. */
+  produtos?: Produto[];
   projetos: Projeto[];
   fases: FaseProjeto[];
   candidatasDependencia: CandidataDependencia[];
@@ -168,7 +168,7 @@ export function CamposTarefa({
 
       {!mais && (
         <button type="button" onClick={() => setMais(true)} className="col-span-2 text-left text-[10.5px] text-text-muted underline">
-          mais opções (início, etiquetas, tema, produtos)
+          mais opções (início, etiquetas, tema)
         </button>
       )}
 
@@ -186,19 +186,6 @@ export function CamposTarefa({
             <label className={rotulo}>Tema / área</label>
             <input name="area" type="text" defaultValue={tarefa?.area ?? ""} placeholder="opcional" className="input input-compacto w-full" />
           </div>
-          {produtos.length > 0 && (
-            <div className="col-span-2">
-              <label className={rotulo}>Produtos que a tarefa atende</label>
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                {produtos.map((p) => (
-                  <label key={p.id} className="flex items-center gap-1 text-[11px]">
-                    <input type="checkbox" name="produtos" value={p.id} defaultChecked={tarefa?.produtos?.includes(p.id) ?? false} />
-                    {p.nome}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
 

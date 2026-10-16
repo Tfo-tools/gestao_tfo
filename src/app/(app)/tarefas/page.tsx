@@ -288,7 +288,6 @@ export default async function TarefasPage({
         <NovoBotao
           dados={dados}
           projetoInicial={projetoInicial}
-          fasesProduto={fasesProduto}
           tarefasGrade={todas.map((t) => ({
             id: t.id,
             titulo: t.titulo,
