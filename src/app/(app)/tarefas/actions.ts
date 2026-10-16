@@ -203,9 +203,98 @@ export async function criarProjeto(_prev: TarefaFormState, formData: FormData): 
   return { error: null, success: true };
 }
 
-/** Uma linha da grade de criação rápida de projeto (estilo quadro do monday): só o essencial. */
-export type LinhaProjetoRapido = { titulo: string; responsavel_id: string | null; prazo: string | null; depende_de_linha: number | null };
+/** Uma linha da grade de projeto (estilo quadro do monday): só o essencial. `id` = tarefa que já existe. */
+export type LinhaProjetoRapido = { id?: string | null; titulo: string; responsavel_id: string | null; prazo: string | null; depende_de_linha: number | null };
 export type ProjetoRapidoState = TarefaFormState & { projetoId?: string; criadas?: number };
+
+function lerLinhas(formData: FormData): LinhaProjetoRapido[] | null {
+  let brutas: unknown = [];
+  try {
+    brutas = JSON.parse(String(formData.get("linhas") || "[]"));
+  } catch {
+    return null;
+  }
+  return (Array.isArray(brutas) ? brutas : [])
+    .map((l) => {
+      const r = (l ?? {}) as Partial<LinhaProjetoRapido>;
+      return {
+        id: r.id ? String(r.id) : null,
+        titulo: String(r.titulo ?? "").trim(),
+        responsavel_id: r.responsavel_id ? String(r.responsavel_id) : null,
+        prazo: r.prazo && /^\d{4}-\d{2}-\d{2}$/.test(String(r.prazo)) ? String(r.prazo) : null,
+        depende_de_linha: typeof r.depende_de_linha === "number" ? r.depende_de_linha : null,
+      };
+    })
+    .filter((l) => l.titulo);
+}
+
+/**
+ * Grade de um projeto que já existe: atualiza título, responsável e prazo das tarefas que estavam
+ * na grade, cria as linhas novas e ajusta as dependências ENTRE as tarefas da grade (dependência
+ * com tarefa de fora da grade fica como está). Tarefa que a sócia não quer mais sai pelo × do card.
+ */
+export async function salvarGradeProjeto(_prev: ProjetoRapidoState, formData: FormData): Promise<ProjetoRapidoState> {
+  const projetoId = texto(formData, "projeto_id");
+  const nome = texto(formData, "nome");
+  if (!projetoId) return { error: "Escolha o projeto." };
+  if (!nome) return { error: "Dê um nome pro projeto." };
+  const linhas = lerLinhas(formData);
+  if (!linhas) return { error: "Não entendi as tarefas da grade." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { error: erroProjeto } = await supabase
+    .from("projetos")
+    .update({ nome, objetivo: opcional(formData, "objetivo"), updated_at: new Date().toISOString() })
+    .eq("id", projetoId);
+  if (erroProjeto) return { error: "Não foi possível salvar o projeto." };
+
+  // Só mexe em tarefa que é mesmo deste projeto — um id de fora é ignorado.
+  const { data: doProjeto } = await supabase.from("tarefas").select("id, ordem").eq("projeto_id", projetoId);
+  const idsDoProjeto = new Set((doProjeto ?? []).map((t) => t.id as string));
+  const idPorLinha = new Map<number, string>();
+  let ordemBase = Math.max(-1, ...(doProjeto ?? []).map((t) => Number(t.ordem ?? 0))) + 1;
+
+  for (const [i, l] of linhas.entries()) {
+    if (l.id && idsDoProjeto.has(l.id)) {
+      const { error } = await supabase
+        .from("tarefas")
+        .update({ titulo: l.titulo, responsavel_id: l.responsavel_id, prazo: l.prazo, updated_at: new Date().toISOString() })
+        .eq("id", l.id);
+      if (error) return { error: `Não foi possível salvar a linha ${i + 1}.`, projetoId };
+      idPorLinha.set(i, l.id);
+    } else {
+      const { data, error } = await supabase
+        .from("tarefas")
+        .insert({ titulo: l.titulo, responsavel_id: l.responsavel_id, prazo: l.prazo, projeto_id: projetoId, status: "a_fazer", ordem: ordemBase++, criado_por: user?.id ?? null })
+        .select("id")
+        .single();
+      if (error || !data) return { error: `Não foi possível criar a linha ${i + 1}.`, projetoId };
+      idPorLinha.set(i, data.id as string);
+    }
+  }
+
+  const ids = [...idPorLinha.values()];
+  const desejadas = new Set(
+    linhas
+      .map((l, i) => (l.depende_de_linha != null && l.depende_de_linha !== i ? `${idPorLinha.get(i)}|${idPorLinha.get(l.depende_de_linha)}` : null))
+      .filter((p): p is string => !!p && !p.includes("undefined")),
+  );
+  const { data: atuaisRaw } = await supabase.from("tarefa_dependencias").select("tarefa_id, depende_de_id").in("tarefa_id", ids).in("depende_de_id", ids);
+  const atuais = new Set(((atuaisRaw ?? []) as { tarefa_id: string; depende_de_id: string }[]).map((d) => `${d.tarefa_id}|${d.depende_de_id}`));
+  for (const par of atuais) {
+    if (desejadas.has(par)) continue;
+    const [tarefa_id, depende_de_id] = par.split("|");
+    await supabase.from("tarefa_dependencias").delete().eq("tarefa_id", tarefa_id).eq("depende_de_id", depende_de_id);
+  }
+  const novas = [...desejadas].filter((p) => !atuais.has(p)).map((p) => ({ tarefa_id: p.split("|")[0], depende_de_id: p.split("|")[1] }));
+  if (novas.length > 0) await supabase.from("tarefa_dependencias").insert(novas);
+
+  revalidatePath("/tarefas");
+  return { error: null, success: true, projetoId, criadas: linhas.filter((l) => !l.id).length };
+}
 
 /**
  * "+ Projeto": cria o projeto e, de uma vez, as tarefas escritas na grade (título, responsável,
@@ -215,23 +304,8 @@ export type ProjetoRapidoState = TarefaFormState & { projetoId?: string; criadas
 export async function criarProjetoRapido(_prev: ProjetoRapidoState, formData: FormData): Promise<ProjetoRapidoState> {
   const nome = texto(formData, "nome");
   if (!nome) return { error: "Dê um nome pro projeto." };
-  let brutas: unknown = [];
-  try {
-    brutas = JSON.parse(String(formData.get("linhas") || "[]"));
-  } catch {
-    return { error: "Não entendi as tarefas da grade." };
-  }
-  const linhas: LinhaProjetoRapido[] = (Array.isArray(brutas) ? brutas : [])
-    .map((l) => {
-      const r = (l ?? {}) as Partial<LinhaProjetoRapido>;
-      return {
-        titulo: String(r.titulo ?? "").trim(),
-        responsavel_id: r.responsavel_id ? String(r.responsavel_id) : null,
-        prazo: r.prazo ? String(r.prazo).slice(0, 10) : null,
-        depende_de_linha: typeof r.depende_de_linha === "number" ? r.depende_de_linha : null,
-      };
-    })
-    .filter((l) => l.titulo);
+  const linhas = lerLinhas(formData);
+  if (!linhas) return { error: "Não entendi as tarefas da grade." };
 
   const supabase = await createClient();
   const {

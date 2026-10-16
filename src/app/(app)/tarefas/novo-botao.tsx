@@ -1,15 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { NovoProjetoRapido } from "./novo-projeto-rapido";
+import { NovoProjetoRapido, type TarefaParaGrade } from "./novo-projeto-rapido";
 import { NovaTarefaCard, type DadosFormulario } from "./tarefa-card";
 import type { FaseProdutoOpcao } from "./tipos";
 
 /**
  * O "+" do topo pergunta o que criar: uma tarefa (formulário de sempre) ou um projeto com a grade
- * rápida de tarefas. Fechado é só o botão redondo; aberto ocupa a linha inteira da barra.
+ * de tarefas — que também abre um projeto existente pra editar as tarefas em lote. Fechado é só o
+ * botão redondo; aberto ocupa a linha inteira da barra.
  */
-export function NovoBotao({ dados, projetoInicial, fasesProduto }: { dados: DadosFormulario; projetoInicial: string | null; fasesProduto: FaseProdutoOpcao[] }) {
+export function NovoBotao({
+  dados,
+  projetoInicial,
+  fasesProduto,
+  tarefasGrade,
+  dependeDe,
+}: {
+  dados: DadosFormulario;
+  projetoInicial: string | null;
+  fasesProduto: FaseProdutoOpcao[];
+  tarefasGrade: TarefaParaGrade[];
+  dependeDe: Map<string, string[]>;
+}) {
   const [modo, setModo] = useState<"fechado" | "escolha" | "tarefa" | "projeto">("fechado");
   const fechar = () => setModo("fechado");
 
@@ -33,8 +46,8 @@ export function NovoBotao({ dados, projetoInicial, fasesProduto }: { dados: Dado
         <button type="button" onClick={() => setModo("tarefa")} className="rounded-md bg-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-white hover:opacity-90">
           + Tarefa
         </button>
-        <button type="button" onClick={() => setModo("projeto")} className="rounded-md border border-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-wine-deep hover:bg-wine-soft">
-          + Projeto
+        <button type="button" onClick={() => setModo("projeto")} className="rounded-md border border-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-wine-deep hover:bg-wine-soft" title="Criar um projeto novo ou editar as tarefas de um existente em grade">
+          + Projeto / grade
         </button>
         <button type="button" onClick={fechar} title="Fechar" aria-label="Fechar" className="px-1 text-[13px] text-text-faint hover:text-danger">
           ×
@@ -43,6 +56,9 @@ export function NovoBotao({ dados, projetoInicial, fasesProduto }: { dados: Dado
     );
   }
 
-  if (modo === "projeto") return <NovoProjetoRapido pessoas={dados.pessoas} fasesProduto={fasesProduto} aoFechar={fechar} />;
+  if (modo === "projeto") {
+    // Se a lista está filtrada num projeto, a grade já abre nele.
+    return <NovoProjetoRapido pessoas={dados.pessoas} projetos={dados.projetos} tarefas={tarefasGrade} dependeDe={dependeDe} fasesProduto={fasesProduto} projetoInicial={projetoInicial} aoFechar={fechar} />;
+  }
   return <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} abertoInicial aoConcluir={fechar} compacto />;
 }

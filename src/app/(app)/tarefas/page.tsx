@@ -285,7 +285,13 @@ export default async function TarefasPage({
           {sugestoes.length > 0 && <span className="text-amber-800"> · {sugestoes.length} sugest{sugestoes.length === 1 ? "ão" : "ões"} da IA para aprovar</span>}
           {atrasadas === 0 && hojeCount === 0 && semPrazo === 0 && semResponsavel.length === 0 && "Tudo em dia."}
         </p>
-        <NovoBotao dados={dados} projetoInicial={projetoInicial} fasesProduto={fasesProduto} />
+        <NovoBotao
+          dados={dados}
+          projetoInicial={projetoInicial}
+          fasesProduto={fasesProduto}
+          tarefasGrade={todas.map((t) => ({ id: t.id, titulo: t.titulo, responsavel_id: t.responsavel_id, prazo: t.prazo, projeto_id: t.projeto_id, parent_id: t.parent_id, status: t.status, ordem: t.ordem }))}
+          dependeDe={dependeDe}
+        />
       </div>
 
       {/* Barra: visão · status · quem · ferramentas · nova tarefa. Uma linha (quebra no celular). */}

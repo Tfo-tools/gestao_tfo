@@ -2,23 +2,58 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { criarProjetoRapido, type LinhaProjetoRapido, type ProjetoRapidoState } from "./actions";
-import type { FaseProdutoOpcao, Pessoa } from "./tipos";
+import { criarProjetoRapido, salvarGradeProjeto, type LinhaProjetoRapido, type ProjetoRapidoState } from "./actions";
+import type { FaseProdutoOpcao, Pessoa, Projeto } from "./tipos";
 
-const vazia = (): LinhaProjetoRapido => ({ titulo: "", responsavel_id: null, prazo: null, depende_de_linha: null });
+/** O que a grade precisa de cada tarefa já existente (só as principais, não as atividades). */
+export type TarefaParaGrade = { id: string; titulo: string; responsavel_id: string | null; prazo: string | null; projeto_id: string | null; parent_id: string | null; status: string; ordem: number };
+
+const vazia = (): LinhaProjetoRapido => ({ id: null, titulo: "", responsavel_id: null, prazo: null, depende_de_linha: null });
 const rotulo = "mb-0.5 block text-[10px] text-text-faint";
 const celula = "input input-compacto w-full";
 
+/** Linhas de um projeto existente: tarefas abertas, na ordem da lista, com "depende de" apontando pra linha certa. */
+function linhasDoProjeto(projetoId: string, tarefas: TarefaParaGrade[], dependeDe: Map<string, string[]>): LinhaProjetoRapido[] {
+  const abertas = tarefas
+    .filter((t) => t.projeto_id === projetoId && !t.parent_id && t.status !== "feito")
+    .sort((a, b) => (a.prazo ?? "9999-12-31").localeCompare(b.prazo ?? "9999-12-31") || a.ordem - b.ordem || a.titulo.localeCompare(b.titulo));
+  const indice = new Map(abertas.map((t, i) => [t.id, i]));
+  return abertas.map((t) => {
+    const naGrade = (dependeDe.get(t.id) ?? []).map((d) => indice.get(d)).find((i) => i != null);
+    return { id: t.id, titulo: t.titulo, responsavel_id: t.responsavel_id, prazo: t.prazo, depende_de_linha: naGrade ?? null };
+  });
+}
+
 /**
- * "+ Projeto" no estilo quadro do monday: nome do projeto e uma grade pra escrever as tarefas em
- * sequência — título, responsável, prazo e "depende de" (outra linha da grade). Enter no título
- * pula pra próxima linha (cria uma nova no fim). Ao criar, abre o projeto na lista; o detalhe
- * (descrição, subtarefas, participantes) é feito depois, tarefa a tarefa, no "editar".
+ * "+ Projeto" no estilo quadro do monday. Em cima, escolhe entre criar um projeto novo ou abrir um
+ * que já existe; embaixo, a grade de tarefas — título, responsável, prazo e "depende de" (outra
+ * linha). Enter no título pula pra próxima linha. Projeto existente: as tarefas abertas entram na
+ * grade pra editar em lote e dá pra acrescentar linhas; o detalhe (descrição, subtarefas,
+ * participantes) continua no "editar" de cada tarefa.
  */
-export function NovoProjetoRapido({ pessoas, fasesProduto, aoFechar }: { pessoas: Pessoa[]; fasesProduto: FaseProdutoOpcao[]; aoFechar: () => void }) {
+export function NovoProjetoRapido({
+  pessoas,
+  projetos,
+  tarefas,
+  dependeDe,
+  fasesProduto,
+  projetoInicial = null,
+  aoFechar,
+}: {
+  pessoas: Pessoa[];
+  projetos: Projeto[];
+  tarefas: TarefaParaGrade[];
+  dependeDe: Map<string, string[]>;
+  fasesProduto: FaseProdutoOpcao[];
+  projetoInicial?: string | null;
+  aoFechar: () => void;
+}) {
   const router = useRouter();
-  const [state, formAction, pending] = useActionState<ProjetoRapidoState, FormData>(criarProjetoRapido, { error: null });
-  const [linhas, setLinhas] = useState<LinhaProjetoRapido[]>([vazia(), vazia(), vazia()]);
+  const acao = (prev: ProjetoRapidoState, fd: FormData) => (String(fd.get("projeto_id") || "") ? salvarGradeProjeto(prev, fd) : criarProjetoRapido(prev, fd));
+  const [state, formAction, pending] = useActionState<ProjetoRapidoState, FormData>(acao, { error: null });
+  const [projetoId, setProjetoId] = useState<string>(projetoInicial ?? "");
+  const projeto = projetos.find((p) => p.id === projetoId) ?? null;
+  const [linhas, setLinhas] = useState<LinhaProjetoRapido[]>(() => (projetoInicial ? linhasDoProjeto(projetoInicial, tarefas, dependeDe) : [vazia(), vazia(), vazia()]));
   const titulos = useRef<(HTMLInputElement | null)[]>([]);
   const focarDepois = useRef<number | null>(null);
 
@@ -35,6 +70,12 @@ export function NovoProjetoRapido({ pessoas, fasesProduto, aoFechar }: { pessoas
       focarDepois.current = null;
     }
   }, [linhas.length]);
+
+  const trocarProjeto = (id: string) => {
+    setProjetoId(id);
+    const novas = id ? linhasDoProjeto(id, tarefas, dependeDe) : [vazia(), vazia(), vazia()];
+    setLinhas(novas.length > 0 ? novas : [vazia()]);
+  };
 
   const mudar = (i: number, campo: keyof LinhaProjetoRapido, valor: string) =>
     setLinhas((ls) =>
@@ -57,21 +98,36 @@ export function NovoProjetoRapido({ pessoas, fasesProduto, aoFechar }: { pessoas
         .map((l) => ({ ...l, depende_de_linha: l.depende_de_linha == null || l.depende_de_linha === i ? null : l.depende_de_linha > i ? l.depende_de_linha - 1 : l.depende_de_linha })),
     );
   const preenchidas = linhas.filter((l) => l.titulo.trim()).length;
+  const novasLinhas = linhas.filter((l) => !l.id && l.titulo.trim()).length;
 
   return (
     <div className="basis-full rounded-lg border border-primary-fill bg-surface p-3">
       <form action={formAction} className="flex flex-col gap-2.5">
         <input type="hidden" name="linhas" value={JSON.stringify(linhas)} />
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_2fr_auto]">
+        <input type="hidden" name="projeto_id" value={projetoId} />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[auto_1fr_2fr_auto]">
           <div>
-            <label className={rotulo}>Novo projeto</label>
-            <input name="nome" placeholder="Ex: Comunicação Q4" required autoFocus className={celula} />
+            <label className={rotulo}>Projeto</label>
+            <select value={projetoId} onChange={(e) => trocarProjeto(e.target.value)} className="input input-compacto w-full sm:w-[200px]">
+              <option value="">+ Novo projeto</option>
+              {projetos
+                .filter((p) => p.status === "ativo")
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div>
+            <label className={rotulo}>{projeto ? "Nome" : "Nome do projeto novo"}</label>
+            <input key={projetoId} name="nome" defaultValue={projeto?.nome ?? ""} placeholder="Ex: Comunicação Q4" required autoFocus={!projeto} className={celula} />
           </div>
           <div>
             <label className={rotulo}>Objetivo (opcional)</label>
-            <input name="objetivo" placeholder="Ex: atingir as metas de conversão da fase de validação" className={celula} />
+            <input key={`obj-${projetoId}`} name="objetivo" defaultValue={projeto?.objetivo ?? ""} placeholder="Ex: atingir as metas de conversão da fase de validação" className={celula} />
           </div>
-          {fasesProduto.length > 0 && (
+          {!projeto && fasesProduto.length > 0 && (
             <div>
               <label className={rotulo}>Serve à fase de produto</label>
               <select name="produto_fase_id" className="input input-compacto w-full sm:w-[180px]">
@@ -100,8 +156,11 @@ export function NovoProjetoRapido({ pessoas, fasesProduto, aoFechar }: { pessoas
             </thead>
             <tbody>
               {linhas.map((l, i) => (
-                <tr key={i} className="align-middle">
-                  <td className="py-0.5 pr-1 text-[10px] text-text-faint">{i + 1}</td>
+                <tr key={l.id ?? `nova-${i}`} className="align-middle">
+                  <td className="py-0.5 pr-1 text-[10px] text-text-faint" title={l.id ? "tarefa já existente" : "linha nova"}>
+                    {i + 1}
+                    {!l.id && projeto ? "*" : ""}
+                  </td>
                   <td className="py-0.5 pr-2">
                     <input
                       ref={(el) => {
@@ -145,7 +204,8 @@ export function NovoProjetoRapido({ pessoas, fasesProduto, aoFechar }: { pessoas
                     </select>
                   </td>
                   <td className="py-0.5 text-right">
-                    {linhas.length > 1 && (
+                    {/* Tarefa existente não sai por aqui (pra não apagar sem querer): usa o × do card. */}
+                    {!l.id && linhas.length > 1 && (
                       <button type="button" onClick={() => remover(i)} title="Tirar linha" className="text-[12px] text-text-faint hover:text-danger">
                         ×
                       </button>
@@ -159,11 +219,21 @@ export function NovoProjetoRapido({ pessoas, fasesProduto, aoFechar }: { pessoas
         <button type="button" onClick={adicionar} className="self-start text-[10.5px] text-text-muted underline">
           + linha
         </button>
-        <p className="text-[10px] text-text-faint">Linha sem título é ignorada. Descrição, subtarefas e quem participa você detalha depois, em “editar” na tarefa.</p>
+        <p className="text-[10px] text-text-faint">
+          {projeto
+            ? "Edita título, responsável, prazo e “depende de” das tarefas abertas; * = linha nova. Pra excluir uma tarefa, use o × dela na lista. Linha sem título é ignorada."
+            : "Linha sem título é ignorada. Descrição, subtarefas e quem participa você detalha depois, em “editar” na tarefa."}
+        </p>
 
         <div className="flex items-center gap-2">
           <button type="submit" disabled={pending} className="rounded-md bg-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-white disabled:opacity-60">
-            {pending ? "…" : preenchidas > 0 ? `Criar projeto com ${preenchidas} tarefa${preenchidas === 1 ? "" : "s"}` : "Criar projeto"}
+            {pending
+              ? "…"
+              : projeto
+                ? `Salvar grade${novasLinhas > 0 ? ` (+${novasLinhas} nova${novasLinhas === 1 ? "" : "s"})` : ""}`
+                : preenchidas > 0
+                  ? `Criar projeto com ${preenchidas} tarefa${preenchidas === 1 ? "" : "s"}`
+                  : "Criar projeto"}
           </button>
           <button type="button" onClick={aoFechar} className="rounded-md border border-border px-3 py-1.5 text-[11.5px] text-text-muted">
             Fechar
