@@ -76,6 +76,7 @@ export function NovaTarefaCard({
   rotulo = "+ Nova tarefa",
   aoConcluir,
   compacto = false,
+  abertoInicial = false,
 }: {
   dados: DadosFormulario;
   projetoInicial?: string | null;
@@ -85,8 +86,10 @@ export function NovaTarefaCard({
   aoConcluir?: () => void;
   /** Ícone pequeno (+) no canto da tela, em vez do botão largo na lista. */
   compacto?: boolean;
+  /** Já nasce com o formulário aberto (o "+" do topo escolheu "tarefa"). */
+  abertoInicial?: boolean;
 }) {
-  const [aberto, setAberto] = useState(!!parentId);
+  const [aberto, setAberto] = useState(!!parentId || abertoInicial);
   const [state, formAction, pending] = useActionState(criarTarefa, initialState);
   const formRef = useRef<HTMLFormElement>(null);
 

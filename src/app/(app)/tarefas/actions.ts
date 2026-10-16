@@ -191,6 +191,76 @@ export async function criarProjeto(_prev: TarefaFormState, formData: FormData): 
   return { error: null, success: true };
 }
 
+/** Uma linha da grade de criação rápida de projeto (estilo quadro do monday): só o essencial. */
+export type LinhaProjetoRapido = { titulo: string; responsavel_id: string | null; prazo: string | null; depende_de_linha: number | null };
+export type ProjetoRapidoState = TarefaFormState & { projetoId?: string; criadas?: number };
+
+/**
+ * "+ Projeto": cria o projeto e, de uma vez, as tarefas escritas na grade (título, responsável,
+ * prazo, depende de outra linha). Depois a sócia entra em cada uma pra detalhar (descrição,
+ * subtarefas, participantes). As linhas vêm em JSON no campo `linhas`.
+ */
+export async function criarProjetoRapido(_prev: ProjetoRapidoState, formData: FormData): Promise<ProjetoRapidoState> {
+  const nome = texto(formData, "nome");
+  if (!nome) return { error: "Dê um nome pro projeto." };
+  let brutas: unknown = [];
+  try {
+    brutas = JSON.parse(String(formData.get("linhas") || "[]"));
+  } catch {
+    return { error: "Não entendi as tarefas da grade." };
+  }
+  const linhas: LinhaProjetoRapido[] = (Array.isArray(brutas) ? brutas : [])
+    .map((l) => {
+      const r = (l ?? {}) as Partial<LinhaProjetoRapido>;
+      return {
+        titulo: String(r.titulo ?? "").trim(),
+        responsavel_id: r.responsavel_id ? String(r.responsavel_id) : null,
+        prazo: r.prazo ? String(r.prazo).slice(0, 10) : null,
+        depende_de_linha: typeof r.depende_de_linha === "number" ? r.depende_de_linha : null,
+      };
+    })
+    .filter((l) => l.titulo);
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: projeto, error } = await supabase
+    .from("projetos")
+    .insert({ nome, objetivo: opcional(formData, "objetivo"), produto_fase_id: opcional(formData, "produto_fase_id"), criado_por: user?.id ?? null })
+    .select("id")
+    .single();
+  if (error || !projeto) return { error: "Não foi possível criar o projeto." };
+
+  if (linhas.length > 0) {
+    const { data: criadas, error: erroTarefas } = await supabase
+      .from("tarefas")
+      .insert(
+        linhas.map((l, i) => ({
+          titulo: l.titulo,
+          responsavel_id: l.responsavel_id,
+          prazo: l.prazo,
+          projeto_id: projeto.id,
+          status: "a_fazer",
+          ordem: i,
+          criado_por: user?.id ?? null,
+        })),
+      )
+      .select("id, ordem");
+    if (erroTarefas || !criadas) return { error: "O projeto foi criado, mas as tarefas não.", projetoId: projeto.id };
+
+    // "Depende da linha N": a ordem foi gravada em `ordem`, então dá pra casar linha ↔ id criado.
+    const idPorLinha = new Map((criadas as { id: string; ordem: number }[]).map((t) => [t.ordem, t.id]));
+    const deps = linhas
+      .map((l, i) => ({ tarefa_id: idPorLinha.get(i), depende_de_id: l.depende_de_linha != null && l.depende_de_linha !== i ? idPorLinha.get(l.depende_de_linha) : undefined }))
+      .filter((d): d is { tarefa_id: string; depende_de_id: string } => !!d.tarefa_id && !!d.depende_de_id);
+    if (deps.length > 0) await supabase.from("tarefa_dependencias").insert(deps);
+  }
+
+  revalidatePath("/tarefas");
+  return { error: null, success: true, projetoId: projeto.id, criadas: linhas.length };
+}
+
 export async function atualizarProjeto(_prev: TarefaFormState, formData: FormData): Promise<TarefaFormState> {
   const id = texto(formData, "id");
   const nome = texto(formData, "nome");

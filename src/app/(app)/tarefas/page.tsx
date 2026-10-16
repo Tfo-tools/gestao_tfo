@@ -9,6 +9,7 @@ import { SugestoesPanel, type Sugestao } from "./sugestoes-panel";
 import { BuscaTarefas } from "./busca-tarefas";
 import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
+import { NovoBotao } from "./novo-botao";
 import { RotinasPanel } from "./rotinas-panel";
 import { NotaParaTarefas } from "./nota-para-tarefas";
 import { iaConfigurada } from "@/lib/ia";
@@ -284,9 +285,7 @@ export default async function TarefasPage({
           {sugestoes.length > 0 && <span className="text-amber-800"> · {sugestoes.length} sugest{sugestoes.length === 1 ? "ão" : "ões"} da IA para aprovar</span>}
           {atrasadas === 0 && hojeCount === 0 && semPrazo === 0 && semResponsavel.length === 0 && "Tudo em dia."}
         </p>
-        <span className="ml-auto">
-          <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} compacto />
-        </span>
+        <NovoBotao dados={dados} projetoInicial={projetoInicial} fasesProduto={fasesProduto} />
       </div>
 
       {/* Barra: visão · status · quem · ferramentas · nova tarefa. Uma linha (quebra no celular). */}
