@@ -2,9 +2,11 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { criarProjetoRapido, salvarGradeProjeto, type LinhaProjetoRapido, type ProjetoRapidoState } from "./actions";
+import { criarProjetoRapido, excluirTarefa, salvarGradeProjeto, type LinhaProjetoRapido, type ProjetoRapidoState } from "./actions";
+import { TarefaModal } from "./tarefa-modal";
+import type { DadosFormulario } from "./tarefa-card";
 import { CHAVE_COLUNAS_GRADE, COLUNAS_GRADE, COLUNAS_PADRAO, ROTULO_COLUNA, type ColunaGrade } from "./grade-colunas";
-import { STATUS_LABEL, STATUS_ORDEM, type FaseProjeto, type Pessoa, type Projeto } from "./tipos";
+import { STATUS_LABEL, STATUS_ORDEM, type FaseProjeto, type Pessoa, type Projeto, type TarefaNo } from "./tipos";
 
 /** O que a grade precisa de cada tarefa já existente (só as principais, não as atividades). */
 export type TarefaParaGrade = {
@@ -23,10 +25,10 @@ export type TarefaParaGrade = {
   ordem: number;
 };
 
-const vazia = (): LinhaProjetoRapido => ({ id: null, titulo: "", responsavel_id: null, prazo: null, depende_de_linha: null, data_inicio: null, fase_id: null, status: "a_fazer", etiquetas: "", area: "", descricao: "" });
+const vazia = (): LinhaProjetoRapido => ({ id: null, titulo: "", responsavel_id: null, prazo: null, depende_de_linha: null, data_inicio: null, fase_id: null, status: "a_fazer", etiquetas: "", area: "", descricao: "", projeto_id: null });
 const rotulo = "mb-0.5 block text-[10px] text-text-faint";
 const celula = "input input-compacto w-full";
-const LARGURA: Record<ColunaGrade, string> = { responsavel: "w-[120px]", prazo: "w-[130px]", depende: "w-[170px]", inicio: "w-[130px]", fase: "w-[130px]", status: "w-[100px]", etiquetas: "w-[150px]", area: "w-[130px]", descricao: "w-[220px]" };
+const LARGURA: Record<ColunaGrade, string> = { responsavel: "w-[120px]", prazo: "w-[130px]", depende: "w-[170px]", inicio: "w-[130px]", fase: "w-[130px]", status: "w-[100px]", etiquetas: "w-[150px]", area: "w-[130px]", descricao: "w-[220px]", projeto: "w-[160px]" };
 
 /** Linhas de um projeto existente: tarefas abertas, na ordem da lista, com "depende de" apontando pra linha certa. */
 function linhasDoProjeto(projetoId: string, tarefas: TarefaParaGrade[], dependeDe: Map<string, string[]>): LinhaProjetoRapido[] {
@@ -48,6 +50,7 @@ function linhasDoProjeto(projetoId: string, tarefas: TarefaParaGrade[], dependeD
       etiquetas: t.etiquetas.join(", "),
       area: t.area ?? "",
       descricao: t.descricao ?? "",
+      projeto_id: t.projeto_id,
     };
   });
 }
@@ -73,6 +76,8 @@ export function NovoProjetoRapido({
   fases,
   tarefas,
   dependeDe,
+  nos,
+  dados,
   projetoInicial = null,
   aoFechar,
 }: {
@@ -81,6 +86,9 @@ export function NovoProjetoRapido({
   fases: FaseProjeto[];
   tarefas: TarefaParaGrade[];
   dependeDe: Map<string, string[]>;
+  /** Árvore completa por id, pro ⤢ abrir a tarefa inteira no pop-up. */
+  nos: Record<string, TarefaNo>;
+  dados: DadosFormulario;
   projetoInicial?: string | null;
   aoFechar: () => void;
 }) {
@@ -92,6 +100,9 @@ export function NovoProjetoRapido({
   const [linhas, setLinhas] = useState<LinhaProjetoRapido[]>(() => (projetoInicial ? linhasDoProjeto(projetoInicial, tarefas, dependeDe) : [vazia(), vazia(), vazia()]));
   const [colunas, setColunas] = useState<ColunaGrade[]>(COLUNAS_PADRAO);
   const [escolhendoColunas, setEscolhendoColunas] = useState(false);
+  const [popup, setPopup] = useState<string | null>(null);
+  const [erroLinha, setErroLinha] = useState<string | null>(null);
+  const [excluindo, setExcluindo] = useState<string | null>(null);
   const titulos = useRef<(HTMLInputElement | null)[]>([]);
   const focarDepois = useRef<number | null>(null);
 
@@ -127,7 +138,7 @@ export function NovoProjetoRapido({
   };
   // Fase só existe em projeto já criado; sem projeto a coluna fica indisponível.
   const fasesDoProjeto = projeto ? fases.filter((f) => f.projeto_id === projeto.id) : [];
-  const visiveis = colunas.filter((c) => c !== "fase" || fasesDoProjeto.length > 0);
+  const visiveis = colunas.filter((c) => (c !== "fase" || fasesDoProjeto.length > 0) && (c !== "projeto" || !!projeto));
 
   const trocarProjeto = (id: string) => {
     setProjetoId(id);
@@ -141,6 +152,7 @@ export function NovoProjetoRapido({
         if (k !== i) return l;
         if (campo === "depende_de_linha") return { ...l, depende_de_linha: valor === "" ? null : Number(valor) };
         if (campo === "titulo" || campo === "etiquetas" || campo === "area" || campo === "descricao" || campo === "status") return { ...l, [campo]: valor };
+        if (campo === "projeto_id") return { ...l, projeto_id: valor || projetoId || null };
         return { ...l, [campo]: valor || null };
       }),
     );
@@ -155,6 +167,20 @@ export function NovoProjetoRapido({
         // Quem dependia da linha tirada perde a dependência; quem dependia de linhas abaixo reindexa.
         .map((l) => ({ ...l, depende_de_linha: l.depende_de_linha == null || l.depende_de_linha === i ? null : l.depende_de_linha > i ? l.depende_de_linha - 1 : l.depende_de_linha })),
     );
+  // Tarefa existente sai da grade E do app (com a trava de anexo do servidor).
+  const excluirExistente = (l: LinhaProjetoRapido, i: number) => {
+    if (!l.id) return remover(i);
+    const no = nos[l.id];
+    const aviso = no && no.filhas.length > 0 ? `Excluir “${l.titulo}” e suas ${no.filhas.length} subtarefa(s)?` : `Excluir “${l.titulo}”?`;
+    if (!confirm(aviso)) return;
+    setErroLinha(null);
+    setExcluindo(l.id);
+    excluirTarefa(l.id).then((r) => {
+      setExcluindo(null);
+      if (r.error) setErroLinha(r.error);
+      else remover(i);
+    });
+  };
   const preenchidas = linhas.filter((l) => l.titulo.trim()).length;
   const novasLinhas = linhas.filter((l) => !l.id && l.titulo.trim()).length;
 
@@ -215,6 +241,20 @@ export function NovoProjetoRapido({
         return <input value={l.area ?? ""} onChange={(e) => mudar(i, "area", e.target.value)} placeholder="opcional" className={celula} />;
       case "descricao":
         return <input value={l.descricao ?? ""} onChange={(e) => mudar(i, "descricao", e.target.value)} placeholder="o que você quer dizer com a tarefa" className={celula} />;
+      case "projeto":
+        return l.id ? (
+          <select value={l.projeto_id ?? projetoId} onChange={(e) => mudar(i, "projeto_id", e.target.value)} className={`${celula} ${l.projeto_id && l.projeto_id !== projetoId ? "border-warning" : ""}`} title="Mover a tarefa (e suas subtarefas) pra outro projeto">
+            {projetos
+              .filter((p) => p.status === "ativo" || p.id === l.projeto_id)
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+          </select>
+        ) : (
+          <span className="text-[10px] text-text-faint">este projeto</span>
+        );
     }
   };
 
@@ -285,7 +325,7 @@ export function NovoProjetoRapido({
                     {ROTULO_COLUNA[c]}
                   </th>
                 ))}
-                <th className="w-6 pb-1" />
+                <th className="w-12 pb-1" />
               </tr>
             </thead>
             <tbody>
@@ -317,11 +357,21 @@ export function NovoProjetoRapido({
                       {celulaDe(c, l, i)}
                     </td>
                   ))}
-                  <td className="py-0.5 text-right">
-                    {/* Tarefa existente não sai por aqui (pra não apagar sem querer): usa o × do card. */}
-                    {!l.id && linhas.length > 1 && (
-                      <button type="button" onClick={() => remover(i)} title="Tirar linha" className="text-[12px] text-text-faint hover:text-danger">
-                        ×
+                  <td className="whitespace-nowrap py-0.5 text-right">
+                    {l.id && nos[l.id] && (
+                      <button type="button" onClick={() => setPopup(l.id!)} title="Abrir a tarefa completa em uma janela" className="mr-1 text-[12px] text-text-faint hover:text-primary-deep">
+                        ⤢
+                      </button>
+                    )}
+                    {(l.id || linhas.length > 1) && (
+                      <button
+                        type="button"
+                        disabled={excluindo === l.id}
+                        onClick={() => excluirExistente(l, i)}
+                        title={l.id ? "Excluir a tarefa (bloqueado se tiver anexo)" : "Tirar linha"}
+                        className="text-[12px] text-text-faint hover:text-danger disabled:opacity-50"
+                      >
+                        {excluindo === l.id ? "…" : "×"}
                       </button>
                     )}
                   </td>
@@ -335,9 +385,10 @@ export function NovoProjetoRapido({
         </button>
         <p className="text-[10px] text-text-faint">
           {projeto
-            ? "Só as colunas ligadas são gravadas; o resto da tarefa fica como está. * = linha nova. Pra excluir uma tarefa, use o × dela na lista. Linha sem título é ignorada."
+            ? "Só as colunas ligadas são gravadas; o resto da tarefa fica como está. * = linha nova. ⤢ abre a tarefa completa; × exclui na hora (tarefa com anexo não é excluída). Linha sem título é ignorada."
             : "Linha sem título é ignorada. Subtarefas e quem participa você detalha depois, em “editar” na tarefa."}
         </p>
+        {erroLinha && <p className="text-[11px] text-danger">{erroLinha}</p>}
 
         <div className="flex items-center gap-2">
           <button type="submit" disabled={pending} className="rounded-md bg-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-white disabled:opacity-60">
@@ -355,6 +406,7 @@ export function NovoProjetoRapido({
         </div>
         {state.error && <p className="text-[11px] text-danger">{state.error}</p>}
       </form>
+      {popup && nos[popup] && <TarefaModal no={nos[popup]} dados={dados} dependeDe={dependeDe} aoFechar={() => setPopup(null)} />}
     </div>
   );
 }

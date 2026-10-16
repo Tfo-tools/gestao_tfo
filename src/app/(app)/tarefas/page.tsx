@@ -10,11 +10,12 @@ import { BuscaTarefas } from "./busca-tarefas";
 import { RealceDependencias } from "./realce-dependencias";
 import { NovaTarefaCard, TarefaCard, type DadosFormulario } from "./tarefa-card";
 import { NovoBotao } from "./novo-botao";
+import { AbrirTarefaFoco } from "./abrir-tarefa-foco";
 import { RotinasPanel } from "./rotinas-panel";
 import { NotaParaTarefas } from "./nota-para-tarefas";
 import { iaConfigurada } from "@/lib/ia";
 import { gerarOcorrenciasRotinas, hojeSP, proximaData, type Rotina } from "@/lib/rotinas";
-import { montarArvore, STATUS_LABEL, STATUS_ORDEM, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type NotaTarefa, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
+import { achatar, montarArvore, STATUS_LABEL, STATUS_ORDEM, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type NotaTarefa, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
 
 type Visao = "projeto" | "situacao" | "quadro" | "linha";
 const VISOES: { valor: Visao; rotulo: string }[] = [
@@ -167,6 +168,9 @@ export default async function TarefasPage({
     if (t.status === "feito") contagem[t.projeto_id].feitas++;
   }
 
+  // Árvore completa por id (sem filtro): o pop-up da tarefa e a grade de projeto abrem qualquer uma.
+  const nosPorId: Record<string, TarefaNo> = {};
+  for (const { no } of achatar(montarArvore(todas, deps))) nosPorId[no.id] = no;
   const dependeDe = new Map<string, string[]>();
   for (const d of deps) dependeDe.set(d.tarefa_id, [...(dependeDe.get(d.tarefa_id) ?? []), d.depende_de_id]);
 
@@ -304,7 +308,9 @@ export default async function TarefasPage({
             ordem: t.ordem,
           }))}
           dependeDe={dependeDe}
+          nos={nosPorId}
         />
+        {tarefaFoco && nosPorId[tarefaFoco] && <AbrirTarefaFoco no={nosPorId[tarefaFoco]} dados={dados} dependeDe={dependeDe} />}
       </div>
 
       {/* Barra: visão · status · quem · ferramentas · nova tarefa. Uma linha (quebra no celular). */}

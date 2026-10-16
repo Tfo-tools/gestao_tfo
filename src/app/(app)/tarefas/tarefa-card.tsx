@@ -9,6 +9,7 @@ import { useCardAberto } from "./cards-contexto";
 import { achatar, STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type CandidataDependencia, type FaseProjeto, type NotaTarefa, type Pessoa, type Produto, type Projeto, type TarefaNo } from "./tipos";
 import { AnexosTarefa } from "./anexos-tarefa";
 import { NotasTarefa } from "./notas-tarefa";
+import { TarefaModal } from "./tarefa-modal";
 
 export type DadosFormulario = {
   pessoas: Pessoa[];
@@ -253,6 +254,7 @@ export function TarefaCard({
   mostrarProjeto = false,
   emQuadro = false,
   destaque = false,
+  emModal = false,
 }: {
   no: TarefaNo;
   dados: DadosFormulario;
@@ -263,13 +265,16 @@ export function TarefaCard({
   emQuadro?: boolean;
   /** Chegou por link direto (?tarefa=id): nasce aberta, destacada e rola até ela. */
   destaque?: boolean;
+  /** Já está dentro do pop-up: sem o botão ⤢ e sem rolar a página. */
+  emModal?: boolean;
 }) {
   const [aberto, alternarAberto] = useCardAberto(destaque);
+  const [popup, setPopup] = useState(false);
   const [linkCopiado, setLinkCopiado] = useState(false);
   const raiz = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (destaque) raiz.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [destaque]);
+    if (destaque && !emModal) raiz.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [destaque, emModal]);
   // Link da tarefa: no celular abre a folha de compartilhar (WhatsApp etc.); no computador copia.
   const compartilhar = async () => {
     const url = `${window.location.origin}/tarefas?tarefa=${no.id}`;
@@ -375,6 +380,17 @@ export function TarefaCard({
             </>
           )}
         </button>
+        {!emModal && (
+          <button
+            type="button"
+            onClick={() => setPopup(true)}
+            title="Abrir a tarefa completa em uma janela"
+            aria-label="Abrir a tarefa completa em uma janela"
+            className="shrink-0 rounded px-1 text-[12px] text-text-faint hover:bg-bg hover:text-primary-deep"
+          >
+            ⤢
+          </button>
+        )}
         <button
           type="button"
           onClick={compartilhar}
@@ -607,6 +623,7 @@ export function TarefaCard({
           </div>
         </div>
       )}
+      {popup && <TarefaModal no={no} dados={dados} dependeDe={dependeDe} aoFechar={() => setPopup(false)} />}
     </div>
   );
 }

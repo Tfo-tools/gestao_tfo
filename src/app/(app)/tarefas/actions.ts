@@ -175,8 +175,18 @@ export async function mudarPrazoTarefa(id: string, prazo: string | null): Promis
   return { error: null };
 }
 
+/**
+ * Excluir tarefa (e suas subtarefas). Trava: tarefa com arquivo anexado — nela ou numa subtarefa —
+ * não é excluída (decisão de 16/10/2026: nesse caso a sócia altera em vez de apagar).
+ */
 export async function excluirTarefa(id: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
+  const { data: filhas } = await supabase.from("tarefas").select("id").eq("parent_id", id);
+  const ids = [id, ...((filhas ?? []) as { id: string }[]).map((f) => f.id)];
+  const { count } = await supabase.from("anexos_tarefa").select("id", { count: "exact", head: true }).in("tarefa_id", ids);
+  if (count && count > 0) {
+    return { error: `Esta tarefa tem ${count} arquivo${count === 1 ? "" : "s"} anexado${count === 1 ? "" : "s"} — por segurança não é excluída. Altere a tarefa ou remova os anexos antes.` };
+  }
   const { error } = await supabase.from("tarefas").delete().eq("id", id);
   if (error) return { error: "Não foi possível excluir." };
   revalidatePath("/tarefas");
@@ -216,6 +226,8 @@ export type LinhaProjetoRapido = {
   etiquetas?: string | null;
   area?: string | null;
   descricao?: string | null;
+  /** Coluna "Projeto (mover)": projeto de destino quando difere do projeto da grade. */
+  projeto_id?: string | null;
 };
 export type ProjetoRapidoState = TarefaFormState & { projetoId?: string; criadas?: number };
 
@@ -247,6 +259,7 @@ function lerLinhas(formData: FormData): LinhaProjetoRapido[] | null {
         etiquetas: textoOuNull(r.etiquetas),
         area: textoOuNull(r.area),
         descricao: textoOuNull(r.descricao),
+        projeto_id: r.projeto_id ? String(r.projeto_id) : null,
       };
     })
     .filter((l) => l.titulo);
@@ -314,6 +327,11 @@ export async function salvarGradeProjeto(_prev: ProjetoRapidoState, formData: Fo
         .eq("id", l.id);
       if (error) return { error: `Não foi possível salvar a linha ${i + 1}.`, projetoId };
       idPorLinha.set(i, l.id);
+      // Coluna "Projeto (mover)": a tarefa muda de projeto com as subtarefas; a fase era do projeto antigo.
+      if (colunas.has("projeto") && l.projeto_id && l.projeto_id !== projetoId) {
+        await supabase.from("tarefas").update({ projeto_id: l.projeto_id, fase_id: null, updated_at: new Date().toISOString() }).eq("id", l.id);
+        await supabase.from("tarefas").update({ projeto_id: l.projeto_id, fase_id: null }).eq("parent_id", l.id);
+      }
     } else {
       const { data, error } = await supabase
         .from("tarefas")
