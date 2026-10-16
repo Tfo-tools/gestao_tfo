@@ -21,8 +21,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Rotina de gestão: cria as ocorrências da janela mesmo que ninguém abra Tarefas. Isolado num
-  // try/catch pra uma falha aqui nunca derrubar os lembretes, que vêm logo abaixo.
+  // Rotina de gestão: garante uma ocorrência aberta por vaga mesmo que ninguém abra Tarefas (a
+  // próxima nasce ao concluir a atual). Isolado num try/catch pra uma falha aqui nunca derrubar os
+  // lembretes, que vêm logo abaixo.
   try {
     await gerarOcorrenciasRotinas(createAdminClient());
   } catch (e) {

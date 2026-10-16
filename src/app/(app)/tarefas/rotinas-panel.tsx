@@ -77,8 +77,8 @@ export function RotinasPanel({
   return (
     <SecaoRecolhivel
       titulo="Rotina de gestão"
-      resumo={ativas.length > 0 ? `${ativas.length} ativa${ativas.length === 1 ? "" : "s"} · cada ocorrência vira tarefa 14 dias antes` : "tarefas recorrentes pra agir antes do problema"}
-      tooltip="Calendário fixo: a tarefa nasce na data dela mesmo que a anterior esteja atrasada — a atrasada fica destacada. Cada ocorrência aparece 14 dias antes do vencimento, com a etiqueta “rotina”, na lista, no calendário da agenda e no resumo da manhã."
+      resumo={ativas.length > 0 ? `${ativas.length} ativa${ativas.length === 1 ? "" : "s"} · uma tarefa aberta por vez: a próxima nasce ao concluir a atual` : "tarefas recorrentes pra agir antes do problema"}
+      tooltip="Uma ocorrência aberta por vez: ao concluir a tarefa da semana (ou do mês), a próxima nasce na data dela no calendário fixo — nunca antes de hoje. No modo “cada uma”, vale por pessoa. A tarefa leva a etiqueta “rotina” e aparece na lista, no calendário da agenda e no resumo da manhã."
     >
       <div className="p-4">
         {rotinas.length > 0 && (

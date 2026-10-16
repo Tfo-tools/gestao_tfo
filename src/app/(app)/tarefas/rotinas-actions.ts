@@ -48,7 +48,7 @@ export async function criarRotina(_prev: RotinaFormState, formData: FormData): P
   });
   if (error) return { error: "Não foi possível criar a rotina." };
 
-  // A próxima ocorrência já aparece nas tarefas, sem esperar o cron do dia seguinte.
+  // A primeira ocorrência já aparece nas tarefas, sem esperar o cron do dia seguinte.
   await gerarOcorrenciasRotinas(supabase);
   revalidar();
   return { error: null, success: true };
@@ -57,7 +57,8 @@ export async function criarRotina(_prev: RotinaFormState, formData: FormData): P
 /** Pausar não apaga o que já foi gerado; retomar volta a gerar dali pra frente. */
 export async function alternarRotina(id: string, ativo: boolean): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  // Ao retomar, as datas que caíram durante a pausa não voltam retroativas: parte de hoje.
+  // Ao retomar, as datas que caíram durante a pausa não voltam retroativas: a próxima nunca nasce
+  // antes de hoje. `gerado_ate` é só informativo.
   const campos = ativo ? { ativo, gerado_ate: hojeSP() } : { ativo };
   const { error } = await supabase.from("rotinas").update(campos).eq("id", id);
   if (error) return { error: "Não foi possível mudar a rotina." };

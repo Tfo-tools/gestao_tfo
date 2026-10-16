@@ -57,8 +57,8 @@ export default async function TarefasPage({
   // "responsavel=todas" na URL desliga o "só as minhas" só nesta abertura.
   const responsavel = tarefaFoco || sp.responsavel === "todas" ? undefined : (sp.responsavel ?? (prefs?.tarefas_so_minhas && user ? user.id : undefined));
 
-  // Rotina de gestão: cria as ocorrências que faltam antes de carregar as tarefas, pra próxima já
-  // aparecer. Idempotente — o cron diário faz o mesmo quando ninguém abre a tela.
+  // Rotina de gestão: garante uma ocorrência aberta por vaga antes de carregar as tarefas (a próxima
+  // nasce ao concluir a atual). Idempotente — o cron diário faz o mesmo quando ninguém abre a tela.
   await gerarOcorrenciasRotinas(supabase);
   const { data: rotinasRaw } = await supabase.from("rotinas").select("*").order("ativo", { ascending: false }).order("created_at");
   const rotinas = (rotinasRaw ?? []) as Rotina[];

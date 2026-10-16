@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { acessoDrive, enviarParaDrive, iniciarUploadDrive, lixeiraDrive, obterArquivoDrive } from "@/lib/google-drive";
 import { createClient } from "@/lib/supabase/server";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
+import { gerarOcorrenciasRotinas } from "@/lib/rotinas";
 import { LIMITE_ANEXO_MB } from "./limites";
 
 export type TarefaFormState = { error: string | null; success?: boolean };
@@ -147,9 +148,18 @@ export async function atualizarTarefa(_prevState: TarefaFormState, formData: For
 
 export async function mudarStatusTarefa(id: string, status: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase.from("tarefas").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+  const { data: tarefa, error } = await supabase
+    .from("tarefas")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("rotina_id")
+    .maybeSingle();
   if (error) return { error: "Não foi possível atualizar o status." };
+  // Tarefa de rotina: concluir a atual é o que libera a próxima ocorrência (uma aberta por vez);
+  // reabrir uma concluída recolhe a próxima. Roda na hora, sem esperar o cron.
+  if (tarefa?.rotina_id) await gerarOcorrenciasRotinas(supabase);
   revalidatePath("/tarefas");
+  revalidatePath("/agenda");
   return { error: null };
 }
 
