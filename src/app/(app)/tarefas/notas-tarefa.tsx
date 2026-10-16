@@ -58,7 +58,9 @@ export function NotasTarefa({ tarefaId, notas, pessoas, usuarioId }: { tarefaId:
       const r = await adicionarNota(tarefaId, texto);
       if (r.error) return setErro(r.error);
       setTexto("");
-      if (r.avisadas && r.avisadas > 0) setAviso("Observação salva · aviso enviado");
+      // Sempre confirma que entrou — antes só avisava quando havia @menção.
+      setAviso(r.avisadas && r.avisadas > 0 ? "✓ Observação salva · aviso enviado" : "✓ Observação salva");
+      setTimeout(() => setAviso(null), 3000);
     });
   };
 

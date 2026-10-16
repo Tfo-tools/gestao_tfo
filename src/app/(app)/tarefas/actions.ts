@@ -163,6 +163,18 @@ export async function mudarStatusTarefa(id: string, status: string): Promise<{ e
   return { error: null };
 }
 
+/** Prazo direto na caixinha (cliente pediu outra data): sem abrir o "editar". Vazio tira o prazo. */
+export async function mudarPrazoTarefa(id: string, prazo: string | null): Promise<{ error: string | null }> {
+  const valor = prazo && /^\d{4}-\d{2}-\d{2}$/.test(prazo) ? prazo : null;
+  if (prazo && !valor) return { error: "Data inválida." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("tarefas").update({ prazo: valor, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) return { error: "Não foi possível mudar o prazo." };
+  revalidatePath("/tarefas");
+  revalidatePath("/agenda");
+  return { error: null };
+}
+
 export async function excluirTarefa(id: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { error } = await supabase.from("tarefas").delete().eq("id", id);

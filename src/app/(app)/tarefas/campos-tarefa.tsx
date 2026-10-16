@@ -41,8 +41,8 @@ export function CamposTarefa({
   abrirTudo?: boolean;
   /** Só na criação da tarefa-mãe: já escrever as subtarefas, uma por linha. */
   comSubtarefas?: boolean;
-  /** Subtarefa é item de checklist da tarefa: só título e, no máximo, responsável — sem prazo,
-   * projeto, etiqueta ou dependência. Quem tem prazo e projeto é a tarefa. */
+  /** Subtarefa é item de checklist da tarefa: título, responsável e prazo opcional (quando o
+   * cliente pede data pra uma etapa) — sem projeto, etiqueta ou dependência. */
   modoSubtarefa?: boolean;
 }) {
   const [projetoId, setProjetoId] = useState(tarefa?.projeto_id ?? projetoInicial ?? "");
@@ -70,6 +70,8 @@ export function CamposTarefa({
             </option>
           ))}
         </select>
+        {/* Prazo opcional na atividade: quando o cliente pede uma data só pra aquela etapa. */}
+        <input name="prazo" type="date" defaultValue={tarefa?.prazo ?? ""} className="input input-compacto w-[130px] shrink-0" title="Prazo da atividade (opcional)" />
       </div>
     );
   }

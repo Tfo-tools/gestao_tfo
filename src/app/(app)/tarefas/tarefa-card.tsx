@@ -2,8 +2,9 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useAcaoEdicao } from "@/lib/use-acao-edicao";
-import { atualizarTarefa, criarTarefa, mudarStatusTarefa, excluirTarefa, tornarAtividadeDe, type TarefaFormState } from "./actions";
+import { atualizarTarefa, criarTarefa, mudarPrazoTarefa, mudarStatusTarefa, excluirTarefa, tornarAtividadeDe, type TarefaFormState } from "./actions";
 import { CamposTarefa } from "./campos-tarefa";
+import { Salvo, useSalvo } from "./salvo";
 import { useCardAberto } from "./cards-contexto";
 import { achatar, STATUS_LABEL, STATUS_ORDEM, type AnexoTarefa, type CandidataDependencia, type FaseProjeto, type NotaTarefa, type Pessoa, type Produto, type Projeto, type TarefaNo } from "./tipos";
 import { AnexosTarefa } from "./anexos-tarefa";
@@ -170,8 +171,12 @@ export function NovaTarefaCard({
 function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number; dados: DadosFormulario; dependeDe: Map<string, string[]> }) {
   const [editando, setEditando] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [salvo, marcarSalvo] = useSalvo();
+  const [erro, setErro] = useState<string | null>(null);
   const feita = no.status === "feito";
   const resp = dados.pessoas.find((p) => p.id === no.responsavel_id);
+  const hoje = new Date().toISOString().slice(0, 10);
+  const prazoAtrasado = !feita && !!no.prazo && no.prazo < hoje;
 
   if (editando) {
     return (
@@ -190,8 +195,11 @@ function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number
           disabled={isPending}
           onChange={(e) => {
             const novo = e.target.checked ? "feito" : "a_fazer";
+            setErro(null);
             startTransition(async () => {
-              await mudarStatusTarefa(no.id, novo);
+              const r = await mudarStatusTarefa(no.id, novo);
+              if (r.error) setErro(r.error);
+              else marcarSalvo(novo === "feito" ? "✓ feita, salvo" : "✓ reaberta, salvo");
             });
           }}
           className="accent-wine"
@@ -200,6 +208,12 @@ function SubLinha({ no, nivel, dados, dependeDe }: { no: TarefaNo; nivel: number
           {no.titulo}
           {no.aguardando.length > 0 && !feita && <span title={`Aguarda: ${no.aguardando.map((a) => a.titulo).join(", ")}`}> ⏳</span>}
         </span>
+        <Salvo texto={salvo} erro={erro} />
+        {no.prazo && !feita && (
+          <span className={`shrink-0 text-[10px] ${prazoAtrasado ? "font-semibold text-danger" : "text-text-faint"}`} title="Prazo da atividade">
+            {fmt(no.prazo)}
+          </span>
+        )}
         {resp && <span className="shrink-0 text-[10px] text-text-faint">{resp.nome.split(" ")[0]}</span>}
         <span className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100">
           <button type="button" onClick={() => setEditando(true)} className="text-[10.5px] text-primary-deep">
@@ -276,6 +290,8 @@ export function TarefaCard({
   const [movendo, setMovendo] = useState(false);
   const [erroLinha, setErroLinha] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [salvo, marcarSalvo] = useSalvo();
+  const [mudandoPrazo, setMudandoPrazo] = useState(false);
 
   const responsavel = dados.pessoas.find((p) => p.id === no.responsavel_id);
   const participantes = dados.pessoas.filter((p) => no.participantes.includes(p.id) && p.id !== no.responsavel_id);
@@ -326,12 +342,16 @@ export function TarefaCard({
           title={feita ? "Reabrir" : "Marcar como feita"}
           onChange={(e) => {
             const novo = e.target.checked ? "feito" : "a_fazer";
+            setErroLinha(null);
             startTransition(async () => {
-              await mudarStatusTarefa(no.id, novo);
+              const r = await mudarStatusTarefa(no.id, novo);
+              if (r.error) setErroLinha(r.error);
+              else marcarSalvo(novo === "feito" ? "✓ feita, salvo" : "✓ reaberta, salvo");
             });
           }}
           className="accent-wine"
         />
+        <Salvo texto={salvo} />
         <button type="button" onClick={alternarAberto} className={`flex min-w-0 flex-1 text-left ${emQuadro ? "flex-col items-stretch gap-0.5" : "items-center gap-2"}`}>
           <span className={`min-w-0 text-[12.5px] font-medium leading-snug ${emQuadro ? "line-clamp-2" : "flex-1 truncate"} ${feita ? "line-through" : ""}`} title={no.titulo}>
             {no.titulo}
@@ -473,12 +493,41 @@ export function TarefaCard({
           {no.descricao && <p className="whitespace-pre-line text-[11px] text-text-muted">{no.descricao}</p>}
           <AnexosTarefa tarefaId={no.id} anexos={dados.anexos.get(no.id) ?? []} />
 
-          {(no.data_inicio || no.prazo) && (
-            <p className={`text-[10.5px] ${corPrazo}`}>
-              {no.data_inicio && `${fmt(no.data_inicio)} → `}
-              {textoPrazo}
-            </p>
-          )}
+          {/* Prazo editável aqui mesmo (cliente pediu outra data): clicar na data abre o campo. */}
+          <div className="flex flex-wrap items-center gap-2 text-[10.5px]">
+            {mudandoPrazo ? (
+              <>
+                <input
+                  type="date"
+                  defaultValue={no.prazo ?? ""}
+                  autoFocus
+                  disabled={isPending}
+                  onChange={(e) => {
+                    const novo = e.target.value || null;
+                    setErroLinha(null);
+                    startTransition(async () => {
+                      const r = await mudarPrazoTarefa(no.id, novo);
+                      if (r.error) setErroLinha(r.error);
+                      else {
+                        marcarSalvo(novo ? `✓ prazo ${fmt(novo)} salvo` : "✓ sem prazo, salvo");
+                        setMudandoPrazo(false);
+                      }
+                    });
+                  }}
+                  className="input input-compacto w-[140px]"
+                  title="Novo prazo (vazio tira o prazo)"
+                />
+                <button type="button" onClick={() => setMudandoPrazo(false)} className="text-text-muted">
+                  cancelar
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setMudandoPrazo(true)} title="Mudar o prazo" className={`${corPrazo} underline decoration-dotted underline-offset-2 hover:text-primary-deep`}>
+                {no.data_inicio && `${fmt(no.data_inicio)} → `}
+                {no.prazo ? `prazo ${textoPrazo}` : "sem prazo · definir"}
+              </button>
+            )}
+          </div>
 
 
           {no.filhas.length > 0 && (
@@ -540,8 +589,11 @@ export function TarefaCard({
               disabled={isPending}
               onChange={(e) => {
                 const novoStatus = e.target.value;
+                setErroLinha(null);
                 startTransition(async () => {
-                  await mudarStatusTarefa(no.id, novoStatus);
+                  const r = await mudarStatusTarefa(no.id, novoStatus);
+                  if (r.error) setErroLinha(r.error);
+                  else marcarSalvo(`✓ ${STATUS_LABEL[novoStatus] ?? novoStatus}, salvo`);
                 });
               }}
               className="input input-compacto w-[88px] text-[10.5px]"
