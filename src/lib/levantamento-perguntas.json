@@ -1,0 +1,729 @@
+[
+ {
+  "t": "Como vocês planejam hoje",
+  "intro": "Queremos entender como as decisões de coleção acontecem hoje na sua marca: quem participa, quanto tempo leva e o que costuma sair diferente do planejado. Não existe resposta certa. É o retrato do ponto de partida, e é com ele que vamos medir o que muda ao longo do programa.",
+  "q": [
+   {
+    "n": 1,
+    "tit": "Como vocês definem o tamanho de uma nova coleção?",
+    "tipo": "radio",
+    "op": [
+     "Pela experiência do dono ou da equipe",
+     "Pela coleção anterior, com um percentual de crescimento",
+     "Em planilha estruturada, com histórico de vendas",
+     "Em ferramenta específica de planejamento"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q1"
+   },
+   {
+    "n": 2,
+    "tit": "Quem participa do planejamento da coleção? E quem dá a palavra final?",
+    "tipo": "duplo",
+    "op": [
+     "Dono ou sócio",
+     "Comercial",
+     "Criação ou estilo",
+     "Planejamento",
+     "Financeiro",
+     "Outro"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q2"
+   },
+   {
+    "n": 3,
+    "tit": "Quanto tempo leva, em semanas, do início do planejamento até o mix da coleção aprovado?",
+    "tipo": "numero_ns",
+    "op": [],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q3"
+   },
+   {
+    "id": "q3b",
+    "n": 4,
+    "tit": "Quanto tempo cada área dedica ao planejamento de uma coleção?",
+    "tipo": "tempo_areas",
+    "op": [],
+    "ajuda": "Aparece uma linha para cada área marcada na pergunta 2. Informe quantas pessoas da área participam e quantas horas, somadas, elas dedicam ao planejamento de uma coleção. Uma estimativa basta.",
+    "ob": true,
+    "cond": "",
+    "rows": []
+   },
+   {
+    "n": 5,
+    "tit": "Quantas versões o plano passa até ser aprovado?",
+    "tipo": "radio",
+    "op": [
+     "1 a 2",
+     "3 a 5",
+     "Mais de 5",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q4"
+   },
+   {
+    "n": 6,
+    "tit": "Quando o plano chega ao estilo, quão claro está o que precisa ser criado?",
+    "tipo": "escala",
+    "op": [
+     "1",
+     "2",
+     "3",
+     "4",
+     "5"
+    ],
+    "ajuda": "1 = só a ideia geral. 5 = quantos modelos por categoria, faixa de preço e cores.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q5"
+   },
+   {
+    "n": 7,
+    "tit": "Vocês fazem projeção de vendas por categoria antes de lançar a coleção?",
+    "tipo": "radio",
+    "op": [
+     "Sim, com base no histórico",
+     "Sim, por estimativa da equipe",
+     "Não fazemos"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q6"
+   },
+   {
+    "n": 8,
+    "tit": "Vocês comparam o que foi planejado com o que foi vendido?",
+    "tipo": "radio",
+    "op": [
+     "Sim, em toda coleção",
+     "Às vezes",
+     "Não"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q7"
+   },
+   {
+    "n": 9,
+    "tit": "Na última coleção, a venda ficou quanto acima ou abaixo do que foi projetado?",
+    "tipo": "radio",
+    "op": [
+     "Mais de 20% abaixo",
+     "10 a 20% abaixo",
+     "Até 10% de diferença",
+     "10 a 20% acima",
+     "Mais de 20% acima",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "Aparece só para quem faz projeção e compara planejado com vendido.",
+    "rows": [],
+    "id": "q8"
+   },
+   {
+    "n": 10,
+    "tit": "Quanto da última coleção sobrou em estoque ao fim da temporada?",
+    "tipo": "radio",
+    "op": [
+     "Até 10%",
+     "11 a 20%",
+     "21 a 30%",
+     "31 a 40%",
+     "Mais de 40%",
+     "Não sei informar"
+    ],
+    "ajuda": "Estimativa em peças, comparando o que sobrou com o que foi produzido.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q9"
+   },
+   {
+    "n": 11,
+    "tit": "Quanto da última coleção foi vendido com desconto ou em liquidação?",
+    "tipo": "radio",
+    "op": [
+     "Até 10%",
+     "11 a 20%",
+     "21 a 30%",
+     "31 a 40%",
+     "Mais de 40%",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q10"
+   },
+   {
+    "n": 12,
+    "tit": "O que aconteceu na última coleção que vocês não querem que se repita?",
+    "tipo": "longo",
+    "op": [],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q11"
+   }
+  ]
+ },
+ {
+  "t": "O negócio",
+  "intro": "Agora, um retrato da operação: como a marca produz, onde vende e quais produtos trabalha. Isso nos ajuda a configurar o Fashion Mind do jeito que o seu negócio funciona.",
+  "q": [
+   {
+    "n": 13,
+    "tit": "Qual foi o faturamento da empresa no último ano?",
+    "tipo": "radio",
+    "op": [
+     "Até R$ 30 milhões",
+     "R$ 30 a 50 milhões",
+     "R$ 50 a 78 milhões",
+     "R$ 78 a 120 milhões",
+     "Acima de R$ 120 milhões",
+     "Prefiro informar na conversa"
+    ],
+    "ajuda": "Considere o faturamento bruto de todos os canais.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q12"
+   },
+   {
+    "n": 14,
+    "tit": "Conte um pouco sobre o seu negócio. Como funciona a operação da empresa?",
+    "tipo": "radio",
+    "op": [
+     "Desenvolve e produz com a sua marca",
+     "Produz para outras marcas (private label ou white label)",
+     "Misto: tem a sua marca, mas também produz para outras marcas"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q13"
+   },
+   {
+    "n": 15,
+    "tit": "Como a coleção é produzida?",
+    "tipo": "radio",
+    "op": [
+     "100% produção própria",
+     "100% produção terceirizada",
+     "Mista: parte do processo interno e parte do processo terceirizado",
+     "Por categoria: algumas categorias com produção 100% própria e outras compradas prontas com a nossa marca",
+     "Outro (explique)"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q14"
+   },
+   {
+    "n": 16,
+    "tit": "Em quais canais a marca vende?",
+    "tipo": "canais",
+    "op": [
+     "Atacado para lojas multimarca",
+     "Loja própria física",
+     "E-commerce próprio",
+     "Marketplaces",
+     "Franquias",
+     "Outro"
+    ],
+    "ajuda": "Marque todos os canais em que a marca vende hoje.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q15"
+   },
+   {
+    "n": 17,
+    "tit": "Qual é o regime tributário da empresa?",
+    "tipo": "radio",
+    "op": [
+     "Simples Nacional",
+     "Lucro Presumido",
+     "Lucro Real",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q16"
+   },
+   {
+    "n": 18,
+    "tit": "Quais segmentos de produto a sua marca atende?",
+    "tipo": "check",
+    "op": [
+     "Feminino adulto",
+     "Masculino adulto",
+     "Infantil",
+     "Teen",
+     "Acessórios",
+     "Calçados",
+     "Outro"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q17"
+   }
+  ]
+ },
+ {
+  "t": "Calendário das temporadas",
+  "intro": "Aqui queremos saber como você se prepara para o mercado e como é a sua estrutura atual de planejamento. Diferente de outros segmentos, a moda costuma não se limitar a um ano fiscal tradicional, de janeiro a dezembro: dentro de um ano temos as temporadas de verão e inverno e lançamentos dinâmicos dentro desses períodos. Por isso precisamos entender como você estrutura isso e com que antecedência planeja cada etapa.",
+  "q": [
+   {
+    "n": 19,
+    "tit": "Quanto tempo antes de o ano começar a empresa finaliza o planejamento anual (modelo fiscal de janeiro a dezembro)?",
+    "tipo": "radio_num",
+    "op": [
+     "Número de meses",
+     "Não fazemos planejamento anual",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q18"
+   },
+   {
+    "n": 20,
+    "tit": "Como a marca organiza as temporadas de coleção?",
+    "tipo": "radio",
+    "op": [
+     "Duas temporadas: Primavera-Verão e Outono-Inverno",
+     "Coleções contínuas, sem temporada definida",
+     "Outro"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q19"
+   },
+   {
+    "n": 21,
+    "tit": "Para cada temporada, quando a coleção chega à venda e quando sai?",
+    "tipo": "temporadas",
+    "op": [],
+    "ajuda": "Lançamento é o mês em que a coleção chega à venda. Saída é o mês em que a marca para de trabalhar aquela temporada, porque a próxima começa a entrar com outras coleções.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q20"
+   },
+   {
+    "n": 22,
+    "tit": "Com quantos meses de antecedência do lançamento vocês começam a planejar cada temporada?",
+    "tipo": "numero_ns",
+    "op": [],
+    "ajuda": "Conte a partir da primeira reunião em que se discute o tamanho e o mix da coleção.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q21"
+   }
+  ]
+ },
+ {
+  "t": "Estrutura de dados da empresa",
+  "intro": "O Fashion Mind trabalha com os dados que a sua empresa já tem. Aqui queremos saber onde cada informação está guardada e o que os sistemas permitem tirar. Isso define como vamos conectar os seus dados. Se outra pessoa conhece melhor os sistemas e relatórios, você pode encaminhar esta seção para ela.",
+  "q": [
+   {
+    "n": 23,
+    "tit": "Quem vai responder esta seção?",
+    "tipo": "radio",
+    "op": [
+     "Eu mesmo(a)",
+     "Vou encaminhar para outra pessoa"
+    ],
+    "ajuda": "Se encaminhar, informe nome e e-mail. Geramos um link só desta seção para você enviar.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q22"
+   },
+   {
+    "n": 24,
+    "tit": "Qual sistema de gestão (ERP) a empresa usa?",
+    "tipo": "radio",
+    "op": [
+     "Sisplan",
+     "TOTVS Moda / Virtual Age",
+     "Tiny / Olist",
+     "Bling",
+     "Linx",
+     "Outro",
+     "Não usamos ERP",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q23"
+   },
+   {
+    "n": 25,
+    "tit": "Onde fica cada informação da empresa?",
+    "tipo": "matriz",
+    "op": [
+     "No ERP",
+     "Em outro sistema (qual?)",
+     "Em planilha",
+     "Não controlamos",
+     "Não sei informar"
+    ],
+    "ajuda": "Marque uma opção por linha.",
+    "ob": true,
+    "cond": "",
+    "rows": [
+     "Vendas",
+     "Estoque",
+     "Cadastro de produtos",
+     "Custo do produto",
+     "Fornecedores",
+     "Pedidos de atacado",
+     "Despesas e financeiro",
+     "Plano de coleção"
+    ],
+    "id": "q24"
+   },
+   {
+    "id": "q26a",
+    "n": 26,
+    "tit": "Quantos níveis a sua marca usa para organizar os produtos?",
+    "tipo": "radio",
+    "op": [
+     "1",
+     "2",
+     "3",
+     "4",
+     "5 ou mais",
+     "Não temos uma organização definida"
+    ],
+    "ajuda": "Hierarquia de produto é a forma de agrupar os produtos do mais geral ao mais específico. Cada degrau é um nível. Exemplo com quatro níveis: Feminino (divisão) › Parte de cima (grupo) › Blusa (categoria) › Regata (subcategoria). Algumas marcas usam menos níveis, como só Categoria › Subcategoria. Outras usam outros nomes, como linha, família ou tipo.",
+    "ob": true,
+    "cond": "",
+    "rows": []
+   },
+   {
+    "id": "q26b",
+    "n": 27,
+    "tit": "Escreva os níveis, do mais geral ao mais específico",
+    "tipo": "lista_niveis",
+    "op": [],
+    "ajuda": "Para cada nível, informe o nome que vocês usam e um exemplo.",
+    "ob": true,
+    "cond": "",
+    "rows": []
+   },
+   {
+    "id": "q26c",
+    "n": 28,
+    "tit": "Essa organização está cadastrada no sistema?",
+    "tipo": "radio",
+    "op": [
+     "Sim, todos os níveis",
+     "Em parte",
+     "Não, fica em planilha ou na cabeça da equipe",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": []
+   },
+   {
+    "n": 29,
+    "tit": "Todo produto novo é classificado nessa organização quando é cadastrado?",
+    "tipo": "radio",
+    "op": [
+     "Sim, sempre",
+     "Às vezes",
+     "Não",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q25"
+   },
+   {
+    "id": "q27p",
+    "n": 30,
+    "tit": "Vocês têm relatório de produção ou de compra da coleção?",
+    "tipo": "radio",
+    "op": [
+     "Sim, sai do sistema",
+     "Sim, montamos em planilha",
+     "Não temos",
+     "Não sei informar"
+    ],
+    "ajuda": "É o relatório que mostra o que foi produzido ou comprado de cada produto da coleção.",
+    "ob": true,
+    "cond": "",
+    "rows": []
+   },
+   {
+    "id": "q27q",
+    "n": 31,
+    "tit": "Quais informações aparecem nesse relatório?",
+    "tipo": "check",
+    "op": [
+     "Código do produto (SKU)",
+     "Categoria",
+     "Subcategoria",
+     "Coleção ou temporada",
+     "Cor",
+     "Tamanho",
+     "Quantidade produzida ou comprada",
+     "Custo",
+     "Fornecedor ou facção",
+     "Data de entrada no estoque",
+     "Outro",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": []
+   },
+   {
+    "n": 32,
+    "tit": "Por quantos meses o sistema guarda as vendas de cada produto?",
+    "tipo": "radio",
+    "op": [
+     "Menos de 12 meses",
+     "12 a 24 meses",
+     "Mais de 24 meses",
+     "Não sei informar"
+    ],
+    "ajuda": "É o histórico de quanto foi vendido de cada modelo, mês a mês.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q27"
+   },
+   {
+    "n": 33,
+    "tit": "É possível tirar o relatório de vendas em planilha (Excel ou CSV)?",
+    "tipo": "radio",
+    "op": [
+     "Sim",
+     "Só em PDF",
+     "Só aparece na tela do sistema",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q28"
+   },
+   {
+    "n": 34,
+    "tit": "Quais informações aparecem no relatório de vendas?",
+    "tipo": "check",
+    "op": [
+     "Código do produto (SKU)",
+     "Categoria",
+     "Subcategoria",
+     "Coleção ou temporada",
+     "Canal de venda",
+     "Cor",
+     "Tamanho",
+     "Preço de venda",
+     "Custo",
+     "Quantidade vendida",
+     "Data da venda",
+     "Outro",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q29"
+   },
+   {
+    "id": "q29x",
+    "n": 35,
+    "tit": "Vocês têm um relatório pronto que cruza o que foi produzido ou comprado com o que foi vendido?",
+    "tipo": "radio",
+    "op": [
+     "Sim, sai do sistema",
+     "Sim, montamos em planilha",
+     "Não temos",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": []
+   },
+   {
+    "n": 36,
+    "tit": "O sistema guarda a posição de estoque por data?",
+    "tipo": "radio",
+    "op": [
+     "Sim, guarda por semana ou mês",
+     "Não, mostra só o estoque atual",
+     "Não sei informar"
+    ],
+    "ajuda": "Alguns sistemas guardam quanto havia em estoque no fim de cada semana ou mês. Outros mostram só o estoque de hoje. Esse histórico permite calcular giro, cobertura e retorno sobre o estoque.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q30"
+   },
+   {
+    "n": 37,
+    "tit": "Se guarda, há quanto tempo?",
+    "tipo": "radio",
+    "op": [
+     "Menos de 6 meses",
+     "6 a 12 meses",
+     "Mais de 12 meses",
+     "Não sei informar"
+    ],
+    "ajuda": "",
+    "ob": false,
+    "cond": "Aparece só para quem respondeu \"sim\" na pergunta 30.",
+    "rows": [],
+    "id": "q31"
+   },
+   {
+    "n": 38,
+    "tit": "A empresa usa alguma destas ferramentas?",
+    "tipo": "check",
+    "op": [
+     "PLM, para desenvolvimento de produto (ex.: Audaces)",
+     "Ferramenta de planejamento de compras ou OTB (ex.: UNOUS)",
+     "BI, para relatórios (ex.: Power BI)",
+     "Nenhuma",
+     "Não sei informar"
+    ],
+    "ajuda": "Se usar, informe o nome da ferramenta.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q32"
+   },
+   {
+    "n": 39,
+    "tit": "A empresa pretende trocar de sistema de gestão nos próximos 6 meses?",
+    "tipo": "radio",
+    "op": [
+     "Sim",
+     "Não",
+     "Está em avaliação"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q33"
+   }
+  ]
+ },
+ {
+  "t": "Equipe do projeto",
+  "intro": "Por fim, quem vai participar do programa pela marca. O beta funciona melhor com uma pessoa de referência com tempo para o projeto e com quem decide presente nas validações.",
+  "q": [
+   {
+    "n": 40,
+    "tit": "Quem toma a decisão final sobre a coleção?",
+    "tipo": "duplo_txt",
+    "op": [
+     "Nome",
+     "Cargo"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q34"
+   },
+   {
+    "n": 41,
+    "tit": "Quem será a pessoa de referência no projeto com a TFO?",
+    "tipo": "ref",
+    "op": [
+     "Nome",
+     "Cargo",
+     "E-mail"
+    ],
+    "ajuda": "",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q35"
+   },
+   {
+    "n": 42,
+    "tit": "Quem decide vai participar das reuniões de validação?",
+    "tipo": "radio",
+    "op": [
+     "Sim",
+     "Não"
+    ],
+    "ajuda": "São encontros curtos para aprovar o plano.",
+    "ob": true,
+    "cond": "",
+    "rows": [],
+    "id": "q36"
+   },
+   {
+    "n": 43,
+    "tit": "Quais cargos devem usar a plataforma?",
+    "tipo": "check",
+    "op": [
+     "Dono ou sócio",
+     "Comercial",
+     "Criação ou estilo",
+     "Planejamento",
+     "Financeiro",
+     "Outro"
+    ],
+    "ajuda": "",
+    "ob": false,
+    "cond": "",
+    "rows": [],
+    "id": "q37"
+   }
+  ]
+ }
+]

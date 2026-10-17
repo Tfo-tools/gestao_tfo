@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { extrairAcoesDaAta, type AcaoSugerida } from "@/lib/ia";
+import { buscarTranscricaoFathom, transcricaoParaTexto } from "@/lib/fathom";
+import { importarEntrevistaParaForms, type SaidaImportacao } from "@/lib/clientex-importar";
 
 export type ActionState = { error: string | null; success?: boolean };
 
@@ -82,4 +84,47 @@ export async function criarTarefasDaAta(
   revalidatePath("/tarefas");
   revalidatePath("/agenda");
   return { error: null, criadas: itens.length };
+}
+
+/**
+ * Botão "Enviar para ficha ClienteX": quando a regra automática não reconheceu a reunião como
+ * entrevista de perfil. Busca a transcrição completa no Fathom pela gravação (a ata guarda só o
+ * resumo) e roda o mesmo pipeline do webhook. Sem gravação do Fathom, tabula o próprio texto da ata.
+ */
+export async function enviarAtaParaClienteX(ataId: string): Promise<SaidaImportacao> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada.", resultado: null };
+  const { data: ata } = await supabase
+    .from("reuniao_atas")
+    .select("id, titulo, data_reuniao, participantes, conteudo, fathom_recording_id, reuniao_id, reunioes_agendadas(contatos_externos(email))")
+    .eq("id", ataId)
+    .maybeSingle();
+  if (!ata) return { error: "Ata não encontrada.", resultado: null };
+
+  let transcricao = "";
+  if (ata.fathom_recording_id) transcricao = transcricaoParaTexto(await buscarTranscricaoFathom(String(ata.fathom_recording_id)));
+  if (!transcricao.trim()) transcricao = String(ata.conteudo ?? "");
+
+  const emails = new Set<string>();
+  const ra = (ata as { reunioes_agendadas?: { contatos_externos?: { email?: string | null } | { email?: string | null }[] | null } | null }).reunioes_agendadas;
+  const ce = ra?.contatos_externos;
+  for (const c of Array.isArray(ce) ? ce : ce ? [ce] : []) if (c?.email) emails.add(c.email.toLowerCase());
+  const urlGravacao = String(ata.conteudo ?? "").match(/Gravação completa: (\S+)/)?.[1] ?? null;
+
+  const saida = await importarEntrevistaParaForms({
+    transcricao,
+    titulo: ata.titulo,
+    dataReuniao: ata.data_reuniao,
+    participantes: ata.participantes,
+    emails,
+    recordingId: ata.fathom_recording_id ? String(ata.fathom_recording_id) : null,
+    url: urlGravacao,
+    ataId: ata.id,
+  });
+  revalidatePath("/agenda");
+  revalidatePath("/tarefas");
+  return saida;
 }

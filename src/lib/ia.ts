@@ -6,6 +6,8 @@
  * Vanessa configurar). Os dois recebem o mesmo prompt e devolvem o mesmo JSON.
  */
 
+import { descreverPerguntasParaIa, saneaFicha, type FichaExtraida } from "@/lib/clientex-ficha";
+
 export type AcaoSugerida = { titulo: string; responsavel_sugerido: string | null; prazo_sugerido: string | null };
 
 /** Ordem de tentativa: o mais barato primeiro; se a chave/conta não tiver o modelo (404/400), cai pro próximo. */
@@ -228,5 +230,55 @@ ${texto}
     return { error: null, plano };
   } catch {
     return { error: "Resposta da IA veio num formato inesperado (JSON cortado ou inválido) — tente colar um projeto por vez.", plano: null };
+  }
+}
+
+// ── Ficha de perfil (ClienteX/Forms) a partir da transcrição ─────────────────────────────────
+
+/**
+ * Transcrição de uma entrevista de perfil → respostas do levantamento do Forms, campo a campo.
+ * A IA só preenche o que foi dito ou o que se deduz com segurança (marcando "inferido"); o resto
+ * fica em branco para as sócias completarem no painel. Vale o roteiro PERFIL v7.2: a conversa é
+ * livre, e aqui a gente só tabula o que saiu.
+ */
+export async function extrairFichaDaTranscricao(transcricao: string, contexto: { titulo: string; data: string; participantes: string | null }): Promise<{ error: string | null; ficha: FichaExtraida | null }> {
+  const provedor = provedorIa();
+  if (!provedor) return { error: "IA não configurada (GEMINI_API_KEY ou ANTHROPIC_API_KEY na Vercel).", ficha: null };
+  const prompt = `Você vai ler a transcrição de uma entrevista de perfil feita pela TFO (The Fashion Office) com uma marca de moda, e tabular o que foi dito nas perguntas do levantamento abaixo. A entrevista é uma conversa livre: as perguntas não foram feitas nesta ordem nem com estas palavras.
+
+Reunião: "${contexto.titulo}" em ${contexto.data}${contexto.participantes ? ` · participantes: ${contexto.participantes}` : ""}.
+Quem conduz é da TFO (Vanessa, Emyli). A marca é quem responde.
+
+REGRAS
+- Preencha uma pergunta só quando a transcrição responde a ela. Se não foi falado, NÃO inclua a chave.
+- Em "origem", marque "entrevista" quando a pessoa disse claramente, e "inferido" quando você deduziu de algo indireto (ex.: deduzir a faixa de faturamento pelo número de lojas). Nunca invente número.
+- Use exatamente os textos das opções listadas. Se a resposta não encaixa em nenhuma opção, deixe fora (ou use "Outro" quando existir, e coloque o texto em "<id>_outro").
+- Para q32 (ferramentas), coloque o nome das ferramentas citadas em "q32_nomes".
+- "cadastro": só o que foi dito: marca, cidade, uf (2 letras), site, redes, nome e cargo de quem respondeu, email, whats.
+- "notas": texto em tópicos, em português, com as DORES e necessidades que a pessoa relatou, o que ela já tentou, metas e prazos que citou, sinais de timing (quando começa a próxima coleção) e quem decide. Sem opinião sua. Até 25 linhas.
+
+PERGUNTAS (id, tipo, enunciado, formato da resposta):
+${descreverPerguntasParaIa()}
+
+Responda APENAS com um JSON no formato:
+{"cadastro": {...}, "respostas": {"q1": ..., "q2": ...}, "origem": {"q1": "entrevista", "q2": "inferido"}, "notas": "..."}
+
+Transcrição:
+"""
+${transcricao.slice(0, 180_000)}
+"""`;
+  let texto: string;
+  try {
+    texto = provedor === "gemini" ? await chamarGemini(prompt, 12000) : await chamarClaude(prompt, 12000);
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.error(`Erro na IA (${provedor}) ao tabular a entrevista:`, motivo);
+    return { error: `A IA (${provedor}) não respondeu: ${motivo.slice(0, 260)}`, ficha: null };
+  }
+  const jsonLimpo = texto.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  try {
+    return { error: null, ficha: saneaFicha(JSON.parse(jsonLimpo)) };
+  } catch {
+    return { error: "Resposta da IA veio num formato inesperado.", ficha: null };
   }
 }

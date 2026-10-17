@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { iaConfigurada, extrairAcoesDaAta } from "@/lib/ia";
 import { listarEventosEntre } from "@/lib/google-calendar";
-import { extrairRecordingId, montarAta, verificarAssinaturaFathom, type FathomPayload } from "@/lib/fathom";
+import { buscarTranscricaoFathom, extrairRecordingId, montarAta, transcricaoParaTexto, verificarAssinaturaFathom, type FathomPayload } from "@/lib/fathom";
 import { maisParecida } from "@/lib/similaridade";
+import { importarEntrevistaParaForms } from "@/lib/clientex-importar";
+import { acharFicha, emailsExternos, PALAVRAS_PESQUISA_PADRAO, tituloIndicaPesquisa } from "@/lib/clientex-ficha";
+import { createComercialClient } from "@/lib/supabase/comercial";
 
 /**
  * Ata do Fathom entra sozinha, na reunião certa: o Fathom chama aqui quando termina de processar.
@@ -15,6 +18,9 @@ import { maisParecida } from "@/lib/similaridade";
  *    reunião já tinha ata escrita à mão, a do Fathom entra abaixo dela, sem apagar nada;
  * 4. na PRIMEIRA entrada, a IA (Gemini) extrai os próximos passos como SUGESTÕES que aguardam
  *    aprovação em Tarefas (não cria tarefa direto). FATHOM_TAREFAS_AUTOMATICAS=0 desliga.
+ * 5. DESTINO (17/10/2026): se a reunião é uma entrevista de perfil (título/tipo com palavra-chave,
+ *    ou convidado com e-mail numa ficha rascunho do Forms), em vez de sugerir tarefas a IA tabula a
+ *    transcrição na ficha da marca no Forms/ClienteX — ver src/lib/clientex-ficha.ts.
  * Roda com o service role porque não há sessão de usuário numa chamada de webhook.
  */
 export const dynamic = "force-dynamic";
@@ -22,7 +28,19 @@ export const maxDuration = 60;
 
 const JANELA_MINUTOS = 30;
 
-type ReuniaoApp = { id: string; data_hora_inicio: string; google_event_id: string | null; contatos_externos: { email: string | null } | { email: string | null }[] | null };
+type ReuniaoApp = {
+  id: string;
+  data_hora_inicio: string;
+  google_event_id: string | null;
+  contatos_externos: { email: string | null } | { email: string | null }[] | null;
+  tipos_reuniao: { nome: string | null } | { nome: string | null }[] | null;
+};
+
+function nomeDoTipo(r: ReuniaoApp | null): string | null {
+  if (!r?.tipos_reuniao) return null;
+  const t = Array.isArray(r.tipos_reuniao) ? r.tipos_reuniao[0] : r.tipos_reuniao;
+  return t?.nome ?? null;
+}
 
 /** Reunião marcada pelo app cujo início cai a ±30 min da gravação; com mais de uma, a de convidado em comum ou a mais próxima. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,7 +49,7 @@ async function acharReuniaoDoApp(admin: any, inicio: Date, emails: Set<string>):
   const ate = new Date(inicio.getTime() + JANELA_MINUTOS * 60000).toISOString();
   const { data } = await admin
     .from("reunioes_agendadas")
-    .select("id, data_hora_inicio, google_event_id, contatos_externos(email)")
+    .select("id, data_hora_inicio, google_event_id, contatos_externos(email), tipos_reuniao(nome)")
     .eq("status", "confirmada")
     .gte("data_hora_inicio", de)
     .lte("data_hora_inicio", ate);
@@ -116,11 +134,35 @@ export async function POST(request: NextRequest) {
   );
   let reuniao_id: string | null = null;
   let google_event_id: string | null = null;
+  let reuniaoApp: ReuniaoApp | null = null;
   if (inicio && !Number.isNaN(inicio.getTime())) {
-    const reuniao = await acharReuniaoDoApp(admin, inicio, emails);
-    if (reuniao) reuniao_id = reuniao.id;
+    reuniaoApp = await acharReuniaoDoApp(admin, inicio, emails);
+    if (reuniaoApp) reuniao_id = reuniaoApp.id;
     else google_event_id = await acharEventoGoogle(inicio, emails);
   }
+
+  // ── Destino: pesquisa de perfil (Forms) ou reunião comum (tarefas)? ─────────────────────────
+  const { data: cfgPesquisa } = await admin.from("integracoes").select("valor").eq("chave", "fathom_pesquisa").maybeSingle();
+  const palavras = ((cfgPesquisa?.valor as { palavras?: string[] } | null)?.palavras ?? PALAVRAS_PESQUISA_PADRAO).filter((p) => typeof p === "string");
+  const externos = emailsExternos(emails);
+  let pesquisa = tituloIndicaPesquisa([dados.meeting_title, dados.title, nomeDoTipo(reuniaoApp)], palavras);
+  const forms = createComercialClient();
+  if (!pesquisa && forms && externos.size > 0) pesquisa = (await acharFicha(forms, externos, null)) !== null;
+
+  const importarNoForms = async (ataId: string) => {
+    let transcript: FathomPayload["transcript"] = dados.transcript ?? null;
+    if (!transcript || transcript.length === 0) transcript = await buscarTranscricaoFathom(recordingId);
+    return importarEntrevistaParaForms({
+      transcricao: transcricaoParaTexto(transcript),
+      titulo: ata.titulo,
+      dataReuniao: ata.data_reuniao,
+      participantes: ata.participantes,
+      emails: externos,
+      recordingId,
+      url: dados.share_url || dados.url || null,
+      ataId,
+    });
+  };
 
   // ── Salvar ─────────────────────────────────────────────────────────────────────────────────
   const { data: existentePorFathom } = await admin.from("reuniao_atas").select("id").eq("fathom_recording_id", recordingId).maybeSingle();
@@ -131,7 +173,9 @@ export async function POST(request: NextRequest) {
       .update({ conteudo: ata.conteudo, participantes: ata.participantes, atualizado_em: new Date().toISOString() })
       .eq("id", existentePorFathom.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, ata_id: existentePorFathom.id, reenvio: true });
+    // Reenvio depois de um timeout no meio da importação: termina o que faltou (idempotente no Forms).
+    const importacao = pesquisa ? await importarNoForms(existentePorFathom.id) : null;
+    return NextResponse.json({ ok: true, ata_id: existentePorFathom.id, reenvio: true, pesquisa: importacao });
   }
 
   // A reunião já tinha ata escrita à mão? Uma ata por reunião: a do Fathom entra abaixo da existente.
@@ -168,7 +212,12 @@ export async function POST(request: NextRequest) {
   // repetir uma tarefa aberta, e as sócias aprovam ou recusam.
   let sugeridas = 0;
   let aviso: string | null = null;
-  if (process.env.FATHOM_TAREFAS_AUTOMATICAS !== "0" && iaConfigurada()) {
+  let importacao: Awaited<ReturnType<typeof importarNoForms>> | null = null;
+  if (pesquisa) {
+    // Entrevista de perfil: a transcrição vira ficha no Forms; a ata fica, mas sem sugestões de tarefa.
+    importacao = await importarNoForms(ataId!);
+    if (importacao.error) aviso = importacao.error;
+  } else if (process.env.FATHOM_TAREFAS_AUTOMATICAS !== "0" && iaConfigurada()) {
     const [{ data: pessoas }, { data: abertas }] = await Promise.all([
       admin.from("profiles").select("id, nome"),
       admin.from("tarefas").select("id, titulo").neq("status", "feito").is("parent_id", null),
@@ -204,7 +253,9 @@ export async function POST(request: NextRequest) {
     ok: true,
     ata_id: ataId,
     vinculo: reuniao_id ? { reuniao_id } : google_event_id ? { google_event_id } : "sem reunião identificada",
+    destino: pesquisa ? "pesquisa" : "tarefas",
     sugestoes: sugeridas,
+    pesquisa: importacao?.resultado ?? null,
     aviso,
   });
 }

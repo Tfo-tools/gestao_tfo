@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useRef, useState, useTransition } from "react";
-import { salvarAta, excluirAta, sugerirAcoesDaAta, criarTarefasDaAta, type ActionState } from "./atas-actions";
+import { salvarAta, excluirAta, sugerirAcoesDaAta, criarTarefasDaAta, enviarAtaParaClienteX, type ActionState } from "./atas-actions";
 import type { AcaoSugerida } from "@/lib/ia";
 
 export type Ata = {
@@ -243,6 +243,25 @@ export function AtaConteudo({
   const [criandoTarefas, startCriacao] = useTransition();
   const [erroCriacao, setErroCriacao] = useState<string | null>(null);
   const [criadas, setCriadas] = useState<number | null>(null);
+  const [enviandoClienteX, startEnvioClienteX] = useTransition();
+  const [msgClienteX, setMsgClienteX] = useState<{ erro: boolean; texto: string; link?: string } | null>(null);
+  const jaNoClienteX = ata.conteudo.includes("## Pesquisa de perfil (ClienteX)");
+
+  function enviarParaClienteX() {
+    if (!confirm("Tabular esta reunião como entrevista de perfil na ficha da marca no ClienteX? Campos já preenchidos na ficha não são alterados.")) return;
+    setMsgClienteX(null);
+    startEnvioClienteX(async () => {
+      const r = await enviarAtaParaClienteX(ata.id);
+      if (r.error || !r.resultado) setMsgClienteX({ erro: true, texto: r.error ?? "Não deu certo." });
+      else if (r.repetida) setMsgClienteX({ erro: false, texto: "Essa gravação já tinha sido tabulada nessa ficha.", link: r.resultado.link });
+      else
+        setMsgClienteX({
+          erro: false,
+          texto: `Ficha ${r.resultado.nova ? "criada" : "atualizada"}: ${r.resultado.preenchidos} campo(s) preenchido(s)${r.resultado.inferidos ? `, ${r.resultado.inferidos} por dedução` : ""}. Revisão aguardando em Tarefas.`,
+          link: r.resultado.link,
+        });
+    });
+  }
 
   function extrairAcoes() {
     setErroExtracao(null);
@@ -296,6 +315,15 @@ export function AtaConteudo({
         >
           {extraindo ? "Lendo a ata…" : "Extrair ações (IA)"}
         </button>
+        <button
+          type="button"
+          disabled={!iaConfigurada || enviandoClienteX}
+          onClick={enviarParaClienteX}
+          title={jaNoClienteX ? "Já foi para a ficha; clicar de novo só completa campos vazios" : "Tabular a transcrição na ficha de perfil da marca (Forms/ClienteX)"}
+          className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-text-muted disabled:opacity-50"
+        >
+          {enviandoClienteX ? "Tabulando a entrevista…" : jaNoClienteX ? "Reenviar para ficha ClienteX" : "Enviar para ficha ClienteX"}
+        </button>
         <button type="button" onClick={onEditar} className="text-[11px] font-medium text-text-muted">
           Editar
         </button>
@@ -316,6 +344,16 @@ export function AtaConteudo({
         </button>
       </div>
       {erroExtracao && <p className="mt-1.5 text-[10.5px] text-danger">{erroExtracao}</p>}
+      {msgClienteX && (
+        <p className={`mt-1.5 text-[10.5px] ${msgClienteX.erro ? "text-danger" : "text-success"}`}>
+          {msgClienteX.texto}{" "}
+          {msgClienteX.link && (
+            <a href={msgClienteX.link} target="_blank" rel="noreferrer" className="underline">
+              Abrir ficha
+            </a>
+          )}
+        </p>
+      )}
       {erroExclusao && <p className="mt-1.5 text-[10.5px] text-danger">{erroExclusao}</p>}
       {criadas !== null && (
         <p className="mt-2 text-[11.5px] text-success">

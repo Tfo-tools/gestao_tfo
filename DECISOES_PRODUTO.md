@@ -379,3 +379,23 @@ Regra nos três cenários: faixas por clientes só em 2028 (R$ 30 mil até 800, 
 - **Meta de receita do cenário**: crescimento do MRR total dez×dez, distribuído pelos produtos por peso (Mind 77%, Price 13%, Skills 10%) × fator da fase (validação 2 · PMF 1,6 · tração 1,3 · escala 1 · maturidade 0,5).
 - **FUNSES 1 não mudou**: continua no modelo trimestral ("importado"). A tela mostra o plano dele convertido só pra leitura; ao salvar, a prévia vem antes e só então ele passa ao modelo novo. Provado: com o cenário no modelo trimestral o motor novo dá o mesmo resultado do antigo em todos os meses e colunas.
 - **Conversão** (Base, Otimista, Pessimista): churn das próprias taxas de hoje; crescimento calibrado rodando o motor, pra receita do fim de cada fase (e do dezembro no meio das fases longas) bater com o plano anterior.
+
+## Fathom → ata sempre; entrevista de perfil → ficha no Forms/ClienteX (17/10/2026)
+
+- Toda reunião gravada no Fathom continua virando ata no Gestão (retenção de 60 dias, cron
+  `lembretes`). O que o webhook decide é o **destino**: reunião comum → sugestões de tarefa (como
+  antes); **entrevista de perfil** → a IA tabula a transcrição na ficha da marca no Forms
+  (`respostas`, status rascunho), sem sugerir tarefas. Código: `src/lib/clientex-ficha.ts`,
+  `src/lib/clientex-importar.ts`, `extrairFichaDaTranscricao` em `src/lib/ia.ts`.
+- Reconhecimento de pesquisa: título da gravação ou nome do tipo de reunião do app com uma das
+  palavras `perfil`, `entrevista`, `beta`, `clientex`, `pesquisa` (editável em `integracoes`, chave
+  `fathom_pesquisa`, valor `{"palavras": [...]}`), **ou** convidado externo com e-mail no cadastro
+  de uma ficha rascunho do Forms. Fallback manual: botão "Enviar para ficha ClienteX" na ata.
+- Regras da tabulação: campo já preenchido na ficha nunca é sobrescrito; cada campo entra com
+  origem `entrevista` (dito) ou `inferido` (dedução, marcado para conferir no painel); dores,
+  metas e timing vão para `notas_entrevista`; a transcrição inteira fica em `eventos`
+  (`tipo = transcricao_fathom`) junto da marca — o Gestão não guarda transcrição.
+- Depois de gravar: a ata ganha o bloco "Pesquisa de perfil (ClienteX)" com o link da ficha e uma
+  sugestão de tarefa "Revisar ficha ClienteX: <marca>" entra em Tarefas → Aguardando aprovação.
+  A confirmação pelo cliente continua pelo link do Forms (coluna `confirmadas`), como já era.
+- Idempotente: reenvio do Fathom ou clique repetido no botão não duplica (checa `eventos`).
