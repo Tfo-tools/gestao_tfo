@@ -4,9 +4,11 @@ import {
   carregarAgendaCombinada,
   carregarPendencias,
   dataLocal,
+  eventosDoPerfil,
   eventosEmBreve,
   lembretesDeHoje,
   proximoAlarme,
+  resolverPerfil,
   textoEvento,
   textoResumoHoje,
 } from "@/lib/agenda-combinada";
@@ -57,7 +59,14 @@ export async function GET(request: NextRequest) {
   if (formato === "texto") {
     const proximos = Number(request.nextUrl.searchParams.get("proximos"));
     // Resumo da manhã pro WhatsApp: cada tarefa leva o link curto que abre direto no app.
-    if (!(proximos > 0)) return textoPlano(textoResumoHoje(eventos, await carregarPendencias(), { comLinks: true }));
+    // Com ?usuario=<id|nome>, personaliza: compromissos compartilhados + os dela; tarefas só dela;
+    // contas só para sócias. Sem usuario, segue o resumo combinado (de todas).
+    if (!(proximos > 0)) {
+      const perfil = await resolverPerfil(request.nextUrl.searchParams.get("usuario"));
+      const eventosDoDia = perfil ? eventosDoPerfil(eventos, perfil.id) : eventos;
+      const pend = await carregarPendencias(perfil ? { perfilId: perfil.id, contas: perfil.papel === "socia", tarefas: true } : {});
+      return textoPlano(textoResumoHoje(eventosDoDia, pend, { comLinks: true }));
+    }
 
     const emBreve = eventosEmBreve(eventos, proximos);
     if (emBreve.length === 0) return textoPlano("");

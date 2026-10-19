@@ -19,6 +19,9 @@ export type EventoAgenda = {
   /** "Compartilhada (contato)" quando existe lá (toda reunião marcada, que é das duas sócias, mesmo
    * espelhada na agenda pessoal de quem foi convidada), senão o nome de quem é a agenda pessoal. */
   origem: string;
+  /** De quem é a agenda de origem: null = compartilhada (de todas); senão o id do perfil dono. Usado
+   * para filtrar o feed por pessoa (cada uma recebe a compartilhada + a dela). */
+  profileId: string | null;
 };
 
 const FUSO = "America/Sao_Paulo";
@@ -50,6 +53,7 @@ export async function carregarAgendaCombinada(diasAFrente = 2): Promise<EventoAg
     Promise.all(
       conexoesOrdenadas.map(async (c) => ({
         origem: c.profile_id === null ? "Compartilhada (contato)" : (nomePorPerfil.get(c.profile_id) ?? "Agenda pessoal"),
+        profileId: c.profile_id as string | null,
         // 8s por agenda: se o Google demorar, volta vazio e o resumo sai com o resto (pendências etc.).
         eventos: await comTimeout(listarProximosEventos(diasAFrente, 50, c.profile_id), 8000, []),
       })),
@@ -61,6 +65,7 @@ export async function carregarAgendaCombinada(diasAFrente = 2): Promise<EventoAg
     ...listasGoogle,
     ...[...new Set(icloud.map((e) => e.profileId))].map((pid) => ({
       origem: icloud.find((e) => e.profileId === pid)!.nomeDono,
+      profileId: pid as string | null,
       eventos: icloud.filter((e) => e.profileId === pid),
     })),
   ];
@@ -84,6 +89,7 @@ export async function carregarAgendaCombinada(diasAFrente = 2): Promise<EventoAg
         fimIso: ev.fimIso,
         diaTodo: ev.diaTodo,
         origem: lista.origem,
+        profileId: lista.profileId,
       });
     }
   }
@@ -115,6 +121,27 @@ function formatBRL(v: number) {
 
 export type Pendencia = { texto: string; venceHoje: boolean; quando: "atrasada" | "hoje" | "amanha"; /** Link curto que abre a tarefa no app (só tarefas). */ link?: string };
 
+export type PerfilFeed = { id: string; nome: string; papel: string };
+
+/** Resolve o parâmetro `usuario` do feed (id do perfil ou primeiro nome, sem diferenciar maiúsculas). */
+export async function resolverPerfil(param: string | null): Promise<PerfilFeed | null> {
+  const alvo = (param ?? "").trim().toLowerCase();
+  if (!alvo) return null;
+  const { data } = await createAdminClient().from("profiles").select("id, nome, papel");
+  const achar = (data ?? []).find(
+    (p) => p.id === param || String(p.nome ?? "").trim().split(" ")[0].toLowerCase() === alvo,
+  );
+  return achar ? { id: achar.id as string, nome: achar.nome as string, papel: (achar.papel as string) ?? "" } : null;
+}
+
+/** Compromissos que uma pessoa vê: a agenda compartilhada (de todas) + a agenda pessoal dela. */
+export function eventosDoPerfil(eventos: EventoAgenda[], perfilId: string): EventoAgenda[] {
+  return eventos.filter((e) => e.profileId === null || e.profileId === perfilId);
+}
+
+/** Filtro do feed por pessoa: tarefas só de quem é responsável/participa; contas só para sócias. */
+export type FiltroPendencias = { perfilId?: string | null; contas?: boolean; tarefas?: boolean };
+
 /** Endereço público do app, pra montar links que funcionam fora dele (WhatsApp, push). */
 export function urlBaseApp(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://gestao.thefashionoffice.online").replace(/\/$/, "");
@@ -129,7 +156,10 @@ export function linkCurtoTarefa(id: string): string {
 /** Contas e faturas de cartão que vencem hoje ou amanhã, e tarefas abertas até amanhã — inclusive as
  * atrasadas: tarefa não some do resumo enquanto não for concluída, só muda de bloco. Mesmo recorte do
  * cron diário de lembretes, pra entrar no resumo da manhã junto com a agenda. */
-export async function carregarPendencias(): Promise<Pendencia[]> {
+export async function carregarPendencias(filtro: FiltroPendencias = {}): Promise<Pendencia[]> {
+  const incluirContas = filtro.contas ?? true;
+  const incluirTarefas = filtro.tarefas ?? true;
+  const perfilId = filtro.perfilId ?? null;
   const supabase = createAdminClient();
   const hoje = dataLocal(new Date().toISOString());
   const amanha = dataLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
@@ -149,13 +179,13 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
   };
 
   const itens: Pendencia[] = [];
-  for (const d of despesas ?? []) {
+  for (const d of incluirContas ? (despesas ?? []) : []) {
     itens.push({ texto: `💰 ${d.descricao ?? "Conta"} — ${formatBRL(Number(d.valor_total))}`, venceHoje: d.data_gasto === hoje, quando: d.data_gasto === hoje ? "hoje" : "amanha" });
   }
-  for (const p of parcelas ?? []) {
+  for (const p of incluirContas ? (parcelas ?? []) : []) {
     itens.push({ texto: `💳 ${nome(p.despesas) ?? "Compra no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje, quando: p.data_prevista === hoje ? "hoje" : "amanha" });
   }
-  for (const p of parcelasAtivo ?? []) {
+  for (const p of incluirContas ? (parcelasAtivo ?? []) : []) {
     itens.push({ texto: `💳 ${nome(p.ativos) ?? "Ativo no cartão"} — ${formatBRL(Number(p.valor))}`, venceHoje: p.data_prevista === hoje, quando: p.data_prevista === hoje ? "hoje" : "amanha" });
   }
   // Tarefa vem com quem faz: responsável primeiro, depois quem participa — "Emyli + Vanessa".
@@ -168,8 +198,10 @@ export async function carregarPendencias(): Promise<Pendencia[]> {
   // Subtarefa com prazo: mostra a tarefa-mãe junto ("Mãe › atividade"), senão ninguém acha no app;
   // e se a mãe já está feita, a atividade não cobra mais ninguém.
   const maes = await carregarMaes((tarefas ?? []).map((t) => t.parent_id as string | null));
-  for (const t of tarefas ?? []) {
+  for (const t of incluirTarefas ? (tarefas ?? []) : []) {
     const ids = [t.responsavel_id, ...((t.participantes as string[] | null) ?? [])].filter((id, i, arr): id is string => !!id && arr.indexOf(id) === i);
+    // Filtro por pessoa: só entra se ela é a responsável ou participa.
+    if (perfilId && !ids.includes(perfilId)) continue;
     const quem = ids.map((id) => primeiroNome.get(id)).filter(Boolean).join(" + ");
     if (!t.prazo) continue;
     const mae = t.parent_id ? maes.get(t.parent_id as string) : undefined;

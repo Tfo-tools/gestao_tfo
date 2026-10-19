@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolverPerfil } from "@/lib/agenda-combinada";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -39,15 +40,18 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createAdminClient();
+  // Com ?usuario=<id|nome>: só as tarefas da pessoa (responsável/participa); contas só para sócias.
+  const perfil = await resolverPerfil(request.nextUrl.searchParams.get("usuario"));
+  const incluirContas = !perfil || perfil.papel === "socia";
 
   const [{ data: despesas }, { data: tarefas }] = await Promise.all([
     supabase.from("despesas").select("id, descricao, valor_total, data_gasto").eq("comprovado", false),
-    supabase.from("tarefas").select("id, titulo, prazo, status").neq("status", "feito").not("prazo", "is", null),
+    supabase.from("tarefas").select("id, titulo, prazo, status, responsavel_id, participantes").neq("status", "feito").not("prazo", "is", null),
   ]);
 
   const eventos: string[] = [];
 
-  for (const d of despesas ?? []) {
+  for (const d of incluirContas ? (despesas ?? []) : []) {
     if (!d.data_gasto) continue;
     eventos.push(
       eventoVALARM(
@@ -62,8 +66,14 @@ export async function GET(request: NextRequest) {
 
   for (const t of tarefas ?? []) {
     if (!t.prazo) continue;
+    if (perfil) {
+      const ids = [t.responsavel_id, ...((t.participantes as string[] | null) ?? [])].filter((id): id is string => !!id);
+      if (!ids.includes(perfil.id)) continue;
+    }
     eventos.push(eventoVALARM(`✅ Tarefa: ${t.titulo}`, "Prazo de tarefa — TFO-Gestão", `tarefa-${t.id}@gestaotfo`, t.prazo, 1));
   }
+
+  const nomeCal = `TFO-Gestão — Lembretes${perfil ? ` (${String(perfil.nome).split(" ")[0]})` : ""}`;
 
   const ics = [
     "BEGIN:VCALENDAR",
@@ -71,7 +81,7 @@ export async function GET(request: NextRequest) {
     "PRODID:-//TFO-Gestao//Lembretes//PT-BR",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    "X-WR-CALNAME:TFO-Gestão — Lembretes",
+    `X-WR-CALNAME:${nomeCal}`,
     "REFRESH-INTERVAL;VALUE=DURATION:PT6H",
     "X-PUBLISHED-TTL:PT6H",
     ...eventos,
