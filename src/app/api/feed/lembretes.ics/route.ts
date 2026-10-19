@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolverPerfil } from "@/lib/agenda-combinada";
 
+// Sempre recalcula por requisição: edição de tarefa/vencimento tem que refletir na hora, sem cache de borda.
+export const dynamic = "force-dynamic";
+
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -82,8 +85,8 @@ export async function GET(request: NextRequest) {
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${nomeCal}`,
-    "REFRESH-INTERVAL;VALUE=DURATION:PT6H",
-    "X-PUBLISHED-TTL:PT6H",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+    "X-PUBLISHED-TTL:PT1H",
     ...eventos,
     "END:VCALENDAR",
   ].join("\r\n");
@@ -92,7 +95,7 @@ export async function GET(request: NextRequest) {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       "Content-Disposition": 'inline; filename="lembretes-tfo.ics"',
-      "Cache-Control": "public, max-age=1800",
+      "Cache-Control": "no-store, max-age=0, must-revalidate",
     },
   });
 }
