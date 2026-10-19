@@ -65,7 +65,8 @@ export async function GET(request: NextRequest) {
       const perfil = await resolverPerfil(request.nextUrl.searchParams.get("usuario"));
       const eventosDoDia = perfil ? eventosDoPerfil(eventos, perfil.id) : eventos;
       const pend = await carregarPendencias(perfil ? { perfilId: perfil.id, contas: perfil.papel === "socia", tarefas: true } : {});
-      return textoPlano(textoResumoHoje(eventosDoDia, pend, { comLinks: true }));
+      // Sem links no WhatsApp (ele não faz "clique aqui"); o link clicável fica no evento do Calendário.
+      return textoPlano(textoResumoHoje(eventosDoDia, pend, { comLinks: false }));
     }
 
     const emBreve = eventosEmBreve(eventos, proximos);

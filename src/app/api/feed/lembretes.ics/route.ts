@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolverPerfil } from "@/lib/agenda-combinada";
+import { resolverPerfil, linkCurtoTarefa } from "@/lib/agenda-combinada";
 
 // Sempre recalcula por requisição: edição de tarefa/vencimento tem que refletir na hora, sem cache de borda.
 export const dynamic = "force-dynamic";
@@ -73,7 +73,8 @@ export async function GET(request: NextRequest) {
       const ids = [t.responsavel_id, ...((t.participantes as string[] | null) ?? [])].filter((id): id is string => !!id);
       if (!ids.includes(perfil.id)) continue;
     }
-    eventos.push(eventoVALARM(`✅ Tarefa: ${t.titulo}`, "Prazo de tarefa — TFO-Gestão", `tarefa-${t.id}@gestaotfo`, t.prazo, 1));
+    // Link da tarefa na descrição do evento: tocar o evento no Calendário abre a tarefa no app.
+    eventos.push(eventoVALARM(`✅ Tarefa: ${t.titulo}`, `Abrir no app: ${linkCurtoTarefa(t.id as string)}`, `tarefa-${t.id}@gestaotfo`, t.prazo, 1));
   }
 
   const nomeCal = `TFO-Gestão — Lembretes${perfil ? ` (${String(perfil.nome).split(" ")[0]})` : ""}`;
