@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition, type ClipboardEvent } from "react";
 import { anexarNaTarefa, concluirAnexo, excluirAnexoTarefa, iniciarAnexo, urlAnexoTarefa } from "./actions";
 import { LIMITE_ANEXO_MB } from "./limites";
 import type { AnexoTarefa } from "./tipos";
@@ -56,10 +56,40 @@ export function AnexosTarefa({ tarefaId, anexos }: { tarefaId: string; anexos: A
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
   const [abrindo, setAbrindo] = useState<string | null>(null);
+  const [arrastando, setArrastando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const enviarVarios = (arquivos: File[]) => {
+    if (arquivos.length === 0) return;
+    setErro(null);
+    startTransition(async () => {
+      const falhas: string[] = [];
+      for (const arquivo of arquivos) {
+        try {
+          const erroEnvio = await enviarArquivo(tarefaId, arquivo);
+          if (erroEnvio) falhas.push(`${arquivo.name}: ${erroEnvio}`);
+        } catch {
+          falhas.push(`${arquivo.name}: falhou o envio.`);
+        }
+      }
+      if (falhas.length > 0) setErro(falhas.length === arquivos.length ? falhas[0] : `${falhas.length} de ${arquivos.length} não anexaram: ${falhas[0]}`);
+    });
+  };
+  // Colar (Ctrl/Cmd+V): print ou arquivo da área de transferência. Colar texto segue normal.
+  const aoColar = (e: ClipboardEvent<HTMLInputElement>) => {
+    const arquivos = Array.from(e.clipboardData?.files ?? []);
+    if (arquivos.length === 0) return;
+    e.preventDefault();
+    enviarVarios(arquivos);
+  };
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div
+      className={`flex flex-wrap items-center gap-1.5 rounded ${arrastando ? "ring-2 ring-primary-fill ring-offset-1" : ""}`}
+      onDragOver={(e) => { e.preventDefault(); if (!arrastando) setArrastando(true); }}
+      onDragLeave={() => setArrastando(false)}
+      onDrop={(e) => { e.preventDefault(); setArrastando(false); enviarVarios(Array.from(e.dataTransfer?.files ?? [])); }}
+    >
       {anexos.map((a) => (
         <span key={a.id} className="inline-flex items-center gap-1 rounded border border-border-soft bg-bg px-1.5 py-0.5">
           {a.url ? (
@@ -116,20 +146,7 @@ export function AnexosTarefa({ tarefaId, anexos }: { tarefaId: string; anexos: A
         onChange={(e) => {
           const arquivos = Array.from(e.target.files ?? []);
           if (inputRef.current) inputRef.current.value = "";
-          if (arquivos.length === 0) return;
-          setErro(null);
-          startTransition(async () => {
-            const falhas: string[] = [];
-            for (const arquivo of arquivos) {
-              try {
-                const erro = await enviarArquivo(tarefaId, arquivo);
-                if (erro) falhas.push(`${arquivo.name}: ${erro}`);
-              } catch {
-                falhas.push(`${arquivo.name}: falhou o envio.`);
-              }
-            }
-            if (falhas.length > 0) setErro(falhas.length === arquivos.length ? falhas[0] : `${falhas.length} de ${arquivos.length} não anexaram: ${falhas[0]}`);
-          });
+          enviarVarios(arquivos);
         }}
       />
       <button
@@ -141,6 +158,16 @@ export function AnexosTarefa({ tarefaId, anexos }: { tarefaId: string; anexos: A
       >
         {pending ? "enviando…" : "+ arquivos"}
       </button>
+      <input
+        type="text"
+        value=""
+        onChange={() => {}}
+        onPaste={aoColar}
+        disabled={pending}
+        placeholder="colar aqui (Ctrl/Cmd+V)"
+        title="Clique e cole um print ou arquivo (Ctrl/Cmd+V) — no computador ou no celular. Também dá pra arrastar o arquivo pra cá."
+        className="w-32 rounded border border-dashed border-border bg-bg px-1.5 py-0.5 text-[10.5px] text-text-muted placeholder:text-text-faint focus:border-primary-fill focus:outline-none disabled:opacity-50"
+      />
       {erro && <span className="text-[10px] text-danger">{erro}</span>}
     </div>
   );
