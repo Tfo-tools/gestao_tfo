@@ -43,7 +43,10 @@ export function EntrevistaForm({ slots }: { slots: Slot[] }) {
             {copiado ? "Copiado!" : "Copiar para WhatsApp"}
           </button>
         </div>
-        <a href="/agenda/entrevista" className="mt-3 inline-block text-[12px] text-primary-deep underline">Agendar outra</a>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <a href={`/agenda/entrevista/notas/${s.id}`} className="rounded-lg border border-primary-fill px-3.5 py-1.5 text-[12px] font-medium text-primary-deep">Abrir formulário de perfil (notas)</a>
+          <a href="/agenda/entrevista" className="inline-block self-center text-[12px] text-primary-deep underline">Agendar outra</a>
+        </div>
       </div>
     );
   }

@@ -100,3 +100,16 @@ export async function criarEntrevista(_prev: EntrevistaState, formData: FormData
 
   return { error: null, sucesso: { id: reuniao.id, inicioIso, titulo, meetLink: evento?.meetLink ?? null, textoWhatsapp } };
 }
+
+/** Salva as notas ao vivo (por pergunta) da entrevista, presas à reunião. Só sócias. */
+export async function salvarNotasPerfil(reuniaoId: string, notas: Record<string, string>): Promise<{ error: string | null }> {
+  if (!(await ehSocia())) return { error: "Só as sócias editam as notas." };
+  const limpo: Record<string, string> = {};
+  for (const [k, v] of Object.entries(notas ?? {})) {
+    const t = String(v ?? "").trim();
+    if (t) limpo[k] = t;
+  }
+  const { error } = await createAdminClient().from("reunioes_agendadas").update({ notas_perfil: limpo }).eq("id", reuniaoId);
+  if (error) return { error: error.message };
+  return { error: null };
+}

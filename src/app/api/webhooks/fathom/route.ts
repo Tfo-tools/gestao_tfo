@@ -6,6 +6,7 @@ import { buscarTranscricaoFathom, extrairRecordingId, montarAta, transcricaoPara
 import { maisParecida } from "@/lib/similaridade";
 import { importarEntrevistaParaForms } from "@/lib/clientex-importar";
 import { acharFicha, emailsExternos, PALAVRAS_PESQUISA_PADRAO, tituloIndicaPesquisa } from "@/lib/clientex-ficha";
+import { notasPerfilParaTexto } from "@/lib/roteiro-perfil";
 import { createComercialClient } from "@/lib/supabase/comercial";
 
 /**
@@ -152,8 +153,15 @@ export async function POST(request: NextRequest) {
   const importarNoForms = async (ataId: string) => {
     let transcript: FathomPayload["transcript"] = dados.transcript ?? null;
     if (!transcript || transcript.length === 0) transcript = await buscarTranscricaoFathom(recordingId);
+    let texto = transcricaoParaTexto(transcript);
+    // Soma as notas ao vivo (formulário de perfil) da reunião, se houver.
+    if (reuniao_id) {
+      const { data: r } = await admin.from("reunioes_agendadas").select("notas_perfil").eq("id", reuniao_id).maybeSingle();
+      const bloco = notasPerfilParaTexto((r?.notas_perfil ?? null) as Record<string, string> | null);
+      if (bloco) texto = `${texto}\n\n${bloco}`;
+    }
     return importarEntrevistaParaForms({
-      transcricao: transcricaoParaTexto(transcript),
+      transcricao: texto,
       titulo: ata.titulo,
       dataReuniao: ata.data_reuniao,
       participantes: ata.participantes,

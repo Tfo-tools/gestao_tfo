@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { extrairAcoesDaAta, type AcaoSugerida } from "@/lib/ia";
 import { buscarTranscricaoFathom, transcricaoParaTexto } from "@/lib/fathom";
 import { importarEntrevistaParaForms, type SaidaImportacao } from "@/lib/clientex-importar";
+import { notasPerfilParaTexto } from "@/lib/roteiro-perfil";
 
 export type ActionState = { error: string | null; success?: boolean };
 
@@ -107,6 +108,13 @@ export async function enviarAtaParaClienteX(ataId: string): Promise<SaidaImporta
   let transcricao = "";
   if (ata.fathom_recording_id) transcricao = transcricaoParaTexto(await buscarTranscricaoFathom(String(ata.fathom_recording_id)));
   if (!transcricao.trim()) transcricao = String(ata.conteudo ?? "");
+
+  // Soma as notas ao vivo da entrevista (formulário de perfil), se houver, à tabulação da ficha.
+  if (ata.reuniao_id) {
+    const { data: r } = await supabase.from("reunioes_agendadas").select("notas_perfil").eq("id", ata.reuniao_id).maybeSingle();
+    const bloco = notasPerfilParaTexto((r?.notas_perfil ?? null) as Record<string, string> | null);
+    if (bloco) transcricao = `${transcricao}\n\n${bloco}`;
+  }
 
   const emails = new Set<string>();
   const ra = (ata as { reunioes_agendadas?: { contatos_externos?: { email?: string | null } | { email?: string | null }[] | null } | null }).reunioes_agendadas;

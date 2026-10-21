@@ -599,6 +599,9 @@ function ProximasReunioesCard({
                       Meet
                     </a>
                   )}
+                  {/(perfil|entrevista|pesquisa)/i.test(r.tipos_reuniao?.nome ?? "") && (
+                    <a href={`/agenda/entrevista/notas/${r.id}`} className="text-[11.5px] font-medium text-primary-deep" title="Formulário de perfil / notas ao vivo">Perfil</a>
+                  )}
                   <AtaInline
                     chave={{ reuniao_id: r.id }}
                     ataExistente={ataPorReuniao.get(r.id) ?? null}
