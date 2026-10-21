@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import {
   criarTipoReuniao,
   alternarAtivoTipoReuniao,
@@ -124,6 +125,7 @@ export function AgendaManager({
         />
       )}
 
+      <EntrevistaPerfilCard />
       <TiposReuniaoCard tipos={tipos} regras={regras} />
       <ProximasReunioesCard reunioes={reunioes} ataPorReuniao={ataPorReuniao} pessoas={pessoas} iaConfigurada={iaConfigurada} />
 
@@ -271,6 +273,30 @@ function EventoGoogleRow({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Entrada pra agendar a entrevista de perfil (interna, só sócias na página de destino). Fica entre
+ * "Seus compromissos" e "Tipos de reunião", não mais no cabeçalho da Agenda. */
+function EntrevistaPerfilCard() {
+  return (
+    <div className="rounded-xl border border-border bg-surface p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-heading text-sm font-semibold">Entrevista de perfil</h2>
+          <p className="mt-0.5 text-[11.5px] text-text-muted">
+            Agende uma conversa de pesquisa com uma marca. Cria o compromisso “TFO + empresa”, com o link pronto pro
+            WhatsApp e o formulário de notas ao vivo.
+          </p>
+        </div>
+        <Link
+          href="/agenda/entrevista"
+          className="shrink-0 rounded-lg bg-wine-deep px-3.5 py-2 text-[12.5px] font-medium text-white"
+        >
+          + Entrevista de perfil
+        </Link>
+      </div>
     </div>
   );
 }

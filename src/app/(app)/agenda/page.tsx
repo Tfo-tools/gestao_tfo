@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { contaGoogleConectada, listarProximosEventos } from "@/lib/google-calendar";
 import { iaConfigurada } from "@/lib/ia";
@@ -103,16 +102,13 @@ export default async function AgendaPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-heading text-[22px] font-semibold">Agenda</h1>
-          <p className="mt-1 max-w-2xl text-[13px] text-text-muted">
-            Configure os tipos de reunião e os horários disponíveis — o link público de agendamento fica em{" "}
-            <span className="font-mono text-text">/agendar</span>. Toda reunião marcada por lá cria um compromisso no
-            Google Calendar da conta conectada, com você e a Emyli como convidadas.
-          </p>
-        </div>
-        <Link href="/agenda/entrevista" className="shrink-0 rounded-lg bg-wine-deep px-3.5 py-2 text-[12.5px] font-medium text-white">+ Entrevista de perfil</Link>
+      <div className="mb-6">
+        <h1 className="font-heading text-[22px] font-semibold">Agenda</h1>
+        <p className="mt-1 max-w-2xl text-[13px] text-text-muted">
+          Configure os tipos de reunião e os horários disponíveis — o link público de agendamento fica em{" "}
+          <span className="font-mono text-text">/agendar</span>. Toda reunião marcada por lá cria um compromisso no
+          Google Calendar da conta conectada, com você e a Emyli como convidadas.
+        </p>
       </div>
 
       {/* Ata que o Fathom mandou sem reunião marcada nem compromisso do Google no horário: fica
