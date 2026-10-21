@@ -101,15 +101,25 @@ export async function criarEntrevista(_prev: EntrevistaState, formData: FormData
   return { error: null, sucesso: { id: reuniao.id, inicioIso, titulo, meetLink: evento?.meetLink ?? null, textoWhatsapp } };
 }
 
-/** Salva as notas ao vivo (por pergunta) da entrevista, presas à reunião. Só sócias. */
-export async function salvarNotasPerfil(reuniaoId: string, notas: Record<string, string>): Promise<{ error: string | null }> {
+export type NotasState = { error: string | null; notas?: Record<string, string> };
+
+/**
+ * Salva UMA pergunta das notas ao vivo, presa à reunião. Só sócias. O merge é feito no banco
+ * (função merge_nota_perfil, concatenação jsonb sob lock da linha), então duas sócias podem anotar
+ * juntas sem uma apagar o campo da outra. Devolve o mapa completo já mesclado — assim a cada save o
+ * formulário também recebe o que a outra escreveu. Valor vazio remove a pergunta do mapa.
+ */
+export async function salvarNotaCampo(reuniaoId: string, campoId: string, valor: string): Promise<NotasState> {
   if (!(await ehSocia())) return { error: "Só as sócias editam as notas." };
-  const limpo: Record<string, string> = {};
-  for (const [k, v] of Object.entries(notas ?? {})) {
-    const t = String(v ?? "").trim();
-    if (t) limpo[k] = t;
-  }
-  const { error } = await createAdminClient().from("reunioes_agendadas").update({ notas_perfil: limpo }).eq("id", reuniaoId);
+  const { data, error } = await createAdminClient().rpc("merge_nota_perfil", { p_reuniao: reuniaoId, p_campo: campoId, p_valor: valor });
   if (error) return { error: error.message };
-  return { error: null };
+  return { error: null, notas: (data ?? {}) as Record<string, string> };
+}
+
+/** Lê as notas ao vivo atuais da reunião (pra "Atualizar" / puxar o que a outra escreveu). Só sócias. */
+export async function buscarNotasPerfil(reuniaoId: string): Promise<NotasState> {
+  if (!(await ehSocia())) return { error: "Só as sócias veem as notas." };
+  const { data, error } = await createAdminClient().from("reunioes_agendadas").select("notas_perfil").eq("id", reuniaoId).maybeSingle();
+  if (error) return { error: error.message };
+  return { error: null, notas: (data?.notas_perfil ?? {}) as Record<string, string> };
 }

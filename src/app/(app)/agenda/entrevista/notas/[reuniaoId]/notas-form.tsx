@@ -1,31 +1,65 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { ROTEIRO_PERFIL } from "@/lib/roteiro-perfil";
-import { salvarNotasPerfil } from "../../actions";
+import { salvarNotaCampo, buscarNotasPerfil } from "../../actions";
 
 export function NotasPerfilForm({ reuniaoId, notasIniciais }: { reuniaoId: string; notasIniciais: Record<string, string> }) {
   const [notas, setNotas] = useState<Record<string, string>>(notasIniciais ?? {});
   const [estado, setEstado] = useState<"idle" | "salvando" | "salvo" | "erro">("idle");
   const [erro, setErro] = useState<string | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
   const [, start] = useTransition();
+  // Campo em foco agora: nunca é sobrescrito quando chega o que a outra sócia escreveu.
+  const focoRef = useRef<string | null>(null);
 
-  const salvar = (mapa: Record<string, string>) => {
+  // Funde o mapa vindo do servidor sobre o local, preservando o que está sendo digitado agora.
+  const fundir = useCallback((servidor: Record<string, string>) => {
+    setNotas((prev) => {
+      const foco = focoRef.current;
+      const prox = { ...servidor };
+      if (foco) prox[foco] = prev[foco] ?? ""; // mantém o campo em foco como está na tela
+      return prox;
+    });
+  }, []);
+
+  const salvarCampo = (id: string, valor: string) => {
     setEstado("salvando"); setErro(null);
     start(async () => {
-      const r = await salvarNotasPerfil(reuniaoId, mapa);
-      if (r.error) { setEstado("erro"); setErro(r.error); } else setEstado("salvo");
+      const r = await salvarNotaCampo(reuniaoId, id, valor);
+      if (r.error) { setEstado("erro"); setErro(r.error); return; }
+      if (r.notas) fundir(r.notas);
+      setEstado("salvo");
     });
   };
+
+  const atualizar = useCallback(() => {
+    setSincronizando(true);
+    start(async () => {
+      const r = await buscarNotasPerfil(reuniaoId);
+      if (!r.error && r.notas) fundir(r.notas);
+      setSincronizando(false);
+    });
+  }, [reuniaoId, fundir]);
+
+  // Sincronização automática leve: a cada 15s puxa o que a outra sócia escreveu.
+  useEffect(() => {
+    const t = setInterval(atualizar, 15000);
+    return () => clearInterval(t);
+  }, [atualizar]);
+
   const editar = (id: string, valor: string) => { setEstado("idle"); setNotas((n) => ({ ...n, [id]: valor })); };
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="sticky top-0 z-10 flex items-center gap-3 bg-bg/90 py-1 backdrop-blur">
-        <button type="button" onClick={() => salvar(notas)} className="rounded-lg bg-wine-deep px-3.5 py-1.5 text-[12px] font-medium text-white">Salvar notas</button>
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 bg-bg/90 py-1 backdrop-blur">
+        <button type="button" onClick={atualizar} className="rounded-lg border border-primary-fill px-3.5 py-1.5 text-[12px] font-medium text-primary-deep">
+          {sincronizando ? "Atualizando…" : "Atualizar"}
+        </button>
         <span className="text-[11.5px] text-text-muted">
-          {estado === "salvando" ? "Salvando…" : estado === "salvo" ? "Salvo ✓" : estado === "erro" ? <span className="text-danger">{erro}</span> : "Salva sozinho ao sair de cada campo"}
+          {estado === "salvando" ? "Salvando…" : estado === "erro" ? <span className="text-danger">{erro}</span> : estado === "salvo" ? "Salvo ✓" : "Cada campo salva sozinho ao sair dele"}
         </span>
+        <span className="text-[11px] text-text-faint">· As duas podem anotar juntas — o que a outra escrever aparece aqui a cada 15s (ou ao tocar em Atualizar).</span>
       </div>
 
       {ROTEIRO_PERFIL.map((secao) => (
@@ -39,7 +73,8 @@ export function NotasPerfilForm({ reuniaoId, notasIniciais }: { reuniaoId: strin
                 <textarea
                   value={notas[q.id] ?? ""}
                   onChange={(e) => editar(q.id, e.target.value)}
-                  onBlur={() => salvar(notas)}
+                  onFocus={() => { focoRef.current = q.id; }}
+                  onBlur={() => { focoRef.current = null; salvarCampo(q.id, notas[q.id] ?? ""); }}
                   rows={2}
                   placeholder="Notas…"
                   className="input mt-1 w-full"
