@@ -16,8 +16,19 @@ const GEMINI_MODELOS = [process.env.GEMINI_MODEL, "gemini-2.5-flash-lite", "gemi
 );
 const CLAUDE_MODEL = "claude-haiku-4-5";
 
+/** Transcrição de áudio é só no Gemini (o Claude via Messages não aceita áudio). Flash primeiro —
+ * lida melhor com áudio que o flash-lite; cai pro próximo se a chave não tiver o modelo. */
+const GEMINI_MODELOS_AUDIO = [process.env.GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.8-flash"].filter(
+  (m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i,
+);
+
 export function iaConfigurada() {
   return Boolean(process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY);
+}
+
+/** A transcrição de áudio exige a chave do Gemini especificamente (o Claude não transcreve áudio). */
+export function transcricaoConfigurada() {
+  return Boolean(process.env.GEMINI_API_KEY);
 }
 
 /** Qual provedor está ativo — a tela mostra pra sócia saber de onde vem a sugestão. */
@@ -281,4 +292,106 @@ ${transcricao.slice(0, 180_000)}
   } catch {
     return { error: "Resposta da IA veio num formato inesperado.", ficha: null };
   }
+}
+
+// ── Transcrição de áudio (reunião presencial) → texto pra ata ───────────────────────────────────
+
+/** Normaliza o MIME pro que o Gemini aceita; m4a (AAC em contêiner MP4) vira audio/mp4. */
+function mimeAudioGemini(mime: string | null, caminho: string): string {
+  const m = (mime ?? "").toLowerCase();
+  if (m.includes("m4a") || m.includes("x-m4a") || m.endsWith("mp4") || m.includes("aac")) return "audio/mp4";
+  if (m.startsWith("audio/")) return m;
+  const ext = (caminho.split(".").pop() ?? "").toLowerCase();
+  return ext === "mp3" ? "audio/mpeg" : ext === "wav" ? "audio/wav" : ext === "ogg" ? "audio/ogg" : ext === "flac" ? "audio/flac" : ext === "aac" ? "audio/mp4" : ext === "m4a" ? "audio/mp4" : "audio/mpeg";
+}
+
+/** Sobe o áudio pro Files API do Gemini (upload resumível — aguenta arquivo grande) e espera ficar
+ * ACTIVE. Devolve o fileUri pra usar no generateContent. */
+async function subirAudioGemini(bytes: ArrayBuffer, mime: string, key: string): Promise<string> {
+  const num = bytes.byteLength;
+  const start = await fetch("https://generativelanguage.googleapis.com/upload/v1beta/files", {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": key,
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": String(num),
+      "X-Goog-Upload-Header-Content-Type": mime,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ file: { display_name: "reuniao-audio" } }),
+  });
+  if (!start.ok) throw new Error(`Gemini (iniciar upload) HTTP ${start.status}: ${(await start.text()).slice(0, 200)}`);
+  const uploadUrl = start.headers.get("x-goog-upload-url");
+  if (!uploadUrl) throw new Error("Gemini não devolveu a URL de upload do áudio.");
+
+  const up = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "X-Goog-Upload-Offset": "0", "X-Goog-Upload-Command": "upload, finalize", "content-length": String(num) },
+    body: new Uint8Array(bytes),
+  });
+  if (!up.ok) throw new Error(`Gemini (enviar áudio) HTTP ${up.status}: ${(await up.text()).slice(0, 200)}`);
+  const info = (await up.json()) as { file?: { uri?: string; name?: string; state?: string } };
+  const file = info.file;
+  if (!file?.uri || !file?.name) throw new Error("Gemini não devolveu o arquivo enviado.");
+
+  // O áudio passa por PROCESSING antes de ficar utilizável; espera virar ACTIVE (máx ~60s).
+  let state = file.state ?? "PROCESSING";
+  for (let i = 0; state === "PROCESSING" && i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/${file.name}`, { headers: { "x-goog-api-key": key } });
+    if (g.ok) state = ((await g.json()) as { state?: string }).state ?? state;
+  }
+  if (state !== "ACTIVE") throw new Error(`O áudio não ficou pronto no Gemini (estado ${state}).`);
+  return file.uri;
+}
+
+/**
+ * Transcreve o áudio de uma reunião presencial em texto pra ata. Só Gemini (o Claude não aceita
+ * áudio). Devolve uma transcrição fiel em português, marcando quem fala quando dá pra distinguir —
+ * é esse texto que depois vai pra "Enviar para ficha ClienteX" / "Extrair ações".
+ */
+export async function transcreverAudio(bytes: ArrayBuffer, mime: string | null, caminho = ""): Promise<{ error: string | null; texto: string }> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { error: "Transcrição por IA indisponível: falta GEMINI_API_KEY na Vercel.", texto: "" };
+  const mimeFinal = mimeAudioGemini(mime, caminho);
+  const prompt = `Transcreva este áudio de uma reunião de trabalho em português do Brasil. Regras:
+- Transcrição FIEL do que foi dito, sem resumir e sem inventar. Não corte partes.
+- Quando der pra distinguir quem fala, marque "TFO:" (quem conduz, da The Fashion Office) e "Marca:" (a pessoa da marca entrevistada). Se não der pra distinguir, transcreva corrido.
+- Pode limpar vícios de fala repetidos ("é… é…", "né, né") pra ficar legível, sem mudar o sentido.
+- Devolva só a transcrição, sem comentários seus.`;
+
+  let fileUri: string;
+  try {
+    fileUri = await subirAudioGemini(bytes, mimeFinal, key);
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.error("Erro ao subir áudio pro Gemini:", motivo);
+    return { error: motivo.slice(0, 260), texto: "" };
+  }
+
+  let ultimoErro = "";
+  for (const modelo of GEMINI_MODELOS_AUDIO) {
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": key, "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }, { file_data: { mime_type: mimeFinal, file_uri: fileUri } }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 32000 },
+      }),
+    });
+    if (resp.ok) {
+      const dados = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; promptFeedback?: { blockReason?: string } };
+      const saida = (dados.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+      if (!saida && dados.promptFeedback?.blockReason) return { error: `Gemini bloqueou o áudio (${dados.promptFeedback.blockReason}).`, texto: "" };
+      if (!saida) { ultimoErro = `Gemini ${modelo} devolveu transcrição vazia`; continue; }
+      return { error: null, texto: saida };
+    }
+    const corpo = (await resp.text()).slice(0, 300);
+    ultimoErro = `Gemini ${modelo} → HTTP ${resp.status}: ${corpo}`;
+    const erroDeModelo = resp.status === 404 || (resp.status === 400 && /model/i.test(corpo));
+    if (!erroDeModelo) break;
+  }
+  console.error("Erro na transcrição (Gemini):", ultimoErro);
+  return { error: `A IA não transcreveu o áudio: ${ultimoErro.slice(0, 220)}`, texto: "" };
 }

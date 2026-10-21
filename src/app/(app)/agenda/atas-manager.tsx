@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useRef, useState, useTransition } from "react";
-import { salvarAta, excluirAta, sugerirAcoesDaAta, criarTarefasDaAta, enviarAtaParaClienteX, type ActionState } from "./atas-actions";
+import { salvarAta, excluirAta, sugerirAcoesDaAta, criarTarefasDaAta, enviarAtaParaClienteX, iniciarUploadAudio, transcreverAudioAta, type ActionState } from "./atas-actions";
 import type { AcaoSugerida } from "@/lib/ia";
+import { createClient } from "@/lib/supabase/client";
 
 export type Ata = {
   id: string;
@@ -192,8 +193,39 @@ function AtaForm({
   onDone: () => void;
 }) {
   const [state, formAction, pending] = useActionState(salvarAta, initialState);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [audio, setAudio] = useState<{ estado: "idle" | "enviando" | "transcrevendo" | "ok" | "erro"; msg?: string }>({ estado: "idle" });
+  const ocupadoAudio = audio.estado === "enviando" || audio.estado === "transcrevendo";
 
   if (state.success) onDone();
+
+  // Presencial: o navegador manda o áudio direto pro Storage (upload assinado), a IA transcreve e o
+  // texto cai no campo da ata. Daí seguem os mesmos botões ("Enviar para ficha ClienteX" etc.).
+  async function anexarAudio(file: File) {
+    setAudio({ estado: "enviando" });
+    const ini = await iniciarUploadAudio(file.name);
+    if (ini.error || !ini.caminho || !ini.token) {
+      setAudio({ estado: "erro", msg: ini.error ?? "Não consegui preparar o upload." });
+      return;
+    }
+    const { error: upErr } = await createClient().storage.from("comprovantes").uploadToSignedUrl(ini.caminho, ini.token, file, { contentType: file.type || undefined });
+    if (upErr) {
+      setAudio({ estado: "erro", msg: "Não consegui enviar o áudio. Tente de novo." });
+      return;
+    }
+    setAudio({ estado: "transcrevendo" });
+    const r = await transcreverAudioAta(ini.caminho, file.type || "");
+    if (r.error || !r.texto) {
+      setAudio({ estado: "erro", msg: r.error ?? "Não consegui transcrever o áudio." });
+      return;
+    }
+    const ta = textareaRef.current;
+    if (ta) {
+      const atual = ta.value.trim();
+      ta.value = atual ? `${atual}\n\n${r.texto}` : r.texto;
+    }
+    setAudio({ estado: "ok" });
+  }
 
   return (
     <form action={formAction} className="mt-2 flex flex-col gap-2 rounded-lg border border-border-soft bg-bg p-3">
@@ -206,9 +238,34 @@ function AtaForm({
         <label className="mb-1 block text-[10px] text-text-faint">Participantes (opcional)</label>
         <input name="participantes" type="text" defaultValue={ataExistente?.participantes ?? ""} placeholder="Nomes separados por vírgula" className="input w-full" />
       </div>
+
+      <div className="rounded-lg border border-border-soft bg-surface p-2.5">
+        <p className="text-[11px] font-medium">Reunião presencial? Anexe o áudio e a IA transcreve pra ata.</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <label className={`cursor-pointer rounded-lg border border-primary-fill px-3 py-1.5 text-[11px] font-medium text-primary-deep ${ocupadoAudio ? "opacity-60" : ""}`}>
+            {audio.estado === "enviando" ? "Enviando áudio…" : audio.estado === "transcrevendo" ? "Transcrevendo com IA…" : "Anexar áudio e transcrever"}
+            <input
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              disabled={ocupadoAudio}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) anexarAudio(f);
+              }}
+            />
+          </label>
+          {audio.estado === "transcrevendo" && <span className="text-[10.5px] text-text-muted">Pode levar até 1–2 min — não feche a página.</span>}
+          {audio.estado === "ok" && <span className="text-[10.5px] text-success">Transcrição adicionada à ata — revise abaixo e salve.</span>}
+        </div>
+        {audio.estado === "erro" && <p className="mt-1 text-[10.5px] text-danger">{audio.msg}</p>}
+      </div>
+
       <div>
-        <label className="mb-1 block text-[10px] text-text-faint">Ata (cole ou digite)</label>
+        <label className="mb-1 block text-[10px] text-text-faint">Ata (cole, digite ou gere pelo áudio acima)</label>
         <textarea
+          ref={textareaRef}
           name="conteudo"
           rows={6}
           required

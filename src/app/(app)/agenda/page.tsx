@@ -8,6 +8,10 @@ import { FathomCard } from "./fathom-card";
 import { fathomApiConfigurada } from "@/lib/fathom";
 import type { TarefaComPrazo } from "./calendario-semana";
 
+// Transcrever o áudio de uma reunião presencial (ação na ata) pode levar 1–2 min; o padrão da
+// Vercel é curto demais. 300s é o teto do plano Pro.
+export const maxDuration = 300;
+
 const DIAS_A_FRENTE_LISTAGEM = 30;
 
 /** Domingo 00:00 da semana corrente, no horário de São Paulo (-03:00, sem horário de verão). */

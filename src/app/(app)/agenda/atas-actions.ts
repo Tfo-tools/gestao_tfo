@@ -1,8 +1,10 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { extrairAcoesDaAta, type AcaoSugerida } from "@/lib/ia";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { extrairAcoesDaAta, transcreverAudio, transcricaoConfigurada, type AcaoSugerida } from "@/lib/ia";
 import { buscarTranscricaoFathom, transcricaoParaTexto } from "@/lib/fathom";
 import { importarEntrevistaParaForms, type SaidaImportacao } from "@/lib/clientex-importar";
 import { notasPerfilParaTexto } from "@/lib/roteiro-perfil";
@@ -135,4 +137,44 @@ export async function enviarAtaParaClienteX(ataId: string): Promise<SaidaImporta
   revalidatePath("/agenda");
   revalidatePath("/tarefas");
   return saida;
+}
+
+/**
+ * Reunião presencial: o navegador manda o áudio direto pro Storage (sem passar pelo limite da
+ * Vercel). Esta ação só reserva o caminho e devolve o token do upload assinado — o mesmo padrão dos
+ * anexos de tarefa. O bucket é o "comprovantes" (já existe), numa pasta "audios/".
+ */
+export async function iniciarUploadAudio(nomeArquivo: string): Promise<{ error: string | null; caminho?: string; token?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada." };
+  if (!transcricaoConfigurada()) return { error: "Transcrição por IA indisponível (falta configurar a chave do Gemini)." };
+  const ext = (nomeArquivo.split(".").pop() ?? "audio").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "audio";
+  const caminho = `audios/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
+  const { data, error } = await supabase.storage.from("comprovantes").createSignedUploadUrl(caminho);
+  if (error || !data) return { error: "Não consegui preparar o upload do áudio." };
+  return { error: null, caminho: data.path, token: data.token };
+}
+
+/**
+ * Baixa o áudio do Storage e manda pra IA transcrever; devolve o texto pra preencher a ata. Apaga o
+ * áudio do Storage depois (o texto fica na ata — não precisa guardar o arquivo). Roda sob
+ * maxDuration=300 da página da Agenda, porque transcrever ~45 min leva até ~1-2 min.
+ */
+export async function transcreverAudioAta(caminho: string, mime: string): Promise<{ error: string | null; texto?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada." };
+  if (!transcricaoConfigurada()) return { error: "Transcrição por IA indisponível (falta configurar a chave do Gemini)." };
+
+  const admin = createAdminClient();
+  const { data: blob, error: erroDownload } = await admin.storage.from("comprovantes").download(caminho);
+  if (erroDownload || !blob) return { error: "Não achei o áudio que foi enviado — tente anexar de novo." };
+
+  const bytes = await blob.arrayBuffer();
+  const r = await transcreverAudio(bytes, mime || blob.type || null, caminho);
+  // Limpa o áudio do Storage de qualquer jeito (deu certo ou não): o texto transcrito fica na ata.
+  await admin.storage.from("comprovantes").remove([caminho]);
+  if (r.error) return { error: r.error };
+  return { error: null, texto: r.texto };
 }
