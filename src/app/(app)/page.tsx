@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 const EXTERNOS = [
   // A raiz do forms é a página do RESPONDENTE (exige ?t= pessoal e mostra "Link incompleto");
   // o painel da equipe fica em /painel. /api/forms/entrar faz o login lá com a sessão do Gestão.
-  { nome: "Forms", descricao: "Painel dos levantamentos: ICP, triagem e termo", href: "/api/forms/entrar", sigla: "F" },
+  { nome: "ClienteX", descricao: "Painel dos levantamentos: fichas, triagem e termo", href: "/api/forms/entrar", sigla: "CX" },
   { nome: "Eventos", descricao: "Contatos de feiras, offline, com cupom", href: "https://eventos.thefashionoffice.online", sigla: "E" },
   // Propostas comerciais moram em comercial.thefashionoffice.online (banco separado, o do Forms);
   // /api/comercial/entrar leva pra lá já logada com a sessão do Gestão.
