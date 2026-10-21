@@ -18,6 +18,12 @@ type Pessoa = { id: string; nome: string };
 
 const initialState: ActionState = { error: null };
 
+/** Deixa a ata mais limpa: troca link markdown "[texto](url)" por só o "texto" (o resumo do Fathom vem
+ * com links de timestamp). Mantém URLs cruas (ex.: "Gravação completa: https://…"). */
+function limparAta(texto: string): string {
+  return texto.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+}
+
 /** Atas que chegaram pelo webhook do Fathom e não casaram com nenhuma reunião marcada no app nem
  * compromisso do Google (reuniao_id e google_event_id nulos). Ficam numa seção própria no topo da
  * Agenda; "Extrair ações (IA)" continua disponível pra reprocessar, embora as tarefas já tenham
@@ -304,7 +310,7 @@ export function AtaConteudo({
   return (
     <div className="mt-2 rounded-lg border border-border-soft bg-bg p-3">
       {ata.participantes && <p className="mb-1.5 text-[11px] text-text-muted">Participantes: {ata.participantes}</p>}
-      <p className="mb-2.5 whitespace-pre-wrap text-[12px] text-text">{ata.conteudo}</p>
+      <p className="mb-2.5 whitespace-pre-wrap text-[12px] text-text">{limparAta(ata.conteudo)}</p>
 
       <div className="flex flex-wrap items-center gap-2.5">
         <button

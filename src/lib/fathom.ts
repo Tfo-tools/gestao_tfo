@@ -88,7 +88,8 @@ export function montarAta(payload: FathomPayload): { titulo: string; data_reunia
   const participantes = nomes.length > 0 ? nomes.join(", ") : null;
 
   const partes: string[] = [];
-  const resumo = payload.default_summary?.markdown_formatted?.trim();
+  // Tira o link markdown "[texto](url)" do resumo do Fathom, deixando só o texto.
+  const resumo = payload.default_summary?.markdown_formatted?.trim().replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
   if (resumo) partes.push(`## Resumo (Fathom)\n${resumo}`);
   const acoes = (payload.action_items ?? []).map((a) => a.description?.trim()).filter((d): d is string => Boolean(d));
   if (acoes.length > 0) partes.push(`## Ações marcadas pelo Fathom\n${acoes.map((a) => `- ${a}`).join("\n")}`);
