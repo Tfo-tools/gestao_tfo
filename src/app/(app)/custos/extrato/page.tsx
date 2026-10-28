@@ -357,7 +357,6 @@ export default async function ExtratoPage({
                   key={d.id}
                   despesa={d as unknown as DespesaRowData}
                   planoContas={planoContas ?? []}
-                  produtos={produtos ?? []}
                   pagadores={pagadores}
                   fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
                   variante="ratear"

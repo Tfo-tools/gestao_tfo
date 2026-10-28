@@ -7,7 +7,6 @@ import { atualizarRecorrente, type DespesaFormState } from "../actions";
 import { categoriaDeConta, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
-type Produto = { id: string; nome: string };
 
 export type RecorrenteRowData = {
   id: string;
@@ -36,12 +35,10 @@ const initialState: DespesaFormState = { error: null };
 export function RecorrenteRow({
   recorrente,
   planoContas,
-  produtos,
   pagadores,
 }: {
   recorrente: RecorrenteRowData;
   planoContas: PlanoContas[];
-  produtos: Produto[];
   pagadores: string[];
 }) {
   const [editando, setEditando] = useState(false);
@@ -87,26 +84,11 @@ export function RecorrenteRow({
                 ))}
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-[10.5px] text-text-faint">Produto(s)</label>
-              <div className="flex flex-wrap gap-1.5">
-                {produtos.map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] has-[:checked]:border-primary-fill has-[:checked]:bg-primary-soft has-[:checked]:text-primary-deep"
-                  >
-                    <input
-                      type="checkbox"
-                      name="produtos"
-                      value={p.id}
-                      defaultChecked={recorrente.produtoIds.includes(p.id)}
-                      className="h-3 w-3 rounded border-border"
-                    />
-                    {p.nome}
-                  </label>
-                ))}
-              </div>
-            </div>
+            {/* Vínculo com produto saiu da UI (plataforma única). Os produtos já vinculados seguem em
+                campos ocultos pra editar não apagar o histórico. */}
+            {recorrente.produtoIds.map((id) => (
+              <input key={id} type="hidden" name="produtos" value={id} />
+            ))}
             <div className="min-w-[160px] flex-1">
               <label className="mb-1 block text-[10.5px] text-text-faint">Descrição</label>
               <input name="descricao" type="text" defaultValue={recorrente.descricao} required className="input w-full" />

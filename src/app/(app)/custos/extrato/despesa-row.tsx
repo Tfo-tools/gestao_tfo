@@ -10,7 +10,6 @@ import { DetalhePagamento, EfetivacaoPagamento, LABEL_FORMA, type ItemPagamento,
 import type { MeioPagamento } from "../meios-pagamento-actions";
 
 type PlanoContas = { id: string; codigo: string; conta: string };
-type Produto = { id: string; nome: string };
 type Pessoa = { id: string; nome: string };
 type Anexo = { id?: string; caminho_arquivo: string; nome_arquivo: string; tipo?: string };
 export type PagamentoDetalheRow = {
@@ -56,7 +55,6 @@ const initialState: DespesaFormState = { error: null };
 export function DespesaRow({
   despesa,
   planoContas,
-  produtos,
   pagadores,
   fechado,
   variante = "parcelar",
@@ -70,7 +68,6 @@ export function DespesaRow({
   programas?: { id: string; nome: string }[];
   despesa: DespesaRowData;
   planoContas: PlanoContas[];
-  produtos: Produto[];
   pagadores: string[];
   fechado: boolean;
   /** No Extrato o rateio entre sócias substitui o parcelamento — a forma de pagamento vai
@@ -162,26 +159,11 @@ export function DespesaRow({
                 ))}
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-[10.5px] text-text-faint">Produto(s)</label>
-              <div className="flex flex-wrap gap-1.5">
-                {produtos.map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] has-[:checked]:border-primary-fill has-[:checked]:bg-primary-soft has-[:checked]:text-primary-deep"
-                  >
-                    <input
-                      type="checkbox"
-                      name="produtos"
-                      value={p.id}
-                      defaultChecked={produtoIdsVinculados.has(p.id)}
-                      className="h-3 w-3 rounded border-border"
-                    />
-                    {p.nome}
-                  </label>
-                ))}
-              </div>
-            </div>
+            {/* Vínculo com produto foi removido da UI (agora é uma plataforma só). Os produtos que a
+                despesa já tinha seguem em campos ocultos pra editar não apagar o histórico. */}
+            {[...produtoIdsVinculados].map((id) => (
+              <input key={id} type="hidden" name="produtos" value={id} />
+            ))}
             <div>
               <label className="mb-1 block text-[10.5px] text-text-faint">Pagador</label>
               <select name="pagador" value={pagadorEditado} onChange={(e) => setPagadorEditado(e.target.value)} className="input w-[140px]">

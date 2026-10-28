@@ -17,14 +17,13 @@ export default async function LancamentosPage() {
   } = await supabase.auth.getUser();
   const { data: perfilAtual } = user ? await supabase.from("profiles").select("nome").eq("id", user.id).single() : { data: null };
 
-  const [{ data: planoContas }, { data: produtos }, { data: despesas }, { data: profiles }, { data: todasDespesasContas }, { data: mesesFechadosRaw }, { data: meiosPagamento }] =
+  const [{ data: planoContas }, { data: despesas }, { data: profiles }, { data: todasDespesasContas }, { data: mesesFechadosRaw }, { data: meiosPagamento }] =
     await Promise.all([
       supabase
         .from("plano_contas")
         .select("id, codigo, conta, tipo")
         .in("tipo", ["cogs", "opex", "financeiro", "ativo"])
         .order("codigo"),
-      supabase.from("produtos").select("id, nome").order("nome"),
       supabase
         .from("despesas")
         .select(
@@ -105,7 +104,6 @@ export default async function LancamentosPage() {
                     key={d.id}
                     despesa={d as unknown as DespesaRowData}
                     planoContas={planoContas ?? []}
-                    produtos={produtos ?? []}
                     pagadores={pagadores}
                     fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
                     meiosPagamento={meiosPagamento ?? []}

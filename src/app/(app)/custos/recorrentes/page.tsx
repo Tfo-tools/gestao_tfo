@@ -12,9 +12,8 @@ export default async function RecorrentesPage({
   const { tipo, ordem } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: planoContas }, { data: produtos }, { data: profiles }, { data: recorrentes }] = await Promise.all([
+  const [{ data: planoContas }, { data: profiles }, { data: recorrentes }] = await Promise.all([
     supabase.from("plano_contas").select("id, codigo, conta, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
-    supabase.from("produtos").select("id, nome").order("nome"),
     supabase.from("profiles").select("nome").order("nome"),
     supabase
       .from("despesas_recorrentes")
@@ -81,7 +80,7 @@ export default async function RecorrentesPage({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             produtoNomes: produtosLigados.map((p: any) => p.nome),
           };
-          return <RecorrenteRow key={rr.id} recorrente={dado} planoContas={planoContas ?? []} produtos={produtos ?? []} pagadores={pagadores} />;
+          return <RecorrenteRow key={rr.id} recorrente={dado} planoContas={planoContas ?? []} pagadores={pagadores} />;
         })}
       </tbody>
     </table>
