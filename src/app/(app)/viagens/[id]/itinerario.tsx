@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { salvarItem, excluirItem, iniciarUploadEticket, lerEticket, registrarAnexo, excluirAnexo, urlAnexo, lancarDespesaDoItem } from "../actions";
 import type { TipoItemViagem } from "@/lib/viagens-ia";
+import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
 
 export type ItemViagem = {
   id: string;
@@ -82,6 +83,8 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
   const [status, setStatus] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, startSalvar] = useTransition();
+  // Assistente guiado é o padrão; "preencher no formulário" abre o formulário clássico.
+  const [modoFormulario, setModoFormulario] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const anexosDoItem = (itemId: string) => anexos.filter((a) => a.item_id === itemId);
@@ -89,6 +92,7 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
 
   async function anexarEticket(file: File) {
     setErro(null);
+    setModoFormulario(false);
     setStatus("Enviando e-ticket…");
     const ini = await iniciarUploadEticket(viagemId, file.name);
     if (ini.error || !ini.caminho || !ini.token) { setStatus(null); setErro(ini.error ?? "Falha ao enviar."); return; }
@@ -107,26 +111,66 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
     setForm({ viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: it.observacoes, valor: it.valor, participantes: todosIds, anexo });
   }
 
+  // Salva um rascunho (vindo do formulário OU do assistente) e devolve o erro, se houver.
+  async function persistir(r: Rascunho): Promise<{ error?: string }> {
+    const res = await salvarItem({
+      id: r.id,
+      viagemId,
+      tipo: (r.tipo ?? "outro") as TipoItemViagem,
+      titulo: r.titulo ?? "",
+      fornecedor: r.fornecedor, inicio: r.inicio, fim: r.fim, origem: r.origem,
+      destino: r.destino, local: r.local, localizador: r.localizador, endereco: r.endereco,
+      observacoes: r.observacoes, valor: r.valor,
+      participantes: r.participantes ?? todosIds,
+    });
+    if (res.error || !res.id) return { error: res.error ?? "Não consegui salvar." };
+    if (r.anexo) await registrarAnexo(viagemId, res.id, r.anexo.caminho, r.anexo.nome, r.anexo.mime, r.anexo.tamanho);
+    setForm(null);
+    router.refresh();
+    return {};
+  }
+
   function salvar() {
     if (!form) return;
     setErro(null);
     startSalvar(async () => {
-      const r = await salvarItem({
-        id: form.id,
-        viagemId,
-        tipo: (form.tipo ?? "outro") as TipoItemViagem,
-        titulo: form.titulo ?? "",
-        fornecedor: form.fornecedor, inicio: form.inicio, fim: form.fim, origem: form.origem,
-        destino: form.destino, local: form.local, localizador: form.localizador, endereco: form.endereco,
-        observacoes: form.observacoes, valor: form.valor,
-        participantes: form.participantes ?? todosIds,
-      });
-      if (r.error || !r.id) { setErro(r.error ?? "Não consegui salvar."); return; }
-      if (form.anexo) await registrarAnexo(viagemId, r.id, form.anexo.caminho, form.anexo.nome, form.anexo.mime, form.anexo.tamanho);
-      setForm(null);
-      router.refresh();
+      const e = await persistir(form);
+      if (e.error) setErro(e.error);
     });
   }
+
+  // form (Rascunho) ⇄ respostas do assistente.
+  const respostasDoForm = (f: Rascunho): Respostas => ({
+    tipo: f.tipo ?? "voo",
+    titulo: f.titulo ?? "",
+    fornecedor: f.fornecedor ?? null,
+    inicio: paraInput(f.inicio) || null,
+    fim: paraInput(f.fim) || null,
+    origem: f.origem ?? null,
+    destino: f.destino ?? null,
+    endereco: f.endereco ?? null,
+    localizador: f.localizador ?? null,
+    participantes: f.participantes ?? todosIds,
+    valor: f.valor ?? null,
+    observacoes: f.observacoes ?? null,
+  });
+  const montarRascunho = (r: Respostas): Rascunho => ({
+    id: form?.id,
+    viagemId,
+    tipo: (r.tipo as string) || "outro",
+    titulo: (r.titulo as string) || "",
+    fornecedor: (r.fornecedor as string) || null,
+    inicio: (r.inicio as string) || null,
+    fim: (r.fim as string) || null,
+    origem: (r.origem as string) || null,
+    destino: (r.destino as string) || null,
+    endereco: (r.endereco as string) || null,
+    localizador: (r.localizador as string) || null,
+    observacoes: (r.observacoes as string) || null,
+    valor: r.valor == null || r.valor === "" ? null : Number(r.valor),
+    participantes: Array.isArray(r.participantes) ? r.participantes : todosIds,
+    anexo: form?.anexo,
+  });
 
   function remover(item: ItemViagem) {
     if (!confirm(`Remover "${item.titulo}"?`)) return;
@@ -163,6 +207,24 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
 
   const campo = (k: CampoTexto, v: string) => setForm((f) => ({ ...(f ?? { viagemId }), [k]: v }));
 
+  // Roteiro do assistente guiado pra um item do itinerário.
+  const temLugar = (r: Respostas) => ["hospedagem", "evento", "carro"].includes(String(r.tipo));
+  const temRota = (r: Respostas) => ["voo", "transporte"].includes(String(r.tipo));
+  const stepsItem: PassoGuiado[] = [
+    { id: "tipo", pergunta: "Que tipo de item é esse?", rotulo: "Tipo", tipo: "opcoes", obrigatorio: true, opcoes: TIPOS.map((t) => ({ valor: t.v, rotulo: t.l })) },
+    { id: "titulo", pergunta: "Dá um nome pra esse item", rotulo: "Título", tipo: "texto", obrigatorio: true, placeholder: "Ex.: Voo GRU → REC", ajuda: "É como ele aparece no itinerário." },
+    { id: "fornecedor", pergunta: "Qual a companhia / hotel / fornecedor?", rotulo: "Fornecedor", tipo: "texto", placeholder: "Companhia aérea, hotel, locadora…" },
+    { id: "inicio", pergunta: "Quando começa?", rotulo: "Início", tipo: "datahora", ajuda: "Embarque, check-in, início do evento…" },
+    { id: "fim", pergunta: "Quando termina?", rotulo: "Fim", tipo: "datahora", quando: temLugar, ajuda: "Check-out, devolução, fim do evento." },
+    { id: "origem", pergunta: "Saindo de onde?", rotulo: "Origem", tipo: "texto", quando: temRota, placeholder: "Cidade ou aeroporto de origem" },
+    { id: "destino", pergunta: "Indo pra onde?", rotulo: "Destino", tipo: "texto", quando: temRota, placeholder: "Cidade ou aeroporto de destino" },
+    { id: "endereco", pergunta: "Qual o endereço?", rotulo: "Endereço", tipo: "texto", quando: temLugar, placeholder: "Endereço do hotel / local", ajuda: "Pra abrir no Maps/Waze durante a viagem." },
+    { id: "localizador", pergunta: "Tem localizador / código de reserva?", rotulo: "Localizador", tipo: "texto", placeholder: "Ex.: ABC123" },
+    { id: "participantes", pergunta: "Quem está neste trecho?", rotulo: "Quem vai", tipo: "multi", quando: () => participantesViagem.length > 0, padrao: todosIds, opcoes: participantesViagem.map((p) => ({ valor: p.id, rotulo: cap(p.nome) })), ajuda: "Começa com todas — desmarque quem não estiver nesse trecho." },
+    { id: "valor", pergunta: "Quanto custou? (opcional)", rotulo: "Valor", tipo: "dinheiro", ajuda: "Se preencher, dá pra lançar no Custos depois." },
+    { id: "observacoes", pergunta: "Alguma observação?", rotulo: "Obs.", tipo: "texto", placeholder: "Assento, portão, telefone do hotel…" },
+  ];
+
   return (
     <div className="flex flex-col gap-4">
       {!form && (
@@ -172,17 +234,34 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
             <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" disabled={!!status}
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) anexarEticket(f); }} />
           </label>
-          <button type="button" onClick={() => setForm({ viagemId, tipo: "voo", titulo: "", participantes: todosIds })} className="rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
-            Adicionar manual
+          <button type="button" onClick={() => { setModoFormulario(false); setForm({ viagemId, tipo: "voo", titulo: "", participantes: todosIds }); }} className="rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
+            Adicionar item
           </button>
           {status && <span className="text-[11.5px] text-text-muted">{status}</span>}
         </div>
       )}
       {erro && <p className="text-[12px] text-danger">{erro}</p>}
 
-      {form && (
+      {form && !modoFormulario && (
+        <AssistenteGuiado
+          key={form.id ?? form.anexo?.caminho ?? "novo"}
+          titulo={form.id ? "Editar item" : form.anexo ? "E-ticket lido — confira e complete" : "Novo item do itinerário"}
+          passos={stepsItem}
+          respostasIniciais={respostasDoForm(form)}
+          pularPreenchidos={!!form.anexo}
+          onSalvar={(r) => persistir(montarRascunho(r))}
+          onFormularioDireto={() => setModoFormulario(true)}
+          onCancelar={() => { setForm(null); setErro(null); }}
+          rotuloSalvar="Salvar item"
+        />
+      )}
+
+      {form && modoFormulario && (
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-          <h2 className="font-heading text-sm font-semibold">{form.id ? "Editar item" : "Novo item"}{form.anexo ? " · e-ticket anexado" : ""}</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-heading text-sm font-semibold">{form.id ? "Editar item" : "Novo item"}{form.anexo ? " · e-ticket anexado" : ""}</h2>
+            <button type="button" onClick={() => setModoFormulario(false)} className="text-[11.5px] text-text-muted underline underline-offset-2">usar o assistente</button>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-[12px]">Tipo
               <select value={form.tipo ?? "voo"} onChange={(e) => campo("tipo", e.target.value)} className="input">
@@ -307,7 +386,7 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
                         )}
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1.5">
-                        <button type="button" onClick={() => setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: obs, valor: it.detalhes?.valor ?? null, participantes: participantesPorItem[it.id]?.length ? participantesPorItem[it.id] : todosIds })} className="text-[11.5px] font-medium text-primary-deep">Editar</button>
+                        <button type="button" onClick={() => { setModoFormulario(false); setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: obs, valor: it.detalhes?.valor ?? null, participantes: participantesPorItem[it.id]?.length ? participantesPorItem[it.id] : todosIds }); }} className="text-[11.5px] font-medium text-primary-deep">Editar</button>
                         <button type="button" onClick={() => remover(it)} className="text-[11.5px] font-medium text-danger">Remover</button>
                       </div>
                     </div>
