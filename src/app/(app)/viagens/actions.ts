@@ -72,6 +72,12 @@ export async function salvarItem(input: ItemInput): Promise<{ error: string | nu
     const s = String(v ?? "").trim();
     return s ? new Date(s).toISOString() : null;
   };
+  // Ao editar, preserva o vínculo com a despesa já lançada (detalhes.despesa_id).
+  let despesaIdExistente: string | null = null;
+  if (input.id) {
+    const { data: atual } = await supabase.from("viagem_itens").select("detalhes").eq("id", input.id).maybeSingle();
+    despesaIdExistente = ((atual?.detalhes ?? {}) as { despesa_id?: string }).despesa_id ?? null;
+  }
   const campos = {
     viagem_id: input.viagemId,
     tipo: input.tipo ?? "outro",
@@ -84,7 +90,7 @@ export async function salvarItem(input: ItemInput): Promise<{ error: string | nu
     local: input.local?.trim() || null,
     localizador: input.localizador?.trim() || null,
     endereco: input.endereco?.trim() || null,
-    detalhes: { observacoes: input.observacoes?.trim() || null, valor: typeof input.valor === "number" ? input.valor : null },
+    detalhes: { observacoes: input.observacoes?.trim() || null, valor: typeof input.valor === "number" ? input.valor : null, despesa_id: despesaIdExistente },
   };
   if (input.id) {
     const { error } = await supabase.from("viagem_itens").update({ ...campos, updated_at: new Date().toISOString() }).eq("id", input.id);
@@ -170,4 +176,48 @@ export async function excluirAnexo(id: string, caminho: string, viagemId: string
   await createAdminClient().storage.from("comprovantes").remove([caminho]);
   revalidatePath(`/viagens/${viagemId}`);
   return { error: null };
+}
+
+// Conta do plano de contas por tipo de item (classificação pela natureza — não há conta "Viagens").
+const CONTA_POR_TIPO: Record<string, string> = {
+  voo: "2df5c9c6-d529-4441-9d9a-9da7fff18b94", // 2.3.7 Locomoção e Transporte
+  carro: "2df5c9c6-d529-4441-9d9a-9da7fff18b94",
+  transporte: "2df5c9c6-d529-4441-9d9a-9da7fff18b94",
+  hospedagem: "0096b299-d99d-4499-8599-53bf6bd0624b", // 2.3.8 Alimentação e Hospedagem
+  evento: "54c459b5-649d-4a7e-86ca-840eaa6d5e17", // 2.1.8 Feiras e Eventos Setoriais
+  seguro: "d893e912-d998-44ad-a249-76f6998355b0", // 2.3.9 Seguros
+  outro: "2df5c9c6-d529-4441-9d9a-9da7fff18b94",
+};
+
+/**
+ * Cria a despesa no Custos (Lançamentos) a partir de um item da viagem, já classificada na conta
+ * certa e ligada à viagem. Não duplica: guarda o despesa_id no item. O rateio entre sócias continua
+ * sendo feito no Extrato (botão "ratear"), como já funciona.
+ */
+export async function lancarDespesaDoItem(itemId: string): Promise<{ error: string | null; despesaId?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: item } = await supabase.from("viagem_itens").select("*, viagens(titulo)").eq("id", itemId).maybeSingle();
+  if (!item) return { error: "Item não encontrado." };
+  const det = (item.detalhes ?? {}) as { valor?: number; despesa_id?: string };
+  const valor = Number(det.valor);
+  if (!valor || valor <= 0) return { error: "Esse item não tem valor para lançar." };
+  if (det.despesa_id) return { error: "Esse item já foi lançado no Custos." };
+
+  const conta = CONTA_POR_TIPO[item.tipo] ?? CONTA_POR_TIPO.outro;
+  const dataGasto = (item.inicio ? new Date(item.inicio) : new Date()).toISOString().slice(0, 10);
+  const viagemTitulo = (item.viagens as { titulo?: string } | null)?.titulo ?? "";
+  const descricao = `Viagem: ${viagemTitulo} — ${item.titulo}`.trim();
+
+  const { data: desp, error } = await supabase
+    .from("despesas")
+    .insert({ data_gasto: dataGasto, plano_contas_id: conta, valor_total: valor, descricao, comprovado: false, criado_por: user?.id ?? null, viagem_id: item.viagem_id })
+    .select("id")
+    .single();
+  if (error || !desp) return { error: "Não consegui criar a despesa no Custos." };
+
+  await supabase.from("viagem_itens").update({ detalhes: { ...det, despesa_id: desp.id } }).eq("id", itemId);
+  revalidatePath(`/viagens/${item.viagem_id}`);
+  revalidatePath("/custos");
+  return { error: null, despesaId: desp.id };
 }

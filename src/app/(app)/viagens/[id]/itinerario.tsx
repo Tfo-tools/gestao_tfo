@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { salvarItem, excluirItem, iniciarUploadEticket, lerEticket, registrarAnexo, excluirAnexo, urlAnexo } from "../actions";
+import { salvarItem, excluirItem, iniciarUploadEticket, lerEticket, registrarAnexo, excluirAnexo, urlAnexo, lancarDespesaDoItem } from "../actions";
 import type { TipoItemViagem } from "@/lib/viagens-ia";
 
 export type ItemViagem = {
@@ -19,7 +19,7 @@ export type ItemViagem = {
   local: string | null;
   localizador: string | null;
   endereco: string | null;
-  detalhes: { observacoes?: string | null; valor?: number | null } | null;
+  detalhes: { observacoes?: string | null; valor?: number | null; despesa_id?: string | null } | null;
 };
 export type AnexoViagem = { id: string; item_id: string | null; nome_arquivo: string; caminho_arquivo: string; tipo_mime: string | null };
 
@@ -122,6 +122,15 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
     startSalvar(async () => { await excluirItem(item.id, viagemId); router.refresh(); });
   }
 
+  function lancar(item: ItemViagem) {
+    setErro(null);
+    startSalvar(async () => {
+      const r = await lancarDespesaDoItem(item.id);
+      if (r.error) setErro(r.error);
+      else router.refresh();
+    });
+  }
+
   async function abrir(caminho: string) {
     const url = await urlAnexo(caminho);
     if (url) window.open(url, "_blank", "noopener");
@@ -193,6 +202,9 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
             <label className="flex flex-col gap-1 text-[12px] sm:col-span-2">Endereço
               <input value={form.endereco ?? ""} onChange={(e) => campo("endereco", e.target.value)} className="input" placeholder="Endereço do hotel / local do evento" />
             </label>
+            <label className="flex flex-col gap-1 text-[12px]">Valor (R$) <span className="text-text-faint">(pra lançar no Custos)</span>
+              <input type="number" step="0.01" min="0" value={form.valor ?? ""} onChange={(e) => setForm((f) => ({ ...(f ?? { viagemId }), valor: e.target.value === "" ? null : Number(e.target.value) }))} className="input" placeholder="0,00" />
+            </label>
             <label className="flex flex-col gap-1 text-[12px] sm:col-span-2">Observações
               <input value={form.observacoes ?? ""} onChange={(e) => campo("observacoes", e.target.value)} className="input" placeholder="Assento, portão, check-in, telefone…" />
             </label>
@@ -247,6 +259,17 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
                             <button type="button" onClick={() => removerAnexo(a)} className="text-danger">remover</button>
                           </p>
                         ))}
+                        {it.detalhes?.valor != null && (
+                          <p className="mt-1 text-[11.5px]">
+                            <span className="text-text-muted">Valor: </span>
+                            <span className="font-medium">{it.detalhes.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>{" "}
+                            {it.detalhes.despesa_id ? (
+                              <span className="text-success">· ✓ no Custos</span>
+                            ) : (
+                              <button type="button" onClick={() => lancar(it)} className="font-medium text-primary-deep">· Lançar no Custos</button>
+                            )}
+                          </p>
+                        )}
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1.5">
                         <button type="button" onClick={() => setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: obs })} className="text-[11.5px] font-medium text-primary-deep">Editar</button>
