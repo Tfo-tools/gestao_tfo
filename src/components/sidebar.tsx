@@ -19,6 +19,7 @@ import {
   IconCheckSquare,
   IconSettings,
   IconCalendar,
+  IconPlane,
   IconGauge,
   IconCompare,
   IconPlus,
@@ -92,6 +93,7 @@ function montarGrupos(cenarios: CenarioMenu[], papel: string): { titulo: string;
         { kind: "link", href: "/", label: "Visão Geral", icon: IconHome },
         { kind: "link", href: "/tarefas", label: "Tarefas", icon: IconCheckSquare },
         { kind: "link", href: "/agenda", label: "Agenda", icon: IconCalendar },
+        { kind: "link", href: "/viagens", label: "Viagens", icon: IconPlane },
       ],
     },
     {

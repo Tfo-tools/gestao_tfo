@@ -28,6 +28,14 @@ export function IconCalendar(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
+export function IconPlane(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M17.8 19.2 16 11l3.5-3.5c1.5-1.5 2-3.4 1.5-4-1-.5-2.5 0-4 1.5L13 8.5 4.8 6.6c-.5-.1-.9.1-1.1.5l-.2.4c-.2.4-.1.9.3 1.2L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.3 4.8c.3.4.8.5 1.2.3l.4-.2c.4-.3.6-.7.5-1.2Z" />
+    </svg>
+  );
+}
+
 export function IconFunnel(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...props}>
