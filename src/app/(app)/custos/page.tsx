@@ -2,6 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { DespesaForm } from "./despesa-form";
 import { DespesaRow, type DespesaRowData } from "./extrato/despesa-row";
 
+// Ler a nota com IA (ação do formulário) pode levar até ~1 min; o padrão da Vercel é curto demais.
+export const maxDuration = 300;
+
 function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useRef, useState } from "react";
-import { criarLancamento, type DespesaFormState } from "./actions";
+import { criarLancamento, lerNotaDespesa, type DespesaFormState } from "./actions";
 import { BuscaConta } from "./busca-conta";
 import { PasteableFileInput } from "./pasteable-file-input";
 import { DetalhePagamento, EfetivacaoPagamento, type ItemPagamento } from "./detalhe-pagamento";
@@ -44,6 +44,26 @@ export function DespesaForm({
   const [itensPagamento, setItensPagamento] = useState<ItemPagamento[]>([]);
   const [comprovado, setComprovado] = useState(false);
   const [dataGasto, setDataGasto] = useState(() => new Date().toISOString().slice(0, 10));
+  const [descricao, setDescricao] = useState("");
+  // Leitura de nota com IA (preenche data/valor/descrição e sugere a conta).
+  const [lendoNota, setLendoNota] = useState(false);
+  const [notaErro, setNotaErro] = useState<string | null>(null);
+  const [sugestaoConta, setSugestaoConta] = useState<string | null>(null);
+  async function lerNota(file: File) {
+    setNotaErro(null);
+    setLendoNota(true);
+    const fd = new FormData();
+    fd.append("arquivo", file);
+    const r = await lerNotaDespesa(fd);
+    setLendoNota(false);
+    if (r.error || !r.nota) { setNotaErro(r.error ?? "Não consegui ler a nota."); return; }
+    const n = r.nota;
+    if (n.data) setDataGasto(n.data);
+    if (n.valor != null) setValorPago(String(n.valor));
+    const desc = n.descricao || n.fornecedor;
+    if (desc) setDescricao(desc);
+    setSugestaoConta(n.conta_codigo && n.conta_nome ? `${n.conta_codigo} — ${n.conta_nome}` : null);
+  }
   // Programa que a despesa comprova. Preenchido sozinho quando o pagamento sai da conta específica
   // do programa; depois que a pessoa mexe no campo, a escolha dela prevalece.
   const [programaId, setProgramaId] = useState("");
@@ -62,7 +82,16 @@ export function DespesaForm({
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-5 font-heading text-[14.5px] font-semibold">Novo lançamento</h2>
+      <h2 className="mb-3 font-heading text-[14.5px] font-semibold">Novo lançamento</h2>
+      <div className="mb-4 rounded-lg border border-border-soft bg-bg p-3">
+        <label className="cursor-pointer text-[12.5px] font-medium text-primary-deep">
+          {lendoNota ? "Lendo a nota com IA… (pode levar até 1 min)" : "Ler nota/comprovante com IA (preenche os campos)"}
+          <input type="file" accept="application/pdf,image/*" className="hidden" disabled={lendoNota}
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) lerNota(f); }} />
+        </label>
+        <p className="mt-0.5 text-[10.5px] text-text-faint">Anexe a NF/recibo: a IA preenche data, valor e descrição e sugere a conta. Você confere antes de salvar.</p>
+        {notaErro && <p className="mt-1 text-[11px] text-danger">{notaErro}</p>}
+      </div>
       <form
         ref={formRef}
         action={async (formData) => {
@@ -78,6 +107,8 @@ export function DespesaForm({
           setProgramaTocado(false);
           setPagador(pagadorPadrao);
           setDataGasto(new Date().toISOString().slice(0, 10));
+          setDescricao("");
+          setSugestaoConta(null);
           setBuscaKey((k) => k + 1);
           setPagamentoKey((k) => k + 1);
         }}
@@ -126,6 +157,7 @@ export function DespesaForm({
 
         <Field label="Do que se trata esse gasto?">
           <BuscaConta key={buscaKey} planoContas={planoContas} usoPorConta={usoPorConta} />
+          {sugestaoConta && <p className="mt-1 text-[11px] text-primary-deep">Sugestão da IA: <b>{sugestaoConta}</b> — selecione acima.</p>}
         </Field>
 
         <Field label="Produto(s) vinculado(s) (opcional)">
@@ -241,7 +273,7 @@ export function DespesaForm({
         )}
 
         <Field label={recorrente ? "Descrição" : "Descrição (opcional)"}>
-          <input name="descricao" type="text" required={recorrente} className="input" placeholder="Ex: campanha Meta Ads agosto" />
+          <input name="descricao" type="text" required={recorrente} value={descricao} onChange={(e) => setDescricao(e.target.value)} className="input" placeholder="Ex: campanha Meta Ads agosto" />
         </Field>
 
         {recorrente ? (

@@ -5,8 +5,27 @@ import { createClient } from "@/lib/supabase/server";
 import { congelarPlanoDoMes } from "@/lib/acompanhamento-plano";
 import { cicloValido, datasDasParcelas } from "@/lib/fatura-cartao";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
+import { lerNotaFiscal, notaIaConfigurada, type NotaExtraida } from "@/lib/custos-ia";
 
 const FORMAS_CARTAO = new Set(["cartao_credito_socias", "cartao_corporativo"]);
+
+/** Lê uma nota/comprovante com IA e devolve os campos pra preencher o lançamento (data/valor/
+ * descrição) + sugestão de conta. A sócia confere tudo antes de salvar. */
+export async function lerNotaDespesa(formData: FormData): Promise<{ error: string | null; nota?: NotaExtraida & { conta_nome: string | null } }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada." };
+  if (!notaIaConfigurada()) return { error: "Leitura por IA indisponível (falta a chave do Gemini)." };
+  const file = formData.get("arquivo");
+  if (!(file instanceof File) || file.size === 0) return { error: "Escolha um arquivo." };
+  if (file.size > 10 * 1024 * 1024) return { error: "Arquivo muito grande para ler pela IA (máx 10 MB)." };
+  const { data: contas } = await supabase.from("plano_contas").select("codigo, conta").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo");
+  const lista = (contas ?? []) as { codigo: string; conta: string }[];
+  const r = await lerNotaFiscal(await file.arrayBuffer(), file.type || "application/pdf", lista);
+  if (r.error || !r.nota) return { error: r.error ?? "Não consegui ler a nota." };
+  const conta_nome = r.nota.conta_codigo ? lista.find((c) => c.codigo === r.nota!.conta_codigo)?.conta ?? null : null;
+  return { error: null, nota: { ...r.nota, conta_nome } };
+}
 
 export type DespesaFormState = { error: string | null; success?: boolean };
 
