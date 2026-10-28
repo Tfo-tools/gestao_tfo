@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lerDocumentoViagem, leituraViagemConfigurada, type ItemViagemExtraido, type TipoItemViagem } from "@/lib/viagens-ia";
+import { enviarPush } from "@/lib/push";
 
 export type ViagemFormState = { error: string | null; id?: string };
 
@@ -57,6 +58,27 @@ export async function atualizarDadosViagem(
   revalidatePath("/viagens");
   revalidatePath(`/viagens/${id}`);
   return { error: null };
+}
+
+/**
+ * Avisa por push TODOS os usuários do app (menos quem criou) que entrou uma viagem nova — assim a
+ * Emyli/Rayssa ficam sabendo da viagem da sócia. Silencioso se a pessoa não tiver notificação ligada.
+ * Chamado pelo cliente depois que a viagem já tem nome (manual ou lido pela IA).
+ */
+export async function avisarNovaViagem(viagemId: string): Promise<void> {
+  const supabase = await createClient();
+  const { data: v } = await supabase.from("viagens").select("titulo, destino, criado_por").eq("id", viagemId).maybeSingle();
+  if (!v) return;
+  let criador = "Alguém";
+  if (v.criado_por) {
+    const { data: p } = await supabase.from("profiles").select("nome").eq("id", v.criado_por).maybeSingle();
+    if (p?.nome) criador = p.nome.charAt(0).toUpperCase() + p.nome.slice(1);
+  }
+  const { data: todos } = await supabase.from("profiles").select("id").in("papel", ["socia", "equipe"]);
+  const ids = ((todos ?? []) as { id: string }[]).map((t) => t.id).filter((id) => id !== v.criado_por);
+  if (ids.length === 0) return;
+  const destino = v.destino ? ` — ${v.destino}` : "";
+  await enviarPush(ids, { title: "Nova viagem", body: `${criador} criou "${v.titulo}"${destino}`, url: `/viagens/${viagemId}` });
 }
 
 export async function excluirViagem(id: string): Promise<{ error: string | null }> {

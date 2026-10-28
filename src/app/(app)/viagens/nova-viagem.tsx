@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { criarViagem, atualizarDadosViagem, iniciarUploadEticket, lerEticket, salvarItem, registrarAnexo } from "./actions";
+import { criarViagem, atualizarDadosViagem, iniciarUploadEticket, lerEticket, salvarItem, registrarAnexo, avisarNovaViagem } from "./actions";
 import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
 
 const soData = (s?: string | null) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null);
@@ -21,6 +21,8 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
   const [modo, setModo] = useState<"menu" | "guiado">("menu");
   const [status, setStatus] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  // Viagem criada, mas a IA não leu o documento — mostra aviso + botão pra abrir e completar.
+  const [criadaSemLeitura, setCriadaSemLeitura] = useState<{ id: string; msg: string } | null>(null);
 
   // Anexa o e-ticket → cria a viagem, a IA preenche, e abre a viagem já com o 1º item.
   async function anexarECriar(file: File) {
@@ -41,13 +43,16 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
     setStatus("Enviando o e-ticket…");
     const ini = await iniciarUploadEticket(vid, file.name);
     if (ini.error || !ini.caminho || !ini.token) {
-      // A viagem foi criada — leva pra dentro pra preencher à mão.
-      router.push(`/viagens/${vid}`);
+      await avisarNovaViagem(vid);
+      setStatus(null);
+      setCriadaSemLeitura({ id: vid, msg: "Criei a viagem, mas não consegui enviar o e-ticket agora." });
       return;
     }
     const { error: upErr } = await createClient().storage.from("comprovantes").uploadToSignedUrl(ini.caminho, ini.token, file, { contentType: file.type || undefined });
     if (upErr) {
-      router.push(`/viagens/${vid}`);
+      await avisarNovaViagem(vid);
+      setStatus(null);
+      setCriadaSemLeitura({ id: vid, msg: "Criei a viagem, mas não consegui enviar o e-ticket agora." });
       return;
     }
 
@@ -76,11 +81,15 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
         participantes: todas,
       });
       if (salvo.id) await registrarAnexo(vid, salvo.id, ini.caminho, file.name, anexoMime, file.size);
-    } else {
-      // IA não leu: guarda o arquivo na viagem e leva pra dentro pra completar.
-      await registrarAnexo(vid, null, ini.caminho, file.name, anexoMime, file.size);
+      await avisarNovaViagem(vid);
+      router.push(`/viagens/${vid}`);
+      return;
     }
-    router.push(`/viagens/${vid}`);
+    // IA não leu: guarda o arquivo na viagem e avisa — ela abre e completa pelo assistente.
+    await registrarAnexo(vid, null, ini.caminho, file.name, anexoMime, file.size);
+    await avisarNovaViagem(vid);
+    setStatus(null);
+    setCriadaSemLeitura({ id: vid, msg: r.error ?? "A IA não conseguiu ler o documento agora." });
   }
 
   async function criarDoAssistente(resp: Respostas): Promise<{ error?: string | null }> {
@@ -94,6 +103,7 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
     for (const id of quem) fd.append("participantes", id);
     const r = await criarViagem({ error: null }, fd);
     if (r.error || !r.id) return { error: r.error ?? "Não consegui criar a viagem." };
+    await avisarNovaViagem(r.id);
     router.push(`/viagens/${r.id}`);
     return {};
   }
@@ -106,6 +116,25 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
     { id: "data_fim", pergunta: "E a volta? (opcional)", rotulo: "Volta", tipo: "data" },
     { id: "observacoes", pergunta: "Alguma observação? (opcional)", rotulo: "Obs.", tipo: "texto", placeholder: "Ex.: feira do setor, estande A12" },
   ];
+
+  if (criadaSemLeitura) {
+    return (
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 sm:max-w-xl">
+        <h2 className="font-heading text-sm font-semibold">Viagem criada</h2>
+        <p className="text-[12.5px] text-text-muted">
+          {criadaSemLeitura.msg} O documento ficou anexado à viagem. Abra e complete pelo <b>&ldquo;Adicionar item&rdquo;</b> — o assistente pergunta o que faltar.
+        </p>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => router.push(`/viagens/${criadaSemLeitura.id}`)} className="rounded-lg bg-wine-deep px-4 py-2 text-[13px] font-medium text-white">
+            Abrir a viagem
+          </button>
+          <button type="button" onClick={() => setCriadaSemLeitura(null)} className="rounded-lg border border-border px-4 py-2 text-[13px] text-text-muted">
+            Fechar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (modo === "guiado") {
     return (

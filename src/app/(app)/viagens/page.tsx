@@ -2,6 +2,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { NovaViagem } from "./nova-viagem";
 
+// Criar viagem pelo e-ticket lê o documento com IA (até ~1 min) — o padrão da Vercel é curto demais.
+export const maxDuration = 300;
+
 const fmt = (iso: string | null) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : null);
 
 function periodo(ini: string | null, fim: string | null): { rotulo: string; estado: "proxima" | "andamento" | "passada" | "sem" } {
