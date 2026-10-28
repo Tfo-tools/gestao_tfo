@@ -74,7 +74,6 @@ export default async function LancamentosPage() {
       <DespesaForm
         programas={programas ?? []}
         planoContas={planoContas ?? []}
-        produtos={produtos ?? []}
         pagadores={pagadores}
         usoPorConta={usoPorConta}
         usuarioAtual={perfilAtual?.nome ?? null}

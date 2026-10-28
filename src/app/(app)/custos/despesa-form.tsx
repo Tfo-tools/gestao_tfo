@@ -8,14 +8,12 @@ import { DetalhePagamento, EfetivacaoPagamento, type ItemPagamento } from "./det
 import type { MeioPagamento } from "./meios-pagamento-actions";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
-type Produto = { id: string; nome: string };
 type Pessoa = { id: string; nome: string; cartao_dia_vencimento?: number | null; cartao_dias_fechamento_antes?: number | null };
 
 const initialState: DespesaFormState = { error: null };
 
 export function DespesaForm({
   planoContas,
-  produtos,
   pagadores,
   usoPorConta,
   usuarioAtual,
@@ -26,7 +24,6 @@ export function DespesaForm({
   /** Programas de fomento/investimento que uma despesa pode comprovar. */
   programas?: { id: string; nome: string }[];
   planoContas: PlanoContas[];
-  produtos: Produto[];
   pagadores: string[];
   usoPorConta: Record<string, number>;
   usuarioAtual?: string | null;
@@ -160,20 +157,8 @@ export function DespesaForm({
           {sugestaoConta && <p className="mt-1 text-[11px] text-primary-deep">Sugestão da IA: <b>{sugestaoConta}</b> — selecione acima.</p>}
         </Field>
 
-        <Field label="Produto(s) vinculado(s) (opcional)">
-          <div className="flex flex-wrap gap-2">
-            {produtos.map((p) => (
-              <label
-                key={p.id}
-                className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[12px] has-[:checked]:border-primary-fill has-[:checked]:bg-primary-soft has-[:checked]:text-primary-deep"
-              >
-                <input type="checkbox" name="produtos" value={p.id} className="h-3.5 w-3.5 rounded border-border" />
-                {p.nome}
-              </label>
-            ))}
-          </div>
-          <p className="mt-1 text-[10.5px] text-text-faint">Marque mais de um quando o custo é compartilhado — ex: evento de lançamento de duas marcas.</p>
-        </Field>
+        {/* Vínculo com produto foi removido: agora é uma plataforma só (cérebro / custos & confecção / preço),
+            não mais produtos separados. A coluna despesa_produtos continua no banco (histórico preservado). */}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Pagador">
