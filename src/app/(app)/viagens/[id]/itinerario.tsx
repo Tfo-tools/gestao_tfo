@@ -49,6 +49,7 @@ type Rascunho = {
   endereco?: string | null;
   observacoes?: string | null;
   valor?: number | null;
+  participantes?: string[];
   anexo?: { caminho: string; nome: string; mime: string; tamanho: number };
 };
 type CampoTexto = "tipo" | "titulo" | "fornecedor" | "inicio" | "fim" | "origem" | "destino" | "local" | "localizador" | "endereco" | "observacoes";
@@ -66,7 +67,16 @@ const diaKey = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("
 const diaLabel = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }) : "Sem data definida";
 
-export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; itens: ItemViagem[]; anexos: AnexoViagem[] }) {
+export function Itinerario({ viagemId, itens, anexos, participantesViagem, participantesPorItem }: {
+  viagemId: string;
+  itens: ItemViagem[];
+  anexos: AnexoViagem[];
+  participantesViagem: { id: string; nome: string }[];
+  participantesPorItem: Record<string, string[]>;
+}) {
+  const todosIds = participantesViagem.map((p) => p.id);
+  const cap = (n: string) => n.charAt(0).toUpperCase() + n.slice(1);
+  const nomeDe = (id: string) => cap(participantesViagem.find((p) => p.id === id)?.nome ?? "");
   const router = useRouter();
   const [form, setForm] = useState<Rascunho | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -90,11 +100,11 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
     const anexo = { caminho: ini.caminho, nome: file.name, mime: file.type || "application/pdf", tamanho: file.size };
     if (r.error || !r.item) {
       setErro((r.error ?? "A IA não leu o documento") + " — preencha à mão (o e-ticket já foi anexado).");
-      setForm({ viagemId, tipo: "outro", titulo: "", anexo });
+      setForm({ viagemId, tipo: "outro", titulo: "", participantes: todosIds, anexo });
       return;
     }
     const it = r.item;
-    setForm({ viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: it.observacoes, valor: it.valor, anexo });
+    setForm({ viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: it.observacoes, valor: it.valor, participantes: todosIds, anexo });
   }
 
   function salvar() {
@@ -109,6 +119,7 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
         fornecedor: form.fornecedor, inicio: form.inicio, fim: form.fim, origem: form.origem,
         destino: form.destino, local: form.local, localizador: form.localizador, endereco: form.endereco,
         observacoes: form.observacoes, valor: form.valor,
+        participantes: form.participantes ?? todosIds,
       });
       if (r.error || !r.id) { setErro(r.error ?? "Não consegui salvar."); return; }
       if (form.anexo) await registrarAnexo(viagemId, r.id, form.anexo.caminho, form.anexo.nome, form.anexo.mime, form.anexo.tamanho);
@@ -161,7 +172,7 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
             <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" disabled={!!status}
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) anexarEticket(f); }} />
           </label>
-          <button type="button" onClick={() => setForm({ viagemId, tipo: "voo", titulo: "" })} className="rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
+          <button type="button" onClick={() => setForm({ viagemId, tipo: "voo", titulo: "", participantes: todosIds })} className="rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
             Adicionar manual
           </button>
           {status && <span className="text-[11.5px] text-text-muted">{status}</span>}
@@ -208,6 +219,26 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
             <label className="flex flex-col gap-1 text-[12px] sm:col-span-2">Observações
               <input value={form.observacoes ?? ""} onChange={(e) => campo("observacoes", e.target.value)} className="input" placeholder="Assento, portão, check-in, telefone…" />
             </label>
+            {participantesViagem.length > 0 && (
+              <div className="sm:col-span-2">
+                <p className="mb-1 text-[12px]">Quem está neste trecho</p>
+                <div className="flex flex-wrap gap-3">
+                  {participantesViagem.map((p) => {
+                    const marcado = (form.participantes ?? todosIds).includes(p.id);
+                    return (
+                      <label key={p.id} className="flex items-center gap-1.5 text-[12px]">
+                        <input type="checkbox" checked={marcado} onChange={(e) => setForm((f) => {
+                          const atual = new Set(f?.participantes ?? todosIds);
+                          if (e.target.checked) atual.add(p.id); else atual.delete(p.id);
+                          return { ...(f ?? { viagemId }), participantes: [...atual] };
+                        })} className="h-3.5 w-3.5 rounded border-border" />
+                        {cap(p.nome)}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={salvar} disabled={salvando} className="rounded-lg bg-wine-deep px-4 py-2 text-[13px] font-medium text-white disabled:opacity-60">
@@ -227,6 +258,7 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
             <div className="flex flex-col gap-2">
               {lista.map((it) => {
                 const obs = it.detalhes?.observacoes;
+                const soDessas = participantesPorItem[it.id] ?? [];
                 const mapa = it.endereco ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(it.endereco)}` : null;
                 const waze = it.endereco ? `https://waze.com/ul?q=${encodeURIComponent(it.endereco)}` : null;
                 return (
@@ -253,6 +285,9 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
                           </p>
                         )}
                         {obs && <p className="mt-0.5 text-[11px] text-text-faint">{obs}</p>}
+                        {soDessas.length > 0 && soDessas.length < todosIds.length && (
+                          <p className="mt-0.5 text-[11px] text-text-faint">Só: {soDessas.map(nomeDe).join(", ")}</p>
+                        )}
                         {anexosDoItem(it.id).map((a) => (
                           <p key={a.id} className="mt-1 text-[11.5px]">
                             <button type="button" onClick={() => abrir(a.caminho_arquivo)} className="font-medium text-primary-deep">📎 {a.nome_arquivo}</button>{" "}
@@ -272,7 +307,7 @@ export function Itinerario({ viagemId, itens, anexos }: { viagemId: string; iten
                         )}
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1.5">
-                        <button type="button" onClick={() => setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: obs })} className="text-[11.5px] font-medium text-primary-deep">Editar</button>
+                        <button type="button" onClick={() => setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: obs, valor: it.detalhes?.valor ?? null, participantes: participantesPorItem[it.id]?.length ? participantesPorItem[it.id] : todosIds })} className="text-[11.5px] font-medium text-primary-deep">Editar</button>
                         <button type="button" onClick={() => remover(it)} className="text-[11.5px] font-medium text-danger">Remover</button>
                       </div>
                     </div>

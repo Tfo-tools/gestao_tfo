@@ -63,6 +63,7 @@ export type ItemInput = {
   endereco?: string | null;
   observacoes?: string | null;
   valor?: number | null;
+  participantes?: string[];
 };
 
 export async function salvarItem(input: ItemInput): Promise<{ error: string | null; id?: string }> {
@@ -92,16 +93,23 @@ export async function salvarItem(input: ItemInput): Promise<{ error: string | nu
     endereco: input.endereco?.trim() || null,
     detalhes: { observacoes: input.observacoes?.trim() || null, valor: typeof input.valor === "number" ? input.valor : null, despesa_id: despesaIdExistente },
   };
+  let itemId = input.id ?? null;
   if (input.id) {
     const { error } = await supabase.from("viagem_itens").update({ ...campos, updated_at: new Date().toISOString() }).eq("id", input.id);
     if (error) return { error: "Não consegui salvar o item." };
-    revalidatePath(`/viagens/${input.viagemId}`);
-    return { error: null, id: input.id };
+  } else {
+    const { data: novo, error } = await supabase.from("viagem_itens").insert(campos).select("id").single();
+    if (error || !novo) return { error: "Não consegui salvar o item." };
+    itemId = novo.id;
   }
-  const { data: novo, error } = await supabase.from("viagem_itens").insert(campos).select("id").single();
-  if (error || !novo) return { error: "Não consegui salvar o item." };
+  // "Quem está neste trecho": substitui a lista do item.
+  if (input.participantes && itemId) {
+    await supabase.from("viagem_item_participantes").delete().eq("item_id", itemId);
+    const ps = [...new Set(input.participantes)].filter(Boolean);
+    if (ps.length > 0) await supabase.from("viagem_item_participantes").insert(ps.map((profile_id) => ({ item_id: itemId!, profile_id })));
+  }
   revalidatePath(`/viagens/${input.viagemId}`);
-  return { error: null, id: novo.id };
+  return { error: null, id: itemId! };
 }
 
 export async function excluirItem(id: string, viagemId: string): Promise<{ error: string | null }> {

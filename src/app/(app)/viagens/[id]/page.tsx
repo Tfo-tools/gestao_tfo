@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Itinerario, type ItemViagem, type AnexoViagem } from "./itinerario";
+import { MapaPessoas } from "./mapa-pessoas";
 
 // Ler o e-ticket com IA pode levar até ~1 min; o padrão da Vercel é curto demais.
 export const maxDuration = 300;
@@ -32,6 +33,61 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
   const quem = (participantes ?? []).map((p) => cap(nomePorId.get(p.profile_id))).filter(Boolean);
   const faixa = [fmtDia(viagem.data_inicio), fmtDia(viagem.data_fim)].filter(Boolean).join(" até ");
 
+  // "Quem está" por item + participantes da viagem (checkboxes do item e mapa)
+  const itensV = (itens ?? []) as ItemViagem[];
+  const itemIds = itensV.map((i) => i.id);
+  const { data: vip } = itemIds.length
+    ? await supabase.from("viagem_item_participantes").select("item_id, profile_id").in("item_id", itemIds)
+    : { data: [] as { item_id: string; profile_id: string }[] };
+  const participantesPorItem: Record<string, string[]> = {};
+  for (const r of vip ?? []) (participantesPorItem[r.item_id] ??= []).push(r.profile_id);
+  const participantesViagem = (participantes ?? [])
+    .map((p) => ({ id: p.profile_id, nome: nomePorId.get(p.profile_id) ?? "" }))
+    .filter((p) => p.nome);
+
+  // Mapa por pessoa: cidade de cada pessoa em cada dia (hospedagem que cobre o dia; senão último voo).
+  const diaKey = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString("en-CA") : null);
+  const inicios = itensV.map((i) => diaKey(i.inicio)).filter(Boolean) as string[];
+  const fins = itensV.map((i) => diaKey(i.fim ?? i.inicio)).filter(Boolean) as string[];
+  const dIni = viagem.data_inicio ?? (inicios.length ? [...inicios].sort()[0] : null);
+  const dFim = viagem.data_fim ?? (fins.length ? [...fins].sort().slice(-1)[0] : null);
+  const dias: { key: string; dia: string; mes: string }[] = [];
+  if (dIni && dFim) {
+    const d = new Date(`${dIni}T12:00:00`);
+    const fim = new Date(`${dFim}T12:00:00`);
+    for (let i = 0; d <= fim && i < 90; i++) {
+      dias.push({ key: d.toLocaleDateString("en-CA"), dia: d.toLocaleDateString("pt-BR", { day: "2-digit" }), mes: d.toLocaleDateString("pt-BR", { month: "2-digit" }) });
+      d.setDate(d.getDate() + 1);
+    }
+  }
+  const estaNoItem = (it: ItemViagem, pid: string) => {
+    const lista = participantesPorItem[it.id];
+    return lista && lista.length ? lista.includes(pid) : true; // sem marcação = todos
+  };
+  const cidadeDe = (it: ItemViagem) => it.local || it.destino || it.origem || null;
+  const matriz: Record<string, Record<string, string | null>> = {};
+  const cidadesUsadas = new Set<string>();
+  for (const p of participantesViagem) {
+    matriz[p.id] = {};
+    for (const dk of dias.map((x) => x.key)) {
+      let cidade: string | null = null;
+      const hosp = itensV.find((it) => it.tipo === "hospedagem" && estaNoItem(it, p.id) && diaKey(it.inicio) && diaKey(it.inicio)! <= dk && dk <= (diaKey(it.fim ?? it.inicio) ?? diaKey(it.inicio)!));
+      if (hosp) cidade = cidadeDe(hosp);
+      if (!cidade) {
+        const voos = itensV
+          .filter((it) => it.tipo === "voo" && estaNoItem(it, p.id) && diaKey(it.inicio) && diaKey(it.inicio)! <= dk)
+          .sort((a, b) => (a.inicio ?? "").localeCompare(b.inicio ?? ""));
+        if (voos.length) cidade = voos[voos.length - 1].destino || voos[voos.length - 1].local || null;
+      }
+      matriz[p.id][dk] = cidade;
+      if (cidade) cidadesUsadas.add(cidade);
+    }
+  }
+  const PALETA = ["#e9edf7", "#e8f2ec", "#fbf7cf", "#f4e9ec", "#eceef1", "#e4f0e8", "#f3e8de"];
+  const cores: Record<string, string> = {};
+  [...cidadesUsadas].forEach((c, i) => { cores[c] = PALETA[i % PALETA.length]; });
+  const temMapa = dias.length > 0 && participantesViagem.length > 0 && cidadesUsadas.size > 0;
+
   return (
     <div>
       <Link href="/viagens" className="text-[12px] font-medium text-primary-deep">← Viagens</Link>
@@ -46,9 +102,13 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
 
       <Itinerario
         viagemId={viagem.id}
-        itens={(itens ?? []) as ItemViagem[]}
+        itens={itensV}
         anexos={(anexos ?? []) as AnexoViagem[]}
+        participantesViagem={participantesViagem}
+        participantesPorItem={participantesPorItem}
       />
+
+      {temMapa && <MapaPessoas participantes={participantesViagem} dias={dias} matriz={matriz} cores={cores} />}
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4">
         <div className="mb-2 flex items-center justify-between">
