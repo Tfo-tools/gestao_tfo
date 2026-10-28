@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { criarViagem, atualizarDadosViagem, iniciarUploadEticket, lerEticket, salvarItem, registrarAnexo, avisarNovaViagem } from "./actions";
 import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
+import { ArquivoColavel } from "@/components/arquivo-colavel";
 
 const soData = (s?: string | null) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null);
 
@@ -155,13 +156,10 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
         <p className="mt-0.5 text-[12px] text-text-muted">Anexe um e-ticket e a IA monta a viagem — ou crie do zero e o assistente vai perguntando.</p>
       </div>
 
-      <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-wine-deep px-4 py-3 text-[13px] font-medium text-white ${status ? "opacity-70" : ""}`}>
-        {status ?? "📎 Anexar e-ticket (a IA monta a viagem)"}
-        <input type="file" accept="application/pdf,image/*" className="hidden" disabled={!!status} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) anexarECriar(f); }} />
-      </label>
+      <ArquivoColavel onArquivo={(f) => anexarECriar(f)} rotulo="📎 Anexar e-ticket (a IA monta a viagem)" ocupado={status} />
 
-      <button type="button" disabled={!!status} onClick={() => setModo("guiado")} className="rounded-lg border border-primary-fill px-4 py-2.5 text-[13px] font-medium text-primary-deep disabled:opacity-60">
-        Criar sem documento
+      <button type="button" disabled={!!status} onClick={() => setModo("guiado")} className="self-start text-[12.5px] font-medium text-primary-deep underline underline-offset-2 disabled:opacity-60">
+        ou criar sem documento
       </button>
 
       {erro && <p className="text-[12px] text-danger">{erro}</p>}

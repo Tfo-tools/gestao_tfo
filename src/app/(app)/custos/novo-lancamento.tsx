@@ -14,6 +14,7 @@ import { criarLancamento, lerNotaDespesa } from "./actions";
 import { DespesaForm } from "./despesa-form";
 import { BuscaConta } from "./busca-conta";
 import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
+import { ArquivoColavel } from "@/components/arquivo-colavel";
 import type { MeioPagamento } from "./meios-pagamento-actions";
 
 type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
@@ -170,11 +171,12 @@ function LancamentoGuiado({
       resumo: () => arquivo?.name ?? "—",
       render: () => (
         <div className="flex flex-col gap-1.5">
-          <label className="cursor-pointer self-start rounded-lg border border-border px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
-            {arquivo ? `Anexado: ${arquivo.name} — trocar` : "Escolher arquivo (NF, recibo, boleto…)"}
-            <input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) setArquivo(f); }} />
-          </label>
-          {arquivo && <button type="button" onClick={() => setArquivo(null)} className="self-start text-[11px] text-danger">remover</button>}
+          <ArquivoColavel onArquivo={(f) => setArquivo(f)} rotulo={arquivo ? "Trocar arquivo" : "Escolher / colar (NF, recibo, boleto…)"} />
+          {arquivo && (
+            <p className="text-[11px] text-text-muted">
+              Anexado: {arquivo.name} <button type="button" onClick={() => setArquivo(null)} className="text-danger">remover</button>
+            </p>
+          )}
         </div>
       ),
     },
@@ -224,13 +226,11 @@ function LancamentoGuiado({
   return (
     <div className="flex flex-col gap-3">
       {/* Atalho da IA: lê a nota e já adianta as respostas */}
-      <div className="rounded-lg border border-border-soft bg-bg p-3">
-        <label className="cursor-pointer text-[12.5px] font-medium text-primary-deep">
-          {lendo ? "Lendo a nota com IA… (até ~1 min)" : "Tem a nota? Leio com IA e já adianto o que der"}
-          <input type="file" accept="application/pdf,image/*" className="hidden" disabled={lendo} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) lerNota(f); }} />
-        </label>
-        <p className="mt-0.5 text-[10.5px] text-text-faint">Depois o assistente só pergunta o que faltou. Você confere tudo antes de salvar.</p>
-        {aviso && <p className="mt-1 text-[11px] text-danger">{aviso}</p>}
+      <div className="flex flex-col gap-2 rounded-lg border border-border-soft bg-bg p-3">
+        <p className="text-[12.5px] font-medium text-primary-deep">Tem a nota? Leio com IA e já adianto o que der</p>
+        <ArquivoColavel onArquivo={(f) => lerNota(f)} rotulo="Anexar nota (IA lê)" ocupado={lendo ? "Lendo a nota com IA… (até ~1 min)" : null} />
+        <p className="text-[10.5px] text-text-faint">Depois o assistente só pergunta o que faltou. Você confere tudo antes de salvar.</p>
+        {aviso && <p className="text-[11px] text-danger">{aviso}</p>}
       </div>
 
       {sucesso && <p className="rounded-lg bg-success-soft px-3 py-2 text-xs text-success">Lançamento salvo — pode lançar o próximo.</p>}

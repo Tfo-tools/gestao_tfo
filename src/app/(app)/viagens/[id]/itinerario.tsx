@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { salvarItem, excluirItem, iniciarUploadEticket, lerEticket, registrarAnexo, excluirAnexo, urlAnexo, lancarDespesaDoItem } from "../actions";
 import type { TipoItemViagem } from "@/lib/viagens-ia";
 import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
+import { ArquivoColavel } from "@/components/arquivo-colavel";
 
 export type ItemViagem = {
   id: string;
@@ -85,7 +86,6 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
   const [salvando, startSalvar] = useTransition();
   // Assistente guiado é o padrão; "preencher no formulário" abre o formulário clássico.
   const [modoFormulario, setModoFormulario] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const anexosDoItem = (itemId: string) => anexos.filter((a) => a.item_id === itemId);
   const anexosSoltos = anexos.filter((a) => !a.item_id);
@@ -228,16 +228,11 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
   return (
     <div className="flex flex-col gap-4">
       {!form && (
-        <div className="flex flex-wrap items-center gap-2.5">
-          <label className="cursor-pointer rounded-lg bg-wine-deep px-3.5 py-2 text-[12.5px] font-medium text-white">
-            {status ?? "Anexar e-ticket (IA preenche)"}
-            <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" disabled={!!status}
-              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) anexarEticket(f); }} />
-          </label>
-          <button type="button" onClick={() => { setModoFormulario(false); setForm({ viagemId, tipo: "voo", titulo: "", participantes: todosIds }); }} className="rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
+        <div className="flex flex-col gap-2.5">
+          <ArquivoColavel onArquivo={(f) => anexarEticket(f)} rotulo="Anexar e-ticket (IA preenche)" ocupado={status} />
+          <button type="button" onClick={() => { setModoFormulario(false); setForm({ viagemId, tipo: "voo", titulo: "", participantes: todosIds }); }} className="self-start rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
             Adicionar item
           </button>
-          {status && <span className="text-[11.5px] text-text-muted">{status}</span>}
         </div>
       )}
       {erro && <p className="text-[12px] text-danger">{erro}</p>}
