@@ -40,6 +40,25 @@ export async function criarViagem(_prev: ViagemFormState, formData: FormData): P
   return { error: null, id: viagem.id };
 }
 
+/** Atualiza nome/destino/datas da viagem — usado quando a IA lê o 1º e-ticket e preenche a viagem. */
+export async function atualizarDadosViagem(
+  id: string,
+  campos: { titulo?: string | null; destino?: string | null; data_inicio?: string | null; data_fim?: string | null },
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const patch: Record<string, unknown> = {};
+  if (campos.titulo != null && campos.titulo.trim()) patch.titulo = campos.titulo.trim();
+  if (campos.destino !== undefined) patch.destino = campos.destino?.trim() || null;
+  if (campos.data_inicio !== undefined) patch.data_inicio = data(campos.data_inicio) || null;
+  if (campos.data_fim !== undefined) patch.data_fim = data(campos.data_fim) || null;
+  if (Object.keys(patch).length === 0) return { error: null };
+  const { error } = await supabase.from("viagens").update(patch).eq("id", id);
+  if (error) return { error: "Não consegui atualizar a viagem." };
+  revalidatePath("/viagens");
+  revalidatePath(`/viagens/${id}`);
+  return { error: null };
+}
+
 export async function excluirViagem(id: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { error } = await supabase.from("viagens").delete().eq("id", id);
