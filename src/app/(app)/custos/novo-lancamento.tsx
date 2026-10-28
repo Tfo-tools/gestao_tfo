@@ -1,0 +1,250 @@
+"use client";
+
+/**
+ * Novo lançamento: o assistente guiado é o padrão; "preencher no formulário" cai no formulário
+ * clássico (DespesaForm), que segue com tudo (cartão específico, rateio, programa, efetivação).
+ *
+ * O guiado cobre o caminho comum + recorrência + parcelas. A forma de pagamento aqui é simples
+ * (Pix / Débito / Cartão / Boleto); o detalhe pesado fica no formulário clássico.
+ */
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { criarLancamento, lerNotaDespesa } from "./actions";
+import { DespesaForm } from "./despesa-form";
+import { BuscaConta } from "./busca-conta";
+import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
+import type { MeioPagamento } from "./meios-pagamento-actions";
+
+type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
+type Pessoa = { id: string; nome: string; cartao_dia_vencimento?: number | null; cartao_dias_fechamento_antes?: number | null };
+
+type Props = {
+  programas?: { id: string; nome: string }[];
+  planoContas: PlanoContas[];
+  pagadores: string[];
+  usoPorConta: Record<string, number>;
+  usuarioAtual?: string | null;
+  meiosPagamento: MeioPagamento[];
+  pessoas: Pessoa[];
+};
+
+const vazioR = (v: unknown) => v == null || v === "";
+const hoje = () => new Date().toISOString().slice(0, 10);
+
+export function NovoLancamento(props: Props) {
+  const [modo, setModo] = useState<"guiado" | "form">("guiado");
+
+  if (modo === "form") {
+    return (
+      <div className="flex flex-col gap-2">
+        <button type="button" onClick={() => setModo("guiado")} className="self-start text-[11.5px] text-text-muted underline underline-offset-2">
+          usar o assistente
+        </button>
+        <DespesaForm {...props} />
+      </div>
+    );
+  }
+
+  return <LancamentoGuiado {...props} onFormularioDireto={() => setModo("form")} />;
+}
+
+function LancamentoGuiado({
+  planoContas,
+  pagadores,
+  usoPorConta,
+  usuarioAtual,
+  onFormularioDireto,
+}: Props & { onFormularioDireto: () => void }) {
+  const router = useRouter();
+  const [iniciais, setIniciais] = useState<Respostas>({});
+  const [pular, setPular] = useState(false);
+  const [seq, setSeq] = useState(0); // remonta o assistente ao ler nota / após salvar
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [lendo, setLendo] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [sucesso, setSucesso] = useState(false);
+
+  const pagadorPadrao = usuarioAtual && pagadores.includes(usuarioAtual) ? usuarioAtual : null;
+
+  async function lerNota(file: File) {
+    setAviso(null);
+    setSucesso(false);
+    setLendo(true);
+    const fd = new FormData();
+    fd.append("arquivo", file);
+    const r = await lerNotaDespesa(fd);
+    setLendo(false);
+    if (r.error || !r.nota) {
+      setAviso(r.error ?? "Não consegui ler a nota — pode preencher à mão (o arquivo fica anexado).");
+      setArquivo(file);
+      return;
+    }
+    const n = r.nota;
+    const conta = n.conta_codigo ? planoContas.find((c) => c.codigo === n.conta_codigo) : undefined;
+    setArquivo(file);
+    setIniciais({
+      recorrente: false,
+      data_gasto: n.data ?? null,
+      plano_contas_id: conta?.id ?? null,
+      valor: n.valor ?? null,
+      descricao: n.descricao || n.fornecedor || null,
+    });
+    setPular(true);
+    setSeq((s) => s + 1);
+  }
+
+  const steps: PassoGuiado[] = [
+    { id: "recorrente", pergunta: "Isso se repete todo mês?", rotulo: "Recorrente", tipo: "sim-nao", obrigatorio: true, padrao: false, ajuda: "Assinatura, aluguel, mensalidade…" },
+
+    { id: "data_inicio", pergunta: "A partir de quando?", rotulo: "Começa em", tipo: "data", obrigatorio: true, padrao: hoje(), quando: (r) => r.recorrente === true },
+    { id: "dia_do_mes", pergunta: "Qual o dia do vencimento?", rotulo: "Dia", tipo: "numero", obrigatorio: true, min: 1, max: 31, padrao: 5, quando: (r) => r.recorrente === true, ajuda: "Se o mês não tiver esse dia (ex.: 30 em fevereiro), cai no 1º do mês seguinte." },
+    { id: "data_fim", pergunta: "Vai até quando? (opcional)", rotulo: "Até", tipo: "data", quando: (r) => r.recorrente === true, ajuda: "Deixe em branco se não tem fim previsto." },
+
+    { id: "data_gasto", pergunta: "Quando foi o gasto?", rotulo: "Data", tipo: "data", obrigatorio: true, padrao: hoje(), quando: (r) => r.recorrente !== true },
+
+    {
+      id: "plano_contas_id",
+      pergunta: "Do que se trata esse gasto?",
+      rotulo: "Conta",
+      obrigatorio: true,
+      ajuda: "Digite o que foi (alimentação, software, evento, viagem…) e escolha a conta.",
+      resumo: (v) => planoContas.find((c) => c.id === v)?.conta ?? "—",
+      render: ({ valor, setValor }) => {
+        const c = valor ? planoContas.find((p) => p.id === valor) : undefined;
+        return (
+          <BuscaConta
+            planoContas={planoContas}
+            usoPorConta={usoPorConta}
+            inicial={c ? { id: c.id, conta: c.conta } : null}
+            onChange={(sel) => setValor(sel?.id ?? null)}
+          />
+        );
+      },
+    },
+
+    {
+      id: "pagador",
+      pergunta: "Quem pagou?",
+      rotulo: "Pagador",
+      tipo: "opcoes",
+      padrao: pagadorPadrao,
+      opcoes: [...pagadores.map((p) => ({ valor: p, rotulo: p })), { valor: "Empresa", rotulo: "Empresa (conta/cartão PJ)" }],
+      validar: (v, r) => (r.recorrente !== true && vazioR(v) ? "Diz quem pagou (ou Empresa)." : null),
+    },
+
+    { id: "valor", pergunta: "Qual o valor?", rotulo: "Valor", tipo: "dinheiro", obrigatorio: true, min: 0, ajuda: "O total pago (valor mensal, se for recorrente)." },
+    { id: "valor_fatura", pergunta: "Pagou com atraso? Qual era o valor da fatura? (opcional)", rotulo: "Valor da fatura", tipo: "dinheiro", min: 0, quando: (r) => r.recorrente !== true, ajuda: "Só se o valor pago difere da fatura (juros/multa). Senão, pule." },
+
+    {
+      id: "forma",
+      pergunta: "Como foi pago?",
+      rotulo: "Forma",
+      tipo: "opcoes",
+      opcoes: [
+        { valor: "pix", rotulo: "Pix" },
+        { valor: "debito_conta", rotulo: "Débito em conta" },
+        { valor: "cartao_credito_socias", rotulo: "Cartão de crédito" },
+        { valor: "boleto", rotulo: "Boleto" },
+      ],
+      ajuda: "Pra cartão/conta específicos ou rateio entre sócias, use “preencher no formulário”.",
+    },
+    { id: "parcelado", pergunta: "Foi parcelado?", rotulo: "Parcelado", tipo: "sim-nao", padrao: false, quando: (r) => r.recorrente !== true && r.forma === "cartao_credito_socias" },
+    { id: "num_parcelas", pergunta: "Em quantas vezes?", rotulo: "Parcelas", tipo: "numero", min: 2, max: 48, padrao: 2, quando: (r) => r.recorrente !== true && r.forma === "cartao_credito_socias" && r.parcelado === true },
+
+    {
+      id: "descricao",
+      pergunta: "Uma descrição curta",
+      rotulo: "Descrição",
+      tipo: "texto",
+      placeholder: "Ex.: campanha Meta Ads agosto",
+      validar: (v, r) => (r.recorrente === true && vazioR(v) ? "Na recorrência a descrição é obrigatória." : null),
+    },
+
+    {
+      id: "comprovante",
+      pergunta: "Quer anexar a nota / comprovante?",
+      rotulo: "Comprovante",
+      quando: (r) => r.recorrente !== true,
+      ajuda: "Opcional — dá pra anexar depois também, editando o lançamento.",
+      resumo: () => arquivo?.name ?? "—",
+      render: () => (
+        <div className="flex flex-col gap-1.5">
+          <label className="cursor-pointer self-start rounded-lg border border-border px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
+            {arquivo ? `Anexado: ${arquivo.name} — trocar` : "Escolher arquivo (NF, recibo, boleto…)"}
+            <input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) setArquivo(f); }} />
+          </label>
+          {arquivo && <button type="button" onClick={() => setArquivo(null)} className="self-start text-[11px] text-danger">remover</button>}
+        </div>
+      ),
+    },
+  ];
+
+  async function salvar(r: Respostas): Promise<{ error?: string | null }> {
+    const recorrente = r.recorrente === true;
+    const fd = new FormData();
+    if (recorrente) {
+      fd.set("recorrente", "on");
+      fd.set("data_inicio", String(r.data_inicio ?? hoje()));
+      fd.set("dia_do_mes", String(r.dia_do_mes ?? 5));
+      if (r.data_fim) fd.set("data_fim", String(r.data_fim));
+    } else {
+      fd.set("data_gasto", String(r.data_gasto ?? ""));
+      if (r.valor_fatura != null && r.valor_fatura !== "") fd.set("valor_fatura", String(r.valor_fatura));
+    }
+    fd.set("plano_contas_id", String(r.plano_contas_id ?? ""));
+    fd.set("valor_total", String(r.valor ?? ""));
+    if (r.descricao) fd.set("descricao", String(r.descricao));
+    if (r.pagador) fd.set("pagador", String(r.pagador));
+
+    const forma = r.forma ? String(r.forma) : "";
+    if (forma) {
+      const item: Record<string, unknown> = { forma, valor: Number(r.valor) || 0 };
+      if (!recorrente && forma === "cartao_credito_socias" && r.parcelado === true) {
+        item.parcelado = true;
+        item.num_parcelas = Number(r.num_parcelas) || 2;
+      }
+      fd.set("pagamento_detalhe", JSON.stringify([item]));
+    }
+    if (!recorrente && arquivo) fd.set("fatura", arquivo);
+
+    const res = await criarLancamento({ error: null }, fd);
+    if (res.error) return { error: res.error };
+
+    // Sucesso: zera tudo e recomeça um lançamento limpo.
+    setSucesso(true);
+    setArquivo(null);
+    setIniciais({});
+    setPular(false);
+    setSeq((s) => s + 1);
+    router.refresh();
+    return {};
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Atalho da IA: lê a nota e já adianta as respostas */}
+      <div className="rounded-lg border border-border-soft bg-bg p-3">
+        <label className="cursor-pointer text-[12.5px] font-medium text-primary-deep">
+          {lendo ? "Lendo a nota com IA… (até ~1 min)" : "Tem a nota? Leio com IA e já adianto o que der"}
+          <input type="file" accept="application/pdf,image/*" className="hidden" disabled={lendo} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) lerNota(f); }} />
+        </label>
+        <p className="mt-0.5 text-[10.5px] text-text-faint">Depois o assistente só pergunta o que faltou. Você confere tudo antes de salvar.</p>
+        {aviso && <p className="mt-1 text-[11px] text-danger">{aviso}</p>}
+      </div>
+
+      {sucesso && <p className="rounded-lg bg-success-soft px-3 py-2 text-xs text-success">Lançamento salvo — pode lançar o próximo.</p>}
+
+      <AssistenteGuiado
+        key={seq}
+        titulo="Novo lançamento"
+        passos={steps}
+        respostasIniciais={iniciais}
+        pularPreenchidos={pular}
+        onSalvar={salvar}
+        onFormularioDireto={onFormularioDireto}
+        rotuloSalvar="Lançar despesa"
+      />
+    </div>
+  );
+}

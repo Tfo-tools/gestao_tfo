@@ -19,12 +19,18 @@ export function BuscaConta({
   planoContas,
   usoPorConta,
   name = "plano_contas_id",
+  onChange,
+  inicial = null,
 }: {
   planoContas: PlanoContas[];
   usoPorConta: Record<string, number>;
   name?: string;
+  /** Avisa quem usa o componente de forma controlada (ex.: assistente guiado). */
+  onChange?: (sel: { id: string; conta: string } | null) => void;
+  /** Conta já escolhida (ex.: sugestão da IA). */
+  inicial?: { id: string; conta: string } | null;
 }) {
-  const [selecionada, setSelecionada] = useState<{ id: string; conta: string } | null>(null);
+  const [selecionada, setSelecionada] = useState<{ id: string; conta: string } | null>(inicial);
   const [termo, setTermo] = useState("");
 
   const resultados = useMemo(() => {
@@ -48,6 +54,7 @@ export function BuscaConta({
           onClick={() => {
             setSelecionada(null);
             setTermo("");
+            onChange?.(null);
           }}
           className="shrink-0 text-[11px] font-medium underline"
         >
@@ -79,6 +86,7 @@ export function BuscaConta({
                 onClick={() => {
                   setSelecionada({ id: conta.id, conta: conta.conta });
                   setTermo("");
+                  onChange?.({ id: conta.id, conta: conta.conta });
                 }}
                 className="flex w-full items-center justify-between gap-2 border-b border-border-soft px-3 py-2 text-left text-[12.5px] last:border-0 hover:bg-primary-soft/40"
               >

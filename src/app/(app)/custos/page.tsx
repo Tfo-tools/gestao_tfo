@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { DespesaForm } from "./despesa-form";
+import { NovoLancamento } from "./novo-lancamento";
 import { DespesaRow, type DespesaRowData } from "./extrato/despesa-row";
 
 // Ler a nota com IA (ação do formulário) pode levar até ~1 min; o padrão da Vercel é curto demais.
@@ -71,7 +71,7 @@ export default async function LancamentosPage() {
     // Duas colunas da mesma largura: a lista de pendentes empilha a informação de cada lançamento
     // pra caber ao lado do formulário sem rolar a página.
     <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
-      <DespesaForm
+      <NovoLancamento
         programas={programas ?? []}
         planoContas={planoContas ?? []}
         pagadores={pagadores}
