@@ -2,10 +2,9 @@
 
 /**
  * Novo lançamento: o assistente guiado é o padrão; "preencher no formulário" cai no formulário
- * clássico (DespesaForm), que segue com tudo (cartão específico, rateio, programa, efetivação).
- *
- * O guiado cobre o caminho comum + recorrência + parcelas. A forma de pagamento aqui é simples
- * (Pix / Débito / Cartão / Boleto); o detalhe pesado fica no formulário clássico.
+ * clássico (DespesaForm). O guiado cobre o caminho comum + recorrência, e a forma de pagamento usa
+ * o MESMO componente do formulário (DetalhePagamento): cartão específico, parcelas, boleto, Pix,
+ * débito e combinação. O rateio entre sócias continua no Extrato.
  */
 
 import { useState } from "react";
@@ -13,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { criarLancamento, lerNotaDespesa } from "./actions";
 import { DespesaForm } from "./despesa-form";
 import { BuscaConta } from "./busca-conta";
+import { DetalhePagamento, LABEL_FORMA, type ItemPagamento } from "./detalhe-pagamento";
 import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
 import { ArquivoColavel } from "@/components/arquivo-colavel";
 import type { MeioPagamento } from "./meios-pagamento-actions";
@@ -55,6 +55,9 @@ function LancamentoGuiado({
   pagadores,
   usoPorConta,
   usuarioAtual,
+  meiosPagamento,
+  pessoas,
+  programas = [],
   onFormularioDireto,
 }: Props & { onFormularioDireto: () => void }) {
   const router = useRouter();
@@ -62,6 +65,7 @@ function LancamentoGuiado({
   const [pular, setPular] = useState(false);
   const [seq, setSeq] = useState(0); // remonta o assistente ao ler nota / após salvar
   const [arquivo, setArquivo] = useState<File | null>(null);
+  const [pagamentoItens, setPagamentoItens] = useState<ItemPagamento[]>([]);
   const [lendo, setLendo] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
@@ -138,20 +142,33 @@ function LancamentoGuiado({
     { id: "valor_fatura", pergunta: "Pagou com atraso? Qual era o valor da fatura? (opcional)", rotulo: "Valor da fatura", tipo: "dinheiro", min: 0, quando: (r) => r.recorrente !== true, ajuda: "Só se o valor pago difere da fatura (juros/multa). Senão, pule." },
 
     {
-      id: "forma",
+      id: "pagamento",
       pergunta: "Como foi pago?",
-      rotulo: "Forma",
-      tipo: "opcoes",
-      opcoes: [
-        { valor: "pix", rotulo: "Pix" },
-        { valor: "debito_conta", rotulo: "Débito em conta" },
-        { valor: "cartao_credito_socias", rotulo: "Cartão de crédito" },
-        { valor: "boleto", rotulo: "Boleto" },
-      ],
-      ajuda: "Pra cartão/conta específicos ou rateio entre sócias, use “preencher no formulário”.",
+      rotulo: "Pagamento",
+      ajuda: "Pix, débito, cartão ou boleto. Toque pra escolher o cartão e lançar as parcelas.",
+      resumo: () => {
+        if (!pagamentoItens.length) return "—";
+        if (pagamentoItens.length === 1) {
+          const it = pagamentoItens[0];
+          return LABEL_FORMA[it.forma] + (it.parcelado && it.num_parcelas ? ` · ${it.num_parcelas}x` : "");
+        }
+        return `Combinada (${pagamentoItens.length})`;
+      },
+      render: ({ respostas }) => (
+        <DetalhePagamento
+          name="pagamento_detalhe"
+          valorTotal={Number(respostas.valor) || 0}
+          defaultValue={pagamentoItens.length ? pagamentoItens : undefined}
+          onChange={setPagamentoItens}
+          meios={meiosPagamento}
+          programas={programas}
+          pessoas={pessoas}
+          pagador={respostas.pagador ? String(respostas.pagador) : undefined}
+          nomesSocias={pessoas.map((p) => p.nome)}
+          dataReferencia={respostas.recorrente === true ? null : respostas.data_gasto ? String(respostas.data_gasto) : null}
+        />
+      ),
     },
-    { id: "parcelado", pergunta: "Foi parcelado?", rotulo: "Parcelado", tipo: "sim-nao", padrao: false, quando: (r) => r.recorrente !== true && r.forma === "cartao_credito_socias" },
-    { id: "num_parcelas", pergunta: "Em quantas vezes?", rotulo: "Parcelas", tipo: "numero", min: 2, max: 48, padrao: 2, quando: (r) => r.recorrente !== true && r.forma === "cartao_credito_socias" && r.parcelado === true },
 
     {
       id: "descricao",
@@ -199,15 +216,8 @@ function LancamentoGuiado({
     if (r.descricao) fd.set("descricao", String(r.descricao));
     if (r.pagador) fd.set("pagador", String(r.pagador));
 
-    const forma = r.forma ? String(r.forma) : "";
-    if (forma) {
-      const item: Record<string, unknown> = { forma, valor: Number(r.valor) || 0 };
-      if (!recorrente && forma === "cartao_credito_socias" && r.parcelado === true) {
-        item.parcelado = true;
-        item.num_parcelas = Number(r.num_parcelas) || 2;
-      }
-      fd.set("pagamento_detalhe", JSON.stringify([item]));
-    }
+    // Forma de pagamento vem do mesmo componente do formulário (cartão/parcelas/combinação).
+    if (pagamentoItens.length > 0) fd.set("pagamento_detalhe", JSON.stringify(pagamentoItens));
     if (!recorrente && arquivo) fd.set("fatura", arquivo);
 
     const res = await criarLancamento({ error: null }, fd);
@@ -216,6 +226,7 @@ function LancamentoGuiado({
     // Sucesso: zera tudo e recomeça um lançamento limpo.
     setSucesso(true);
     setArquivo(null);
+    setPagamentoItens([]);
     setIniciais({});
     setPular(false);
     setSeq((s) => s + 1);
