@@ -4,7 +4,7 @@
  * um JSON com os campos. A sócia revisa antes de salvar — a IA só adianta o preenchimento.
  */
 
-const MODELOS = [process.env.GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.8-flash"].filter(
+const MODELOS = [process.env.GEMINI_MODEL, "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"].filter(
   (m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i,
 );
 
@@ -93,46 +93,53 @@ Regras:
 
   let ultimoErro = "";
   for (const modelo of MODELOS) {
-    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
-      method: "POST",
-      headers: { "x-goog-api-key": key, "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }, { file_data: { mime_type: mime || "application/pdf", file_uri: fileUri } }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 4000 },
-      }),
-    });
-    if (resp.ok) {
-      const dados = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-      const texto = (dados.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
-      try {
-        const j = JSON.parse(texto.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as Partial<ItemViagemExtraido>;
-        const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
-        const tipo = (TIPOS.includes(j.tipo as TipoItemViagem) ? j.tipo : "outro") as TipoItemViagem;
-        return {
-          error: null,
-          item: {
-            tipo,
-            titulo: str(j.titulo) ?? "Item da viagem",
-            fornecedor: str(j.fornecedor),
-            inicio: str(j.inicio),
-            fim: str(j.fim),
-            origem: str(j.origem),
-            destino: str(j.destino),
-            local: str(j.local),
-            localizador: str(j.localizador),
-            endereco: str(j.endereco),
-            valor: typeof j.valor === "number" ? j.valor : null,
-            observacoes: str(j.observacoes),
-          },
-        };
-      } catch {
-        return { error: "A IA respondeu num formato inesperado — preencha manualmente.", item: null };
+    // Até 3 tentativas por modelo: 429/500/503 do Gemini são sobrecarga temporária ("high demand").
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+        method: "POST",
+        headers: { "x-goog-api-key": key, "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }, { file_data: { mime_type: mime || "application/pdf", file_uri: fileUri } }] }],
+          generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 4000 },
+        }),
+      });
+      if (resp.ok) {
+        const dados = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        const texto = (dados.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+        try {
+          const j = JSON.parse(texto.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as Partial<ItemViagemExtraido>;
+          const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+          const tipo = (TIPOS.includes(j.tipo as TipoItemViagem) ? j.tipo : "outro") as TipoItemViagem;
+          return {
+            error: null,
+            item: {
+              tipo,
+              titulo: str(j.titulo) ?? "Item da viagem",
+              fornecedor: str(j.fornecedor),
+              inicio: str(j.inicio),
+              fim: str(j.fim),
+              origem: str(j.origem),
+              destino: str(j.destino),
+              local: str(j.local),
+              localizador: str(j.localizador),
+              endereco: str(j.endereco),
+              valor: typeof j.valor === "number" ? j.valor : null,
+              observacoes: str(j.observacoes),
+            },
+          };
+        } catch {
+          return { error: "A IA respondeu num formato inesperado — preencha manualmente.", item: null };
+        }
       }
+      const corpo = (await resp.text()).slice(0, 240);
+      ultimoErro = `Gemini ${modelo} → HTTP ${resp.status}: ${corpo}`;
+      // Sobrecarga temporária: espera e tenta o mesmo modelo de novo.
+      if ([429, 500, 503].includes(resp.status) && tentativa < 2) {
+        await new Promise((r) => setTimeout(r, 1500 * (tentativa + 1)));
+        continue;
+      }
+      break; // próximo modelo (erro de modelo, ou tentativas esgotadas)
     }
-    const corpo = (await resp.text()).slice(0, 240);
-    ultimoErro = `Gemini ${modelo} → HTTP ${resp.status}: ${corpo}`;
-    const erroDeModelo = resp.status === 404 || (resp.status === 400 && /model/i.test(corpo));
-    if (!erroDeModelo) break;
   }
   return { error: `A IA não leu o documento: ${ultimoErro.slice(0, 200)}`, item: null };
 }

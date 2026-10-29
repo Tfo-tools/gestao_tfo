@@ -3,7 +3,7 @@
  * Só Gemini. Recebe a lista de contas do plano pra sugerir a classificação. A sócia confere tudo.
  */
 
-const MODELOS = [process.env.GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.8-flash"].filter(
+const MODELOS = [process.env.GEMINI_MODEL, "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"].filter(
   (m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i,
 );
 
@@ -83,39 +83,45 @@ ${listaContas}`;
 
   let ultimoErro = "";
   for (const modelo of MODELOS) {
-    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
-      method: "POST",
-      headers: { "x-goog-api-key": key, "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }, { file_data: { mime_type: mime || "application/pdf", file_uri: fileUri } }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 2000 },
-      }),
-    });
-    if (resp.ok) {
-      const dados = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-      const texto = (dados.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
-      try {
-        const j = JSON.parse(texto.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as Partial<NotaExtraida>;
-        const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
-        const codigo = str(j.conta_codigo);
-        return {
-          error: null,
-          nota: {
-            valor: typeof j.valor === "number" ? j.valor : null,
-            data: /^\d{4}-\d{2}-\d{2}$/.test(String(j.data)) ? String(j.data) : null,
-            fornecedor: str(j.fornecedor),
-            descricao: str(j.descricao),
-            conta_codigo: codigo && contas.some((c) => c.codigo === codigo) ? codigo : null,
-          },
-        };
-      } catch {
-        return { error: "A IA respondeu num formato inesperado — preencha manualmente.", nota: null };
+    // Até 3 tentativas por modelo: 429/500/503 do Gemini são sobrecarga temporária ("high demand").
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+        method: "POST",
+        headers: { "x-goog-api-key": key, "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }, { file_data: { mime_type: mime || "application/pdf", file_uri: fileUri } }] }],
+          generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 2000 },
+        }),
+      });
+      if (resp.ok) {
+        const dados = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        const texto = (dados.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+        try {
+          const j = JSON.parse(texto.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as Partial<NotaExtraida>;
+          const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+          const codigo = str(j.conta_codigo);
+          return {
+            error: null,
+            nota: {
+              valor: typeof j.valor === "number" ? j.valor : null,
+              data: /^\d{4}-\d{2}-\d{2}$/.test(String(j.data)) ? String(j.data) : null,
+              fornecedor: str(j.fornecedor),
+              descricao: str(j.descricao),
+              conta_codigo: codigo && contas.some((c) => c.codigo === codigo) ? codigo : null,
+            },
+          };
+        } catch {
+          return { error: "A IA respondeu num formato inesperado — preencha manualmente.", nota: null };
+        }
       }
+      const corpo = (await resp.text()).slice(0, 240);
+      ultimoErro = `Gemini ${modelo} → HTTP ${resp.status}: ${corpo}`;
+      if ([429, 500, 503].includes(resp.status) && tentativa < 2) {
+        await new Promise((r) => setTimeout(r, 1500 * (tentativa + 1)));
+        continue;
+      }
+      break; // próximo modelo
     }
-    const corpo = (await resp.text()).slice(0, 240);
-    ultimoErro = `Gemini ${modelo} → HTTP ${resp.status}: ${corpo}`;
-    const erroDeModelo = resp.status === 404 || (resp.status === 400 && /model/i.test(corpo));
-    if (!erroDeModelo) break;
   }
   return { error: `A IA não leu a nota: ${ultimoErro.slice(0, 200)}`, nota: null };
 }
