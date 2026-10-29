@@ -160,6 +160,11 @@ export function AssistenteGuiado({
   const passoAbsoluto = passo ? passos.indexOf(passo) : passos.length;
   const progresso = visiveis.length > 0 ? Math.min(idx, visiveis.length) / visiveis.length : 1;
 
+  // Mostra na lista editável o que já foi respondido (passos passados) ou veio preenchido pela IA —
+  // nunca o passo atual nem padrões de passos ainda não alcançados.
+  const jaRespondido = (p: PassoGuiado, i: number) =>
+    i !== idx && !vazio(respostas[p.id] ?? null) && (i < idx || respostasIniciais?.[p.id] !== undefined);
+
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -183,24 +188,26 @@ export function AssistenteGuiado({
         <div className="h-full rounded-full bg-primary-fill transition-all" style={{ width: `${Math.round(progresso * 100)}%` }} />
       </div>
 
-      {/* Respostas já dadas — toque pra corrigir */}
-      {idx > 0 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {visiveis.slice(0, idx).map((p, i) => {
-            if (vazio(respostas[p.id] ?? null)) return null;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => { setErro(null); setIdx(i); }}
-                className="rounded-full border border-border bg-bg px-2.5 py-1 text-[11px] text-text-muted hover:border-primary-fill"
-              >
-                <span className="text-text-faint">{p.rotulo ?? p.pergunta}: </span>
-                <span className="font-medium text-text">{resumoDe(p, respostas[p.id] ?? null, respostas)}</span>
-              </button>
-            );
-          })}
-        </div>
+      {/* Respostas já preenchidas (por você ou lidas pela IA) — toque no lápis pra mudar. Igual ao
+          app da família: o que já tem resposta não é perguntado de novo. */}
+      {visiveis.some((p, i) => jaRespondido(p, i)) && (
+        <ul className="mb-4 flex flex-col divide-y divide-border rounded-lg border border-border">
+          {visiveis.map((p, i) =>
+            jaRespondido(p, i) ? (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => { setErro(null); setIdx(i); }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left hover:bg-bg"
+                >
+                  <span className="shrink-0 text-[11.5px] text-text-muted">{p.rotulo ?? p.pergunta}</span>
+                  <b className="min-w-0 flex-1 truncate text-right text-[12.5px] font-medium">{resumoDe(p, respostas[p.id] ?? null, respostas)}</b>
+                  <span className="shrink-0 text-text-faint" aria-hidden>✎</span>
+                </button>
+              </li>
+            ) : null,
+          )}
+        </ul>
       )}
 
       {passo ? (
@@ -234,25 +241,10 @@ export function AssistenteGuiado({
           </div>
         </div>
       ) : (
-        /* Revisão final */
+        /* Tudo respondido — a lista editável fica logo acima */
         <div className="flex flex-col gap-3">
-          <p className="text-[13px] text-text-muted">Confira antes de salvar — toque em qualquer item pra ajustar.</p>
-          <div className="divide-y divide-border rounded-lg border border-border">
-            {visiveis.map((p, i) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => { setErro(null); setIdx(i); }}
-                className="flex w-full items-start justify-between gap-3 px-3.5 py-2.5 text-left hover:bg-bg"
-              >
-                <span className="text-[12px] text-text-muted">{p.rotulo ?? p.pergunta}</span>
-                <span className="text-right text-[12.5px] font-medium">{resumoDe(p, respostas[p.id] ?? null, respostas)}</span>
-              </button>
-            ))}
-          </div>
-
+          <p className="text-[13px] text-text-muted">Tudo preenchido — confira acima (toque no lápis pra ajustar) e salve.</p>
           {erro && <p className="text-[12px] text-danger">{erro}</p>}
-
           <div className="mt-1 flex items-center gap-2">
             <button type="button" onClick={voltar} className="rounded-lg border border-border px-3.5 py-2 text-[13px] text-text-muted">
               Voltar
@@ -261,7 +253,6 @@ export function AssistenteGuiado({
               {salvando ? "Salvando…" : rotuloSalvar}
             </button>
           </div>
-          {/* passoAbsoluto só existe pra deixar claro que a revisão cobre todos os passos */}
           <span className="sr-only">{passoAbsoluto} passos no total</span>
         </div>
       )}

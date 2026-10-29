@@ -154,12 +154,12 @@ function LancamentoGuiado({
         }
         return `Combinada (${pagamentoItens.length})`;
       },
-      render: ({ respostas }) => (
+      render: ({ respostas, setValor }) => (
         <DetalhePagamento
           name="pagamento_detalhe"
           valorTotal={Number(respostas.valor) || 0}
           defaultValue={pagamentoItens.length ? pagamentoItens : undefined}
-          onChange={setPagamentoItens}
+          onChange={(itens) => { setPagamentoItens(itens); setValor(itens.length ? "ok" : null); }}
           meios={meiosPagamento}
           programas={programas}
           pessoas={pessoas}
