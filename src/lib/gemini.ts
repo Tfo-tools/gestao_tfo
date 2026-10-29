@@ -17,6 +17,7 @@ const MODELO_PRINCIPAL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const RESERVAS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
 const SOBRECARGA = [429, 500, 503, 504];
 const TAMANHO_MAX = 15 * 1024 * 1024;
+const TIMEOUT_MS = 25_000; // teto por chamada: nunca deixa a tela "travar"
 
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -25,6 +26,33 @@ const ia = () => (cliente ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_K
 
 export function geminiConfigurado(): boolean {
   return Boolean(process.env.GEMINI_API_KEY);
+}
+
+/** Uma chamada ao modelo, com timeout rígido (abortSignal + corrida), devolvendo o texto. */
+async function chamarModelo(modelo: string, parts: Part[], maxOutputTokens: number): Promise<string | undefined> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const chamada = ia().models.generateContent({
+      model: modelo,
+      contents: [{ role: "user", parts }],
+      config: {
+        responseMimeType: "application/json",
+        maxOutputTokens,
+        // Essencial nos modelos 3.x: sem isso o "thinking" come todos os tokens e o texto vem vazio.
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        abortSignal: ctrl.signal,
+      },
+    });
+    // Teto rígido mesmo que o SDK ignore o abortSignal (ele fica em 2º plano, mas não trava a resposta).
+    const resp = await Promise.race([
+      chamada,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("tempo esgotado")), TIMEOUT_MS + 2000)),
+    ]);
+    return resp.text?.trim();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -52,33 +80,32 @@ export async function lerDocumentoTexto(
   for (const [i, modelo] of modelos.entries()) {
     // Modelo principal tem 2 chances (com pausa); os reservas, 1 cada.
     for (let tentativa = 0; tentativa < (i === 0 ? 2 : 1); tentativa++) {
+      const t0 = Date.now();
       try {
-        const resp = await ia().models.generateContent({
-          model: modelo,
-          contents: [{ role: "user", parts }],
-          config: {
-            responseMimeType: "application/json",
-            maxOutputTokens,
-            // Essencial nos modelos 3.x: sem isso o "thinking" come todos os tokens e o texto vem vazio.
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          },
-        });
-        const texto = resp.text?.trim();
-        if (texto) return { error: null, texto };
+        const texto = await chamarModelo(modelo, parts, maxOutputTokens);
+        if (texto) {
+          console.info(`[gemini] ${modelo} OK em ${Date.now() - t0}ms`);
+          return { error: null, texto };
+        }
         ultimoErro = new Error(`${modelo}: resposta vazia`);
+        console.warn(`[gemini] ${modelo}: resposta vazia (${Date.now() - t0}ms)`);
         break; // vazio num modelo → tenta o próximo
       } catch (err) {
         ultimoErro = err;
-        const ocupado = err instanceof ApiError && SOBRECARGA.includes(err.status);
+        const status = err instanceof ApiError ? err.status : undefined;
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[gemini] ${modelo} falhou (${Date.now() - t0}ms) status=${status ?? "-"}: ${msg.slice(0, 180)}`);
+        const ocupado = status !== undefined && SOBRECARGA.includes(status);
         if (i === 0 && ocupado && tentativa === 0) {
           await espera(2000); // sobrecarga passageira: uma 2ª chance no principal
           continue;
         }
-        break; // erro de modelo/outro → próximo modelo
+        break; // erro de modelo/timeout/outro → próximo modelo
       }
     }
   }
 
+  console.error(`[gemini] leitura falhou em todos os modelos: ${ultimoErro instanceof Error ? ultimoErro.message : String(ultimoErro)}`);
   return { error: mensagemDeErro(ultimoErro), texto: null };
 }
 
