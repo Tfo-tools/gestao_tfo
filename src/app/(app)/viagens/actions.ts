@@ -186,6 +186,21 @@ export async function iniciarUploadEticket(viagemId: string, nomeArquivo: string
   return { error: null, caminho: data.path, token: data.token };
 }
 
+/**
+ * Lê o e-ticket direto do arquivo enviado (sem precisar criar viagem antes) — assim só criamos a
+ * viagem DEPOIS que a IA leu com sucesso, evitando viagens vazias. Usado na criação por e-ticket.
+ */
+export async function lerEticketArquivo(formData: FormData): Promise<{ error: string | null; item: ItemViagemExtraido | null }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Sessão expirada.", item: null };
+  if (!leituraViagemConfigurada()) return { error: "Leitura por IA indisponível (falta a chave do Gemini).", item: null };
+  const file = formData.get("arquivo");
+  if (!(file instanceof File) || file.size === 0) return { error: "Escolha um arquivo.", item: null };
+  if (file.size > 10 * 1024 * 1024) return { error: "Arquivo muito grande para a IA (máx 10 MB).", item: null };
+  return lerDocumentoViagem(await file.arrayBuffer(), file.type || "application/pdf");
+}
+
 /** Lê o e-ticket (já no Storage) com IA e devolve os campos pra preencher o item. */
 export async function lerEticket(caminho: string, mime: string): Promise<{ error: string | null; item: ItemViagemExtraido | null }> {
   const supabase = await createClient();

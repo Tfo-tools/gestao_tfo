@@ -8,32 +8,70 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { criarViagem, atualizarDadosViagem, iniciarUploadEticket, lerEticket, salvarItem, registrarAnexo, avisarNovaViagem } from "./actions";
+import { criarViagem, lerEticketArquivo, iniciarUploadEticket, salvarItem, registrarAnexo, avisarNovaViagem } from "./actions";
 import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
 import { ArquivoColavel } from "@/components/arquivo-colavel";
 
 const soData = (s?: string | null) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null);
+const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
 export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[] }) {
   const router = useRouter();
   const cap = (n: string) => n.charAt(0).toUpperCase() + n.slice(1);
-  const todas = pessoas.map((p) => p.id);
 
   const [modo, setModo] = useState<"menu" | "guiado">("menu");
   const [status, setStatus] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  // Viagem criada, mas a IA não leu o documento — mostra aviso + botão pra abrir e completar.
-  const [criadaSemLeitura, setCriadaSemLeitura] = useState<{ id: string; msg: string } | null>(null);
+  // A IA não conseguiu ler o e-ticket — NÃO cria viagem; oferece tentar de novo ou criar sem documento.
+  const [erroLeitura, setErroLeitura] = useState<string | null>(null);
 
-  // Anexa o e-ticket → cria a viagem, a IA preenche, e abre a viagem já com o 1º item.
+  // Casa os passageiros do bilhete com as sócias cadastradas (igual app da família).
+  function participantesDoBilhete(passageiros: string[]): string[] {
+    if (!passageiros?.length) return [];
+    const ids: string[] = [];
+    for (const p of pessoas) {
+      const nomeP = norm(p.nome);
+      const primeiro = nomeP.split(/\s+/)[0];
+      const bate = passageiros.some((nome) => {
+        const n = norm(nome);
+        return n.includes(nomeP) || n.split(/\s+/).includes(primeiro);
+      });
+      if (bate) ids.push(p.id);
+    }
+    return ids;
+  }
+
+  // Anexa o e-ticket → a IA LÊ primeiro; só então cria a viagem (nome/destino/datas/passageiros) com o 1º item.
   async function anexarECriar(file: File) {
     setErro(null);
-    setStatus("Criando a viagem…");
+    setErroLeitura(null);
+    setStatus("Lendo o e-ticket com IA… (até ~1 min)");
 
-    const fd = new FormData();
-    fd.set("titulo", "Nova viagem");
-    for (const id of todas) fd.append("participantes", id);
-    const criado = await criarViagem({ error: null }, fd);
+    const fdLer = new FormData();
+    fdLer.append("arquivo", file);
+    const r = await lerEticketArquivo(fdLer);
+    if (r.error || !r.item) {
+      setStatus(null);
+      setErroLeitura(r.error ?? "A IA não conseguiu ler o e-ticket.");
+      return; // não cria viagem vazia
+    }
+
+    const it = r.item;
+    setStatus("Montando a viagem…");
+    const participantes = participantesDoBilhete(it.passageiros);
+    const nome = it.tipo === "evento" && it.titulo ? it.titulo : it.destino || it.titulo || "Viagem";
+
+    const fdV = new FormData();
+    fdV.set("titulo", nome);
+    const destino = it.destino || it.local;
+    if (destino) fdV.set("destino", destino);
+    const di = soData(it.inicio);
+    if (di) fdV.set("data_inicio", di);
+    const dfim = soData(it.fim);
+    if (dfim) fdV.set("data_fim", dfim);
+    for (const id of participantes) fdV.append("participantes", id);
+
+    const criado = await criarViagem({ error: null }, fdV);
     if (criado.error || !criado.id) {
       setStatus(null);
       setErro(criado.error ?? "Não consegui criar a viagem.");
@@ -41,56 +79,32 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
     }
     const vid = criado.id;
 
-    setStatus("Enviando o e-ticket…");
+    const salvo = await salvarItem({
+      viagemId: vid,
+      tipo: it.tipo,
+      titulo: it.titulo || file.name,
+      fornecedor: it.fornecedor,
+      inicio: it.inicio,
+      fim: it.fim,
+      origem: it.origem,
+      destino: it.destino,
+      local: it.local,
+      localizador: it.localizador,
+      endereco: it.endereco,
+      observacoes: it.observacoes,
+      valor: it.valor,
+      participantes,
+    });
+
+    // Anexa o e-ticket no Storage (ligado ao item). Se falhar, a viagem/item seguem.
     const ini = await iniciarUploadEticket(vid, file.name);
-    if (ini.error || !ini.caminho || !ini.token) {
-      await avisarNovaViagem(vid);
-      setStatus(null);
-      setCriadaSemLeitura({ id: vid, msg: "Criei a viagem, mas não consegui enviar o e-ticket agora." });
-      return;
-    }
-    const { error: upErr } = await createClient().storage.from("comprovantes").uploadToSignedUrl(ini.caminho, ini.token, file, { contentType: file.type || undefined });
-    if (upErr) {
-      await avisarNovaViagem(vid);
-      setStatus(null);
-      setCriadaSemLeitura({ id: vid, msg: "Criei a viagem, mas não consegui enviar o e-ticket agora." });
-      return;
+    if (ini.caminho && ini.token) {
+      const { error: upErr } = await createClient().storage.from("comprovantes").uploadToSignedUrl(ini.caminho, ini.token, file, { contentType: file.type || undefined });
+      if (!upErr) await registrarAnexo(vid, salvo.id ?? null, ini.caminho, file.name, file.type || "application/pdf", file.size);
     }
 
-    setStatus("Lendo com IA… (pode levar até 1 min)");
-    const r = await lerEticket(ini.caminho, file.type || "");
-    const anexoMime = file.type || "application/pdf";
-
-    if (r.item) {
-      const it = r.item;
-      const nome = it.tipo === "evento" && it.titulo ? it.titulo : it.destino || it.titulo || "Nova viagem";
-      await atualizarDadosViagem(vid, { titulo: nome, destino: it.destino || it.local || null, data_inicio: soData(it.inicio), data_fim: soData(it.fim) });
-      const salvo = await salvarItem({
-        viagemId: vid,
-        tipo: it.tipo,
-        titulo: it.titulo || file.name,
-        fornecedor: it.fornecedor,
-        inicio: it.inicio,
-        fim: it.fim,
-        origem: it.origem,
-        destino: it.destino,
-        local: it.local,
-        localizador: it.localizador,
-        endereco: it.endereco,
-        observacoes: it.observacoes,
-        valor: it.valor,
-        participantes: todas,
-      });
-      if (salvo.id) await registrarAnexo(vid, salvo.id, ini.caminho, file.name, anexoMime, file.size);
-      await avisarNovaViagem(vid);
-      router.push(`/viagens/${vid}`);
-      return;
-    }
-    // IA não leu: guarda o arquivo na viagem e avisa — ela abre e completa pelo assistente.
-    await registrarAnexo(vid, null, ini.caminho, file.name, anexoMime, file.size);
     await avisarNovaViagem(vid);
-    setStatus(null);
-    setCriadaSemLeitura({ id: vid, msg: r.error ?? "A IA não conseguiu ler o documento agora." });
+    router.push(`/viagens/${vid}`);
   }
 
   async function criarDoAssistente(resp: Respostas): Promise<{ error?: string | null }> {
@@ -100,7 +114,7 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
     if (resp.data_inicio) fd.set("data_inicio", String(resp.data_inicio));
     if (resp.data_fim) fd.set("data_fim", String(resp.data_fim));
     if (resp.observacoes) fd.set("observacoes", String(resp.observacoes));
-    const quem = Array.isArray(resp.participantes) ? resp.participantes : todas;
+    const quem = Array.isArray(resp.participantes) ? resp.participantes : [];
     for (const id of quem) fd.append("participantes", id);
     const r = await criarViagem({ error: null }, fd);
     if (r.error || !r.id) return { error: r.error ?? "Não consegui criar a viagem." };
@@ -111,25 +125,28 @@ export function NovaViagem({ pessoas }: { pessoas: { id: string; nome: string }[
 
   const steps: PassoGuiado[] = [
     { id: "titulo", pergunta: "Como quer chamar essa viagem?", rotulo: "Nome", tipo: "texto", obrigatorio: true, placeholder: "Ex.: Latam Retail Show — SP" },
-    { id: "participantes", pergunta: "Quem vai?", rotulo: "Quem vai", tipo: "multi", padrao: todas, opcoes: pessoas.map((p) => ({ valor: p.id, rotulo: cap(p.nome) })), ajuda: "Começa com todas — desmarque quem não vai." },
+    { id: "participantes", pergunta: "Quem vai?", rotulo: "Quem vai", tipo: "multi", opcoes: pessoas.map((p) => ({ valor: p.id, rotulo: cap(p.nome) })), ajuda: "Marque quem vai (você já entra como organizadora)." },
     { id: "destino", pergunta: "Qual o destino? (opcional)", rotulo: "Destino", tipo: "texto", placeholder: "Cidade" },
     { id: "data_inicio", pergunta: "Quando é a ida? (opcional)", rotulo: "Ida", tipo: "data" },
     { id: "data_fim", pergunta: "E a volta? (opcional)", rotulo: "Volta", tipo: "data" },
     { id: "observacoes", pergunta: "Alguma observação? (opcional)", rotulo: "Obs.", tipo: "texto", placeholder: "Ex.: feira do setor, estande A12" },
   ];
 
-  if (criadaSemLeitura) {
+  if (erroLeitura) {
     return (
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 sm:max-w-xl">
-        <h2 className="font-heading text-sm font-semibold">Viagem criada</h2>
-        <p className="text-[12.5px] text-text-muted">
-          {criadaSemLeitura.msg} O documento ficou anexado à viagem. Abra e complete pelo <b>&ldquo;Adicionar item&rdquo;</b> — o assistente pergunta o que faltar.
-        </p>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => router.push(`/viagens/${criadaSemLeitura.id}`)} className="rounded-lg bg-wine-deep px-4 py-2 text-[13px] font-medium text-white">
-            Abrir a viagem
+        <h2 className="font-heading text-sm font-semibold">Não consegui ler o e-ticket</h2>
+        <p className="text-[12.5px] text-text-muted">{erroLeitura}</p>
+        <p className="text-[11.5px] text-text-faint">Nenhuma viagem foi criada. Você pode tentar outro arquivo ou criar sem documento.</p>
+        <div className="flex flex-wrap gap-2">
+          <label className="cursor-pointer rounded-lg bg-wine-deep px-4 py-2 text-[13px] font-medium text-white">
+            Tentar outro arquivo
+            <input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) { setErroLeitura(null); anexarECriar(f); } }} />
+          </label>
+          <button type="button" onClick={() => { setErroLeitura(null); setModo("guiado"); }} className="rounded-lg border border-primary-fill px-4 py-2 text-[13px] font-medium text-primary-deep">
+            Criar sem documento
           </button>
-          <button type="button" onClick={() => setCriadaSemLeitura(null)} className="rounded-lg border border-border px-4 py-2 text-[13px] text-text-muted">
+          <button type="button" onClick={() => setErroLeitura(null)} className="rounded-lg border border-border px-4 py-2 text-[13px] text-text-muted">
             Fechar
           </button>
         </div>
