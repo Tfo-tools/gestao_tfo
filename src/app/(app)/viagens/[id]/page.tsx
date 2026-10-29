@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Itinerario, type ItemViagem, type AnexoViagem } from "./itinerario";
 import { MapaPessoas } from "./mapa-pessoas";
+import { ExcluirViagem } from "./excluir-viagem";
 
 // Ler o e-ticket com IA pode levar até ~1 min; o padrão da Vercel é curto demais.
 export const maxDuration = 300;
@@ -92,7 +93,10 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
     <div>
       <Link href="/viagens" className="text-[12px] font-medium text-primary-deep">← Viagens</Link>
       <div className="mt-2 mb-5">
-        <h1 className="font-heading text-[22px] font-semibold">{viagem.titulo}</h1>
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="font-heading text-[22px] font-semibold">{viagem.titulo}</h1>
+          <ExcluirViagem id={viagem.id} titulo={viagem.titulo} />
+        </div>
         <p className="mt-1 text-[13px] text-text-muted">
           {[viagem.destino, faixa].filter(Boolean).join(" · ") || "Sem datas"}
           {quem.length > 0 && ` · ${quem.join(", ")}`}

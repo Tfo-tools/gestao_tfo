@@ -83,6 +83,19 @@ export async function avisarNovaViagem(viagemId: string): Promise<void> {
 
 export async function excluirViagem(id: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
+  // E-tickets no Storage saem primeiro (não entram no cascade do banco).
+  const { data: anexos } = await supabase.from("viagem_anexos").select("caminho_arquivo").eq("viagem_id", id);
+  const caminhos = (anexos ?? []).map((a) => a.caminho_arquivo).filter(Boolean);
+  if (caminhos.length) await createAdminClient().storage.from("comprovantes").remove(caminhos);
+  // Desvincula despesas já lançadas (mantém a despesa, só tira o laço com a viagem).
+  await supabase.from("despesas").update({ viagem_id: null }).eq("viagem_id", id);
+  // Filhos antes da viagem (caso não haja ON DELETE CASCADE).
+  const { data: itensDel } = await supabase.from("viagem_itens").select("id").eq("viagem_id", id);
+  const itemIds = (itensDel ?? []).map((i) => i.id);
+  if (itemIds.length) await supabase.from("viagem_item_participantes").delete().in("item_id", itemIds);
+  await supabase.from("viagem_itens").delete().eq("viagem_id", id);
+  await supabase.from("viagem_anexos").delete().eq("viagem_id", id);
+  await supabase.from("viagem_participantes").delete().eq("viagem_id", id);
   const { error } = await supabase.from("viagens").delete().eq("id", id);
   if (error) return { error: "Não consegui excluir a viagem." };
   revalidatePath("/viagens");
