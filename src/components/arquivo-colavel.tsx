@@ -25,6 +25,7 @@ export function ArquivoColavel({
 }) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [colando, setColando] = useState(false);
+  const [mostrarColar, setMostrarColar] = useState(false);
 
   function entregar(file: File, tipo: string) {
     const nomeOk = file.name && file.name !== "colado";
@@ -82,42 +83,47 @@ export function ArquivoColavel({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-wine-deep px-4 py-2.5 text-[13px] font-medium text-white ${ocupado ? "opacity-70" : ""}`}>
-          {ocupado ?? rotulo}
-          <input
-            type="file"
-            accept={aceita}
-            className="hidden"
-            disabled={!!ocupado}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) entregar(f, f.type || "application/pdf");
-            }}
-          />
-        </label>
-        <button
-          type="button"
-          disabled={!!ocupado || colando}
-          onClick={colarPeloBotao}
-          className="rounded-lg border border-primary-fill px-3.5 py-2.5 text-[12.5px] font-medium text-primary-deep disabled:opacity-50"
-        >
-          {colando ? "…" : "📋 Colar arquivo"}
+      <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-wine-deep px-4 py-3 text-[13px] font-medium text-white ${ocupado ? "opacity-70" : ""}`}>
+        {ocupado ?? rotulo}
+        <input
+          type="file"
+          accept={aceita}
+          className="hidden"
+          disabled={!!ocupado}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) entregar(f, f.type || "application/pdf");
+          }}
+        />
+      </label>
+
+      {!mostrarColar ? (
+        <button type="button" disabled={!!ocupado} onClick={() => setMostrarColar(true)} className="self-start text-[11.5px] text-text-muted underline underline-offset-2 disabled:opacity-50">
+          ou colar um arquivo copiado
         </button>
-      </div>
-      <input
-        type="text"
-        inputMode="none"
-        value=""
-        onChange={() => {}}
-        onPaste={handlePaste}
-        disabled={!!ocupado}
-        placeholder="ou toque aqui e use “Colar”"
-        aria-label="Campo para colar o arquivo"
-        className="block w-full rounded border border-border-soft bg-surface px-2.5 py-2 text-[12px] text-text-muted placeholder:text-text-faint"
-      />
-      {aviso && <p className="break-words text-[11px] leading-snug text-danger">{aviso}</p>}
+      ) : (
+        <div className="flex flex-col gap-2 rounded-lg border border-border-soft bg-bg p-2.5">
+          <button type="button" disabled={!!ocupado || colando} onClick={colarPeloBotao} className="self-start rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep disabled:opacity-50">
+            {colando ? "…" : "📋 Colar da área de transferência"}
+          </button>
+          <input
+            type="text"
+            inputMode="none"
+            value=""
+            onChange={() => {}}
+            onPaste={handlePaste}
+            disabled={!!ocupado}
+            placeholder="ou toque aqui e use “Colar”"
+            aria-label="Campo para colar o arquivo"
+            className="block w-full rounded border border-border-soft bg-surface px-2.5 py-2 text-[12px] text-text-muted placeholder:text-text-faint"
+          />
+          <p className="text-[10.5px] leading-snug text-text-faint">
+            No computador funciona bem. No iPhone, o Safari não deixa colar PDF — prefira, no e-mail, <b>Compartilhar → Salvar em Arquivos</b> e depois o botão acima.
+          </p>
+          {aviso && <p className="break-words text-[11px] leading-snug text-danger">{aviso}</p>}
+        </div>
+      )}
     </div>
   );
 }
