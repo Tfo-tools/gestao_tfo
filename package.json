@@ -10,6 +10,7 @@
     "backup:drive": "bash scripts/backup-drive.sh"
   },
   "dependencies": {
+    "@google/genai": "^2.29.1",
     "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.112.4",
     "@types/pdfkit": "^0.17.6",

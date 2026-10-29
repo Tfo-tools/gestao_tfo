@@ -41,7 +41,7 @@ Regras:
 - Datas/horas no formato YYYY-MM-DDTHH:MM (sem fuso). Se só houver data, use T00:00. Nulo quando não houver.
 - "valor": só o total em reais se aparecer claramente; senão null. Não invente nada que não esteja no documento.`;
 
-  const { error, texto } = await lerDocumentoTexto(bytes, mime, prompt, 2048);
+  const { error, texto } = await lerDocumentoTexto(bytes, mime, prompt, 6000);
   if (error || !texto) return { error: error ?? "A IA não respondeu.", item: null };
 
   const j = parseJsonDaIA<Partial<ItemViagemExtraido>>(texto);

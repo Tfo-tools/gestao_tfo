@@ -1,99 +1,97 @@
 /**
- * Leitura de documento pequeno (PDF/imagem) com Gemini — chamada única, enxuta e à prova de travar.
+ * Leitura de documento pequeno (PDF/imagem) com Gemini — mesma configuração do app de viagens da
+ * família (que funciona). Usa o SDK oficial @google/genai.
  *
- * Por que assim:
- * - Envia o arquivo INLINE (base64) na própria requisição. Antes usávamos a "Files API" (upload do
- *   arquivo + polling até ficar ACTIVE), que era lenta e tinha vários pontos de falha — e, sem
- *   timeout, deixava a tela "Lendo…" por minutos. Pra documento pequeno, inline é direto.
- * - Timeout por chamada (nada trava): se o Gemini não responder, aborta e tenta o próximo.
- * - Poucas tentativas (economia de tokens): no máx. 2 por modelo, e só 1 retry curto quando é
- *   sobrecarga (429/500/503). Erros de modelo (404) pulam direto pro próximo.
+ * Aprendizados que motivaram essa versão:
+ * - Modelos válidos agora são a série 3.x: gemini-3.8-flash (principal), com fallback pra
+ *   gemini-3.6-flash e gemini-3.5-flash-lite. O "gemini-2.5-flash" voltava 404 (não existe mais).
+ * - gemini-3.8-flash é um modelo "thinking": sem thinkingLevel e com poucos tokens, ele gasta tudo
+ *   "pensando" e devolve texto VAZIO. Por isso: thinkingLevel LOW + maxOutputTokens folgado.
+ * - inlineData (base64) na requisição — sem Files API (que era lenta e travava sem timeout).
+ * - 429/500/503/504 = sobrecarga: o modelo principal ganha 1 retry; depois cai pros reservas.
  */
 
-const MODELOS = [process.env.GEMINI_MODEL, "gemini-3.8-flash", "gemini-2.5-flash"].filter(
-  (m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i,
-);
+import { ApiError, GoogleGenAI, ThinkingLevel, type Part } from "@google/genai";
 
-const TIMEOUT_MS = 30_000;
+const MODELO_PRINCIPAL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const RESERVAS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
+const SOBRECARGA = [429, 500, 503, 504];
 const TAMANHO_MAX = 15 * 1024 * 1024;
 
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchComTimeout(url: string, opts: RequestInit, ms: number): Promise<Response> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { ...opts, signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
+let cliente: GoogleGenAI | null = null;
+const ia = () => (cliente ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }));
 
 export function geminiConfigurado(): boolean {
   return Boolean(process.env.GEMINI_API_KEY);
 }
 
 /**
- * Manda o prompt + o documento (inline) e devolve o TEXTO da resposta do modelo (ou um erro claro).
- * Quem chama faz o JSON.parse — aqui a gente só garante a chamada robusta.
+ * Manda o prompt + o documento (inline) e devolve o TEXTO (JSON) da resposta — ou um erro claro.
+ * Quem chama faz o parse com parseJsonDaIA.
  */
 export async function lerDocumentoTexto(
   bytes: ArrayBuffer,
   mime: string,
   prompt: string,
-  maxOutputTokens = 2048,
+  maxOutputTokens = 6000,
 ): Promise<{ error: string | null; texto: string | null }> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return { error: "Leitura por IA indisponível: falta a chave do Gemini (GEMINI_API_KEY).", texto: null };
+  if (!geminiConfigurado()) return { error: "Leitura por IA indisponível: falta a chave do Gemini (GEMINI_API_KEY).", texto: null };
   if (!bytes || bytes.byteLength === 0) return { error: "O arquivo chegou vazio — tente anexar de novo.", texto: null };
   if (bytes.byteLength > TAMANHO_MAX) return { error: "Arquivo grande demais pra IA ler (máx 15 MB).", texto: null };
 
-  const base64 = Buffer.from(bytes).toString("base64");
-  const body = JSON.stringify({
-    contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: mime || "application/pdf", data: base64 } }] }],
-    generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens },
-  });
+  const parts: Part[] = [
+    { text: prompt },
+    { inlineData: { mimeType: mime || "application/pdf", data: Buffer.from(bytes).toString("base64") } },
+  ];
 
-  let ultimoErro = "sem resposta";
-  for (const modelo of MODELOS) {
-    for (let tentativa = 0; tentativa < 2; tentativa++) {
-      let resp: Response;
+  const modelos = [MODELO_PRINCIPAL, ...RESERVAS];
+  let ultimoErro: unknown = new Error("sem resposta");
+
+  for (const [i, modelo] of modelos.entries()) {
+    // Modelo principal tem 2 chances (com pausa); os reservas, 1 cada.
+    for (let tentativa = 0; tentativa < (i === 0 ? 2 : 1); tentativa++) {
       try {
-        resp = await fetchComTimeout(
-          `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`,
-          { method: "POST", headers: { "x-goog-api-key": key, "content-type": "application/json" }, body },
-          TIMEOUT_MS,
-        );
-      } catch (e) {
-        // Timeout ou rede: não insiste no mesmo modelo, vai pro próximo.
-        ultimoErro = e instanceof Error && e.name === "AbortError" ? `${modelo}: tempo esgotado` : `${modelo}: falha de rede`;
-        break;
-      }
-
-      if (resp.ok) {
-        const dados = (await resp.json().catch(() => null)) as
-          | { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-          | null;
-        const texto = (dados?.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+        const resp = await ia().models.generateContent({
+          model: modelo,
+          contents: [{ role: "user", parts }],
+          config: {
+            responseMimeType: "application/json",
+            maxOutputTokens,
+            // Essencial nos modelos 3.x: sem isso o "thinking" come todos os tokens e o texto vem vazio.
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          },
+        });
+        const texto = resp.text?.trim();
         if (texto) return { error: null, texto };
-        ultimoErro = `${modelo}: resposta vazia`;
-        break; // próximo modelo
+        ultimoErro = new Error(`${modelo}: resposta vazia`);
+        break; // vazio num modelo → tenta o próximo
+      } catch (err) {
+        ultimoErro = err;
+        const ocupado = err instanceof ApiError && SOBRECARGA.includes(err.status);
+        if (i === 0 && ocupado && tentativa === 0) {
+          await espera(2000); // sobrecarga passageira: uma 2ª chance no principal
+          continue;
+        }
+        break; // erro de modelo/outro → próximo modelo
       }
-
-      ultimoErro = `${modelo}: HTTP ${resp.status}`;
-      const sobrecarga = resp.status === 429 || resp.status === 500 || resp.status === 503;
-      if (sobrecarga && tentativa === 0) {
-        await espera(2500); // um único retry curto; sobrecarga costuma ser passageira
-        continue;
-      }
-      break; // 404 (modelo indisponível), 400 ou sobrecarga persistente → próximo modelo
     }
   }
 
-  const dica = /esgotado|HTTP 5|HTTP 429|demand/i.test(ultimoErro)
-    ? " O Gemini pode estar sobrecarregado — tente de novo em 1-2 minutos."
-    : "";
-  return { error: `A IA não conseguiu ler o documento (${ultimoErro}).${dica}`, texto: null };
+  return { error: mensagemDeErro(ultimoErro), texto: null };
+}
+
+function mensagemDeErro(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 429) return "O limite de leituras do Gemini foi atingido agora. Tente de novo em alguns minutos.";
+    if (err.status === 401 || err.status === 403) return "A chave da IA (Google) está inválida ou sem acesso — avise o suporte.";
+    if (err.status === 404) return "O modelo da IA não foi encontrado — avise o suporte (pode precisar atualizar o nome do modelo).";
+    if (err.status === 400) return `Esse arquivo não pôde ser lido — tente um PDF ou uma foto. (${String(err.message).slice(0, 150)})`;
+    if (err.status >= 500) return "Os modelos do Google estão sobrecarregados agora. Tente de novo em 1-2 minutos.";
+  }
+  const m = err instanceof Error ? err.message : String(err);
+  return `A IA não conseguiu ler o documento (${m.slice(0, 150)}).`;
 }
 
 /** Tira cercas de ```json ... ``` que o modelo às vezes adiciona, e faz o parse. */

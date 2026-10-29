@@ -37,7 +37,7 @@ Regras:
 Contas disponíveis (código = nome):
 ${listaContas}`;
 
-  const { error, texto } = await lerDocumentoTexto(bytes, mime, prompt, 2048);
+  const { error, texto } = await lerDocumentoTexto(bytes, mime, prompt, 6000);
   if (error || !texto) return { error: error ?? "A IA não respondeu.", nota: null };
 
   const j = parseJsonDaIA<Partial<NotaExtraida>>(texto);
