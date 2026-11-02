@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { DespesaRow, type DespesaRowData } from "./despesa-row";
 import { FecharMesButton } from "./fechar-mes-button";
-import { ParcelaPendenteRow } from "./parcela-pendente-row";
+import { carregarDevidos, rotuloMes } from "@/lib/acertos-socias";
 import { categoriaDeConta, labelCategoriaNegocio, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
 
 function formatBRL(value: number) {
@@ -33,18 +33,18 @@ export default async function ExtratoPage({
   const ordemAscendente = ordem === "antigas";
   const supabase = await createClient();
 
-  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: parcelasPendentesRaw }, { data: meiosPagamento }] =
+  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: acertosAbertos }, { data: meiosPagamento }] =
     await Promise.all([
       supabase.from("produtos").select("id, nome").order("nome"),
       conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
       supabase.from("plano_contas").select("id, codigo, conta, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
-      supabase.from("profiles").select("id, nome").order("nome"),
+      supabase.from("profiles").select("id, nome, papel").order("nome"),
       supabase.from("meses_fechados").select("mes"),
       supabase
-        .from("despesa_parcelas")
-        .select("id, numero_parcela, valor, data_prevista, pagador, despesas(descricao, plano_contas:plano_contas_id(conta))")
-        .eq("status", "prevista")
-        .order("data_prevista", { ascending: true }),
+        .from("acertos_socias")
+        .select("id, tipo, mes_referencia, vencimento, devedora, credora, valor")
+        .eq("status", "aberto")
+        .order("vencimento", { ascending: true }),
       supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, programa_id").eq("ativo", true).order("banco"),
     ]);
 
@@ -64,8 +64,8 @@ export default async function ExtratoPage({
     .from("despesas")
     .select(
       produto
-        ? "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)"
-        : "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
+        ? "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos!inner(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*), despesa_rateio(pessoa, percentual), acerto_itens(numero_parcela, devedora, valor, acertos_socias(status, tipo, mes_referencia, quitado_em))"
+        : "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*), despesa_rateio(pessoa, percentual), acerto_itens(numero_parcela, devedora, valor, acertos_socias(status, tipo, mes_referencia, quitado_em))",
     )
     .order("data_gasto", { ascending: ordemAscendente });
 
@@ -83,33 +83,38 @@ export default async function ExtratoPage({
 
   // Rateio entre sócias — sobre o MESMO recorte filtrado acima (período, produto, descrição...),
   // pra dar pra isolar um evento/feira específico em vez de sempre olhar o total acumulado. Só o
-  // que saiu do bolso de cada uma entra; pago pela "Empresa" (cartão/conta PJ) fica de fora,
-  // porque a empresa já cobriu direto, não há diferença a repassar. Despesa parcelada (ex: feira
-  // paga em várias vezes) não entra pelo pagador único da despesa — o valor total já conta inteiro
-  // no resultado, mas o rateio é pelas parcelas efetivamente pagas por cada uma, não pelo total.
+  // que saiu do bolso de cada uma entra; pago pela "Empresa" (cartão/conta PJ) fica de fora. Cada
+  // despesa conta UMA vez, pelo valor total, pra quem pagou ao fornecedor (no cartão, a dona do
+  // cartão); o que a outra já transferiu num acerto quitado passa de uma pra outra. O que ainda
+  // não foi acertado aparece à parte.
   const pessoasSet = new Set(pagadores);
   const porPagador = new Map<string, number>();
+  const somar = (pessoa: string, v: number) => porPagador.set(pessoa, (porPagador.get(pessoa) ?? 0) + v);
   let totalOutros = 0;
-  let totalParceladoPendente = 0;
+  let totalAcertoPendente = 0;
   for (const d of despesas ?? []) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parcelas = (d.despesa_parcelas as any[]) ?? [];
-    if (parcelas.length > 0) {
-      for (const p of parcelas) {
-        if (p.status === "paga" && p.pagador && pessoasSet.has(p.pagador)) {
-          porPagador.set(p.pagador, (porPagador.get(p.pagador) ?? 0) + Number(p.valor));
-        } else if (p.status !== "paga") {
-          totalParceladoPendente += Number(p.valor);
-        }
-      }
-      continue;
-    }
     if (!d.pagador || d.pagador === "Empresa" || !pessoasSet.has(d.pagador)) {
       totalOutros += Number(d.valor_total);
       continue;
     }
-    porPagador.set(d.pagador, (porPagador.get(d.pagador) ?? 0) + Number(d.valor_total));
+    somar(d.pagador, Number(d.valor_total));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const it of ((d as any).acerto_itens ?? []) as { devedora: string; valor: number; acertos_socias: { status: string } | null }[]) {
+      if (it.acertos_socias?.status !== "quitado") {
+        totalAcertoPendente += Number(it.valor);
+        continue;
+      }
+      somar(it.devedora, Number(it.valor));
+      somar(d.pagador, -Number(it.valor));
+    }
   }
+
+  // Partes divididas que ainda não entraram em nenhum acerto (parcelas futuras do cartão e o que foi
+  // pago à vista depois da última geração) — o que as próximas tarefas vão cobrar.
+  const sociasNomes = new Set((profiles ?? []).filter((p) => (p as { papel?: string }).papel === "socia").map((p) => p.nome));
+  const { itens: aAcertar } = await carregarDevidos(supabase, { ateParcela: "9999-12-31", ateGasto: "9999-12-31", pessoas: sociasNomes });
+  const aAcertarPorDupla = new Map<string, number>();
+  for (const it of aAcertar) aAcertarPorDupla.set(`${it.devedora} → ${it.credora}`, (aAcertarPorDupla.get(`${it.devedora} → ${it.credora}`) ?? 0) + it.valor);
   const totalGeral = [...porPagador.values()].reduce((a, b) => a + b, 0);
   const linhasPagador = [...porPagador.entries()].sort((a, b) => b[1] - a[1]);
   const metade = totalGeral / 2;
@@ -127,28 +132,33 @@ export default async function ExtratoPage({
 
   return (
     <div className="flex flex-col gap-5">
-      {(parcelasPendentesRaw ?? []).length > 0 && (
+      {((acertosAbertos ?? []).length > 0 || aAcertarPorDupla.size > 0) && (
         <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-heading text-sm font-semibold">Parcelamentos em aberto</h2>
-          <p className="mb-4 text-[11.5px] text-text-muted">Lembrete das próximas parcelas a pagar entre sócias — mais próxima primeiro.</p>
+          <h2 className="mb-1 font-heading text-sm font-semibold">Acertos entre sócias</h2>
+          <p className="mb-4 text-[11.5px] text-text-muted">
+            Despesas divididas pagas por uma de vocês. Cada acerto vira uma tarefa: concluir a tarefa de quem deve marca como pago e avisa a outra.
+          </p>
           <div className="flex flex-col gap-2">
-            {(parcelasPendentesRaw ?? []).map((p) => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const desp = p.despesas as any;
-              return (
-                <ParcelaPendenteRow
-                  key={p.id}
-                  id={p.id}
-                  descricao={desp?.descricao ?? desp?.plano_contas?.conta ?? "Despesa"}
-                  numeroParcela={p.numero_parcela}
-                  valor={Number(p.valor)}
-                  dataPrevista={p.data_prevista}
-                  pagadorPrevisto={p.pagador}
-                  pagadores={pagadores}
-                  atrasada={p.data_prevista < hojeIso}
-                />
-              );
-            })}
+            {(acertosAbertos ?? []).map((a) => (
+              <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-bg px-3.5 py-3">
+                <div className="text-[12.5px] font-medium">
+                  {Number(a.valor) > 0 ? `${a.devedora} transfere ${formatBRL(Number(a.valor))} para ${a.credora}` : `${a.devedora} e ${a.credora}: nada a transferir`}
+                  <span className="ml-2 text-[11px] font-normal text-text-muted">
+                    {a.tipo === "mensal" && a.mes_referencia ? `fatura de ${rotuloMes(a.mes_referencia)}` : "avulso"}
+                    {a.vencimento ? ` · até ${formatDate(a.vencimento)}` : ""}
+                    {a.vencimento && a.vencimento < hojeIso ? " · atrasado" : ""}
+                  </span>
+                </div>
+                <a href="/tarefas" className="text-[11.5px] font-medium text-primary-deep">
+                  Ver tarefa
+                </a>
+              </div>
+            ))}
+            {[...aAcertarPorDupla.entries()].map(([dupla, valor]) => (
+              <p key={dupla} className="text-[11px] text-text-faint">
+                Ainda vai entrar nos próximos acertos ({dupla}): {formatBRL(valor)} — parcelas futuras do cartão e o que foi pago à vista depois da última geração.
+              </p>
+            ))}
           </div>
         </div>
       )}
@@ -198,9 +208,9 @@ export default async function ExtratoPage({
               {formatBRL(totalOutros)} pagos pela empresa (ou sem pagador definido) ficaram fora dessa conta.
             </p>
           )}
-          {totalParceladoPendente > 0 && (
+          {totalAcertoPendente > 0 && (
             <p className="mt-1 text-[11px] text-text-faint">
-              {formatBRL(totalParceladoPendente)} em parcelas ainda não pagas — entram no rateio só quando marcadas como pagas.
+              {formatBRL(totalAcertoPendente)} em acertos ainda abertos — entram aqui quando a tarefa for concluída.
             </p>
           )}
         </div>
@@ -359,7 +369,6 @@ export default async function ExtratoPage({
                   planoContas={planoContas ?? []}
                   pagadores={pagadores}
                   fechado={mesesFechados.has(d.data_gasto.slice(0, 7))}
-                  variante="ratear"
                   meiosPagamento={meiosPagamento ?? []}
                   pessoas={pessoas}
                 />

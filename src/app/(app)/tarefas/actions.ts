@@ -6,6 +6,8 @@ import { acessoDrive, enviarParaDrive, iniciarUploadDrive, lixeiraDrive, obterAr
 import { createClient } from "@/lib/supabase/server";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 import { gerarOcorrenciasRotinas } from "@/lib/rotinas";
+import { avisoDeQuitacao } from "@/lib/acertos-socias";
+import { enviarPush } from "@/lib/push";
 import { COLUNAS_GRADE, type ColunaGrade } from "./grade-colunas";
 import { LIMITE_ANEXO_MB } from "./limites";
 
@@ -146,6 +148,18 @@ export async function atualizarTarefa(_prevState: TarefaFormState, formData: For
   return { error: null, success: true };
 }
 
+/** Tarefa de acerto entre sócias concluída por quem devia: o banco já quitou o acerto (trigger);
+ * aqui só avisa a outra. Falha no aviso não impede a conclusão. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function avisarQuitacao(supabase: any, tarefaId: string) {
+  try {
+    const aviso = await avisoDeQuitacao(supabase, tarefaId);
+    if (aviso) await enviarPush([aviso.usuarioId], { title: aviso.title, body: aviso.body, url: "/custos/extrato" });
+  } catch (e) {
+    console.error("Aviso de acerto não enviado", e);
+  }
+}
+
 export async function mudarStatusTarefa(id: string, status: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { data: tarefa, error } = await supabase
@@ -158,6 +172,7 @@ export async function mudarStatusTarefa(id: string, status: string): Promise<{ e
   // Tarefa de rotina: concluir a atual é o que libera a próxima ocorrência (uma aberta por vez);
   // reabrir uma concluída recolhe a próxima. Roda na hora, sem esperar o cron.
   if (tarefa?.rotina_id) await gerarOcorrenciasRotinas(supabase);
+  if (status === "feito") await avisarQuitacao(supabase, id);
   revalidatePath("/tarefas");
   revalidatePath("/agenda");
   return { error: null };

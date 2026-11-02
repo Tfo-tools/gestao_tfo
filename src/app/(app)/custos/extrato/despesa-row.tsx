@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useAcaoEdicao } from "@/lib/use-acao-edicao";
-import { atualizarDespesa, excluirDespesa, ratearIgualmente, desfazerRateio, type DespesaFormState } from "../actions";
+import { atualizarDespesa, excluirDespesa, type DespesaFormState } from "../actions";
 import { AnexoButton } from "./anexo-button";
-import { ParcelasDespesa, type Parcela } from "./parcelas-despesa";
+import { ParcelasDespesa, type Parcela, type RateioDespesa, type ItemAcertoDespesa } from "./parcelas-despesa";
 import { PasteableFileInput } from "../pasteable-file-input";
 import { DetalhePagamento, EfetivacaoPagamento, LABEL_FORMA, type ItemPagamento, type FormaPagamentoTipo } from "../detalhe-pagamento";
 import type { MeioPagamento } from "../meios-pagamento-actions";
@@ -38,6 +38,10 @@ export type DespesaRowData = {
   despesa_produtos: { produtos: { id: string; nome: string } | null }[];
   anexos_despesa: Anexo[];
   despesa_parcelas: Parcela[];
+  /** Quanto cabe a cada sócia (sem linhas = sem divisão). */
+  despesa_rateio?: RateioDespesa[];
+  /** Partes dessa despesa que já entraram num acerto entre sócias. */
+  acerto_itens?: ItemAcertoDespesa[];
   despesa_pagamentos?: PagamentoDetalheRow[];
   /** Programa que a despesa comprova (pago com o recurso dele). */
   programa_id?: string | null;
@@ -57,7 +61,6 @@ export function DespesaRow({
   planoContas,
   pagadores,
   fechado,
-  variante = "parcelar",
   meiosPagamento,
   pessoas,
   compacto = false,
@@ -70,9 +73,6 @@ export function DespesaRow({
   planoContas: PlanoContas[];
   pagadores: string[];
   fechado: boolean;
-  /** No Extrato o rateio entre sócias substitui o parcelamento — a forma de pagamento vai
-   * detalhar isso melhor numa tela própria mais pra frente. */
-  variante?: "parcelar" | "ratear";
   meiosPagamento: MeioPagamento[];
   pessoas: Pessoa[];
   /** Lista de pendentes: a mesma linha (edição, anexo, parcelas, exclusão), exibida em 3 colunas
@@ -86,8 +86,6 @@ export function DespesaRow({
   const [state, formAction, pending] = useAcaoEdicao(atualizarDespesa, initialState, () => setEditando(false));
   const [excluindo, setExcluindo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
-  const [rateando, startRateio] = useTransition();
-  const [erroRateio, setErroRateio] = useState<string | null>(null);
   const [comprovado, setComprovado] = useState(despesa.comprovado);
   const [valorPago, setValorPago] = useState(String(despesa.valor_total));
   const [valorFatura, setValorFatura] = useState(despesa.valor_fatura != null ? String(despesa.valor_fatura) : "");
@@ -108,7 +106,9 @@ export function DespesaRow({
     })),
   );
 
-  const jaRateado = despesa.despesa_parcelas.length > 0;
+  const rateio = despesa.despesa_rateio ?? [];
+  const itensAcerto = despesa.acerto_itens ?? [];
+  const jaDividido = rateio.length > 0;
   // Comprovar um pendente é informar como foi pago: se saiu da conta específica do programa, o
   // vínculo se preenche sozinho — igual ao lançamento novo. Por isso a recorrência não precisa de
   // vínculo próprio: cada mês fica vinculado ao registrar a forma de pagamento dele.
@@ -321,32 +321,13 @@ export function DespesaRow({
               <button type="button" onClick={() => setEditando(true)} className="text-[11.5px] font-medium text-primary-deep hover:text-wine">
                 Editar
               </button>
-              {variante === "ratear" ? (
-                <button
-                  type="button"
-                  disabled={rateando}
-                  onClick={() =>
-                    startRateio(async () => {
-                      setErroRateio(null);
-                      const result = jaRateado
-                        ? await desfazerRateio(despesa.id)
-                        : await ratearIgualmente(despesa.id, Number(despesa.valor_total), despesa.data_gasto, pagadores);
-                      if (result.error) setErroRateio(result.error);
-                    })
-                  }
-                  className="text-[11.5px] font-medium text-primary-deep hover:text-wine disabled:opacity-50"
-                >
-                  {rateando ? "…" : jaRateado ? "Rateado ✓ (desfazer)" : "Ratear"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setMostrandoParcelas((v) => !v)}
-                  className="text-[11.5px] font-medium text-primary-deep hover:text-wine"
-                >
-                  {jaRateado ? `Parcelas (${despesa.despesa_parcelas.length})` : "Parcelar"}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setMostrandoParcelas((v) => !v)}
+                className="text-[11.5px] font-medium text-primary-deep hover:text-wine"
+              >
+                {jaDividido ? "Dividida ✓" : "Dividir"}
+              </button>
               <button
                 type="button"
                 disabled={excluindo}
@@ -368,18 +349,20 @@ export function DespesaRow({
           )}
         </div>
         {erroExclusao && <p className="mt-1 text-[10.5px] text-danger">{erroExclusao}</p>}
-        {erroRateio && <p className="mt-1 text-[10.5px] text-danger">{erroRateio}</p>}
     </>
   );
 
-  const parcelasAbertas = variante === "parcelar" && mostrandoParcelas && (
+  const parcelasAbertas = mostrandoParcelas && (
     <tr className="border-t border-border-soft">
       <td colSpan={colunas} className="px-2 py-3">
         <ParcelasDespesa
           despesaId={despesa.id}
           valorTotalDespesa={Number(despesa.valor_total)}
+          pagador={despesa.pagador}
           parcelas={despesa.despesa_parcelas}
-          pagadores={pagadores}
+          rateio={rateio}
+          itensAcerto={itensAcerto}
+          fechado={fechado}
         />
       </td>
     </tr>

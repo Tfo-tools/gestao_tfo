@@ -4,7 +4,7 @@
  * Novo lançamento: o assistente guiado é o padrão; "preencher no formulário" cai no formulário
  * clássico (DespesaForm). O guiado cobre o caminho comum + recorrência, e a forma de pagamento usa
  * o MESMO componente do formulário (DetalhePagamento): cartão específico, parcelas, boleto, Pix,
- * débito e combinação. O rateio entre sócias continua no Extrato.
+ * débito e combinação. A divisão entre sócias é perguntada aqui (meio a meio por padrão).
  */
 
 import { useState } from "react";
@@ -171,6 +171,20 @@ function LancamentoGuiado({
     },
 
     {
+      id: "rateio",
+      pergunta: "Dividir essa despesa entre as sócias?",
+      rotulo: "Divisão",
+      tipo: "opcoes",
+      padrao: "meio",
+      opcoes: [
+        { valor: "meio", rotulo: "Meio a meio" },
+        { valor: "nao", rotulo: "Não dividir" },
+      ],
+      quando: (r) => r.recorrente !== true && !vazioR(r.pagador) && r.pagador !== "Empresa",
+      ajuda: "A parte da outra entra no acerto do mês: vira tarefa, com o saldo a transferir.",
+    },
+
+    {
       id: "descricao",
       pergunta: "Uma descrição curta",
       rotulo: "Descrição",
@@ -215,6 +229,7 @@ function LancamentoGuiado({
     fd.set("valor_total", String(r.valor ?? ""));
     if (r.descricao) fd.set("descricao", String(r.descricao));
     if (r.pagador) fd.set("pagador", String(r.pagador));
+    if (r.rateio === "nao") fd.set("rateio", "nao");
 
     // Forma de pagamento vem do mesmo componente do formulário (cartão/parcelas/combinação).
     if (pagamentoItens.length > 0) fd.set("pagamento_detalhe", JSON.stringify(pagamentoItens));

@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useRef, useTransition } from "react";
-import { criarParcelaDespesa, excluirParcelaDespesa, marcarParcelaPaga, type ParcelaFormState } from "../actions";
+import { useState, useTransition } from "react";
+import { dividirMeioAMeio, desfazerDivisao } from "../actions";
 
 export type Parcela = {
   id: string;
@@ -11,6 +11,15 @@ export type Parcela = {
   pagador: string | null;
   status: string;
   paga_em: string | null;
+  origem?: string | null;
+};
+
+export type RateioDespesa = { pessoa: string; percentual: number };
+export type ItemAcertoDespesa = {
+  numero_parcela: number | null;
+  devedora: string;
+  valor: number;
+  acertos_socias: { status: string; tipo: string; mes_referencia: string | null; quitado_em: string | null } | null;
 };
 
 function formatBRL(v: number) {
@@ -19,125 +28,117 @@ function formatBRL(v: number) {
 function formatDate(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
 }
+const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const rotuloMes = (iso: string) => `${MESES[Number(iso.slice(5, 7)) - 1]}/${iso.slice(2, 4)}`;
 
-const initialState: ParcelaFormState = { error: null };
+/** Divide pelos percentuais; o arredondamento sobra pra última (mesma regra do acerto). */
+function partes(valor: number, rateio: RateioDespesa[]) {
+  const ord = rateio.slice().sort((a, b) => a.pessoa.localeCompare(b.pessoa));
+  const total = ord.reduce((s, r) => s + Number(r.percentual), 0);
+  let acc = 0;
+  return ord.map((r, i) => {
+    const v = i === ord.length - 1 ? Math.round((valor - acc) * 100) / 100 : Math.round(((valor * Number(r.percentual)) / total) * 100) / 100;
+    acc = Math.round((acc + v) * 100) / 100;
+    return { pessoa: r.pessoa, valor: v };
+  });
+}
 
+function situacao(item: ItemAcertoDespesa | undefined) {
+  if (!item) return { texto: "a acertar", classe: "text-text-faint" };
+  const a = item.acertos_socias;
+  if (a?.status === "quitado")
+    return { texto: a.tipo === "historico" ? `acertado (${a.mes_referencia ? rotuloMes(a.mes_referencia) : "antes do app"})` : `acertado${a.quitado_em ? ` em ${formatDate(a.quitado_em)}` : ""}`, classe: "text-success" };
+  return { texto: `no acerto ${a?.mes_referencia ? `de ${rotuloMes(a.mes_referencia)}` : "aberto"}`, classe: "text-primary-deep" };
+}
+
+/**
+ * Divisão da despesa entre as sócias e o acerto de cada parte. No cartão, o calendário da fatura
+ * mostra a parte de cada uma em cada parcela — nada pra marcar aqui: o acerto do mês sai como
+ * tarefa e é concluindo a tarefa que a parte fica acertada.
+ */
 export function ParcelasDespesa({
   despesaId,
   valorTotalDespesa,
+  pagador,
   parcelas,
-  pagadores,
+  rateio,
+  itensAcerto,
+  fechado,
 }: {
   despesaId: string;
   valorTotalDespesa: number;
+  pagador: string | null;
   parcelas: Parcela[];
-  pagadores: string[];
+  rateio: RateioDespesa[];
+  itensAcerto: ItemAcertoDespesa[];
+  fechado: boolean;
 }) {
-  const [state, formAction, pending] = useActionState(criarParcelaDespesa, initialState);
   const [isPending, startTransition] = useTransition();
-  const formRef = useRef<HTMLFormElement>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const doCartao = parcelas.filter((p) => p.origem === "fatura_cartao").sort((a, b) => a.numero_parcela - b.numero_parcela);
+  const dividido = rateio.length > 0;
+  const emAcerto = itensAcerto.length > 0;
+  const blocos =
+    doCartao.length > 0
+      ? doCartao.map((p) => ({ numero: p.numero_parcela as number | null, rotulo: `${p.numero_parcela}/${doCartao.length}`, valor: Number(p.valor), data: p.data_prevista }))
+      : [{ numero: null as number | null, rotulo: "À vista", valor: valorTotalDespesa, data: null as string | null }];
 
-  const somaParcelas = parcelas.reduce((s, p) => s + Number(p.valor), 0);
-  const proximoNumero = parcelas.length > 0 ? Math.max(...parcelas.map((p) => p.numero_parcela)) + 1 : 1;
+  const acao = (fn: () => Promise<{ error: string | null }>) =>
+    startTransition(async () => {
+      setErro(null);
+      const r = await fn();
+      if (r.error) setErro(r.error);
+    });
 
   return (
     <div className="w-full rounded-lg border border-border-soft bg-bg p-3.5">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-[11.5px] font-semibold text-text-muted">
-          Rateio parcelado entre sócias — o valor total ({formatBRL(valorTotalDespesa)}) já conta inteiro no resultado; isso aqui é só
-          o cronograma de quem paga cada parcela.
+          {dividido
+            ? `Dividida: ${rateio.map((r) => `${r.pessoa} ${Number(r.percentual).toFixed(0)}%`).join(" · ")}${pagador ? ` — pago por ${pagador}` : " — falta dizer quem pagou"}`
+            : "Sem divisão — a despesa fica toda com quem pagou."}
         </span>
+        {!fechado && !emAcerto && (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => acao(() => (dividido ? desfazerDivisao(despesaId) : dividirMeioAMeio(despesaId)))}
+            className="text-[11px] font-medium text-primary-deep disabled:opacity-50"
+          >
+            {isPending ? "…" : dividido ? "Desfazer divisão" : "Dividir meio a meio"}
+          </button>
+        )}
       </div>
 
-      {parcelas.length > 0 && (
-        <div className="mb-3 flex flex-col gap-1.5">
-          {parcelas
-            .slice()
-            .sort((a, b) => a.numero_parcela - b.numero_parcela)
-            .map((p) => (
-              <div key={p.id} className="flex items-center justify-between gap-2 rounded-md border border-border-soft bg-surface px-3 py-2">
-                <span className="text-[12px]">
-                  <span className="font-semibold">{p.numero_parcela}ª</span>
-                  <span className="ml-2 font-mono">{formatBRL(Number(p.valor))}</span>
-                  <span className="ml-2 text-text-faint">vence {formatDate(p.data_prevista)}</span>
-                  {p.pagador && <span className="ml-2 text-text-faint">· {p.pagador}</span>}
+      {dividido && (
+        <div className="flex flex-col gap-1.5">
+          {blocos.map((b) => {
+            const ps = partes(b.valor, rateio);
+            return (
+              <div key={b.rotulo} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-soft bg-surface px-3 py-2 text-[12px]">
+                <span>
+                  <span className="font-semibold">{b.rotulo}</span>
+                  <span className="ml-2 font-mono">{formatBRL(b.valor)}</span>
+                  {b.data && <span className="ml-2 text-text-faint">fatura {formatDate(b.data)}</span>}
                 </span>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
-                      p.status === "paga" ? "bg-success-soft text-success" : "bg-bg text-text-faint"
-                    }`}
-                  >
-                    {p.status === "paga" ? `Paga${p.paga_em ? ` em ${formatDate(p.paga_em)}` : ""}` : "Prevista"}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() =>
-                      startTransition(() => marcarParcelaPaga(p.id, p.status !== "paga", p.pagador))
-                    }
-                    className="text-[11px] font-medium text-primary-deep"
-                  >
-                    {p.status === "paga" ? "Desmarcar" : "Marcar paga"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() => startTransition(() => excluirParcelaDespesa(p.id))}
-                    className="text-[11px] text-danger"
-                  >
-                    ×
-                  </button>
-                </div>
+                <span className="flex flex-wrap gap-3">
+                  {ps.map((p) => {
+                    const deQuemPagou = p.pessoa === pagador;
+                    const s = situacao(itensAcerto.find((i) => i.devedora === p.pessoa && (i.numero_parcela ?? null) === b.numero));
+                    return (
+                      <span key={p.pessoa} className="text-[11px]">
+                        {p.pessoa} <span className="font-mono">{formatBRL(p.valor)}</span>{" "}
+                        <span className={deQuemPagou ? "text-text-faint" : s.classe}>{deQuemPagou ? "(pagou)" : `· ${s.texto}`}</span>
+                      </span>
+                    );
+                  })}
+                </span>
               </div>
-            ))}
-          <div className={`text-right text-[11px] font-medium ${somaParcelas === valorTotalDespesa ? "text-success" : "text-text-faint"}`}>
-            {formatBRL(somaParcelas)} de {formatBRL(valorTotalDespesa)} parcelados
-          </div>
+            );
+          })}
         </div>
       )}
-
-      <form
-        ref={formRef}
-        action={async (fd) => {
-          await formAction(fd);
-          formRef.current?.reset();
-        }}
-        className="flex flex-wrap items-end gap-2"
-      >
-        <input type="hidden" name="despesa_id" value={despesaId} />
-        <div>
-          <label className="mb-1 block text-[10.5px] text-text-faint">Nº</label>
-          <input name="numero_parcela" type="number" min="1" defaultValue={proximoNumero} className="input w-[60px]" required />
-        </div>
-        <div>
-          <label className="mb-1 block text-[10.5px] text-text-faint">Valor</label>
-          <input name="valor" type="number" step="0.01" min="0" className="input w-[110px]" required />
-        </div>
-        <div>
-          <label className="mb-1 block text-[10.5px] text-text-faint">Vencimento previsto</label>
-          <input name="data_prevista" type="date" className="input w-[145px]" required />
-        </div>
-        <div>
-          <label className="mb-1 block text-[10.5px] text-text-faint">Quem vai pagar</label>
-          <select name="pagador" className="input w-[120px]">
-            <option value="">A definir</option>
-            {pagadores.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-lg border border-border px-3 py-2 text-[12px] font-medium text-primary-deep disabled:opacity-60"
-        >
-          {pending ? "…" : "+ Parcela"}
-        </button>
-        {state.error && <p className="w-full text-[11px] text-danger">{state.error}</p>}
-      </form>
+      {erro && <p className="mt-1.5 text-[11px] text-danger">{erro}</p>}
     </div>
   );
 }

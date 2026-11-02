@@ -27,7 +27,7 @@ export default async function LancamentosPage() {
       supabase
         .from("despesas")
         .select(
-          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, despesa_recorrente_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*)",
+          "id, data_gasto, valor_total, valor_fatura, forma_pagamento, comprovado, descricao, pagador, programa_id, despesa_recorrente_id, plano_contas_id, plano_contas:plano_contas_id(codigo, conta), despesa_produtos(produtos(id, nome)), anexos_despesa(id, caminho_arquivo, nome_arquivo, tipo), despesa_parcelas(*), despesa_pagamentos(*), despesa_rateio(pessoa, percentual), acerto_itens(numero_parcela, devedora, valor, acertos_socias(status, tipo, mes_referencia, quitado_em))",
         )
         // Tudo o que ainda precisa de atenção: sem comprovante, venha de lançamento avulso ou de
         // recorrência. Antes os de recorrência ficavam de fora e a lista parecia ter um item só —

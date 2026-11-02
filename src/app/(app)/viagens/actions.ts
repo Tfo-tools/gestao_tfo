@@ -7,6 +7,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { lerDocumentoViagem, leituraViagemConfigurada, type ItemViagemExtraido, type TipoItemViagem } from "@/lib/viagens-ia";
 import { enviarPush } from "@/lib/push";
 import { salvarPagamentoDetalhe } from "@/lib/pagamento-detalhe";
+import { gerarAcertoAvulso, rateioIgual, salvarRateio } from "@/lib/acertos-socias";
+import { hojeSP } from "@/lib/rotinas";
 
 export type ViagemFormState = { error: string | null; id?: string };
 
@@ -173,6 +175,27 @@ export async function salvarItem(input: ItemInput): Promise<{ error: string | nu
   return { error: null, id: itemId! };
 }
 
+/** Divide a despesa do item entre as sócias participantes dele (a passagem de uma fica só com ela).
+ * Não mexe se alguma parte já entrou num acerto entre sócias. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function dividirPelosParticipantes(supabase: any, itemId: string, despesaId: string) {
+  const { count } = await supabase.from("acerto_itens").select("id", { count: "exact", head: true }).eq("despesa_id", despesaId);
+  if ((count ?? 0) > 0) return;
+  const { data: participantes } = await supabase.from("viagem_item_participantes").select("profiles(nome, papel)").eq("item_id", itemId);
+  const socias = ((participantes ?? []) as { profiles: { nome: string; papel: string } | { nome: string; papel: string }[] | null }[])
+    .map((p) => (Array.isArray(p.profiles) ? p.profiles[0] : p.profiles))
+    .filter((p): p is { nome: string; papel: string } => !!p && p.papel === "socia")
+    .map((p) => p.nome);
+  await salvarRateio(supabase, despesaId, rateioIgual(socias));
+  // Pago à vista depois da geração do acerto do mês: vira acerto avulso na hora.
+  try {
+    const { avisos } = await gerarAcertoAvulso(supabase, despesaId, hojeSP());
+    for (const a of avisos) await enviarPush([a.usuarioId], { title: a.title, body: a.body, url: "/tarefas" });
+  } catch (e) {
+    console.error("Acerto avulso não gerado", e);
+  }
+}
+
 /**
  * Salva o item E, se tiver valor, lança/atualiza a despesa no Custos já classificada e COM a forma
  * de pagamento (cartão/parcelas/titular) — tudo no mesmo fluxo do assistente. Substitui o antigo
@@ -197,14 +220,17 @@ export async function salvarItemComCusto(
   let despesaId = det.despesa_id ?? null;
 
   const conta = input.custo.contaId || CONTA_POR_TIPO[input.tipo] || CONTA_POR_TIPO.outro;
-  const dataGasto = (itemAtual?.inicio ? new Date(itemAtual.inicio) : new Date()).toISOString().slice(0, 10);
+  // Data do gasto = dia da COMPRA, não da viagem: é ela que define em qual fatura do cartão cai.
+  // Na criação é hoje; depois vale a que estiver na despesa (corrigível editando no Custos).
+  const { data: despesaAtual } = despesaId ? await supabase.from("despesas").select("data_gasto").eq("id", despesaId).maybeSingle() : { data: null };
+  const dataGasto = (despesaAtual?.data_gasto as string | undefined) ?? hojeSP();
   const descricao = (input.titulo || itemAtual?.titulo || "Item da viagem").trim();
   const pagador = input.custo.pagador?.trim() || null;
 
   if (despesaId) {
     const { error } = await supabase
       .from("despesas")
-      .update({ data_gasto: dataGasto, plano_contas_id: conta, valor_total: valor, descricao, pagador })
+      .update({ plano_contas_id: conta, valor_total: valor, descricao, pagador })
       .eq("id", despesaId);
     if (error) return { error: "Item salvo, mas não consegui atualizar a despesa no Custos.", id: itemId };
   } else {
@@ -226,6 +252,7 @@ export async function salvarItemComCusto(
   if (resumo) await supabase.from("despesas").update({ forma_pagamento: resumo }).eq("id", despesaId);
 
   await supabase.from("viagem_itens").update({ detalhes: { ...det, despesa_id: despesaId } }).eq("id", itemId);
+  await dividirPelosParticipantes(supabase, itemId, despesaId);
   revalidatePath(`/viagens/${input.viagemId}`);
   revalidatePath("/custos");
   revalidatePath("/custos/extrato");
@@ -334,8 +361,8 @@ const CONTA_POR_TIPO: Record<string, string> = {
 
 /**
  * Cria a despesa no Custos (Lançamentos) a partir de um item da viagem, já classificada na conta
- * certa e ligada à viagem. Não duplica: guarda o despesa_id no item. O rateio entre sócias continua
- * sendo feito no Extrato (botão "ratear"), como já funciona.
+ * certa e ligada à viagem. Não duplica: guarda o despesa_id no item. Já sai dividida entre as
+ * sócias participantes do item; o acerto com quem pagou vem do fluxo de acertos entre sócias.
  */
 export async function lancarDespesaDoItem(itemId: string): Promise<{ error: string | null; despesaId?: string }> {
   const supabase = await createClient();
@@ -348,7 +375,7 @@ export async function lancarDespesaDoItem(itemId: string): Promise<{ error: stri
   if (det.despesa_id) return { error: "Esse item já foi lançado no Custos." };
 
   const conta = CONTA_POR_TIPO[item.tipo] ?? CONTA_POR_TIPO.outro;
-  const dataGasto = (item.inicio ? new Date(item.inicio) : new Date()).toISOString().slice(0, 10);
+  const dataGasto = hojeSP(); // dia da compra (ao lançar), não da viagem
   const viagemTitulo = (item.viagens as { titulo?: string } | null)?.titulo ?? "";
   const descricao = `Viagem: ${viagemTitulo} — ${item.titulo}`.trim();
 
@@ -360,6 +387,7 @@ export async function lancarDespesaDoItem(itemId: string): Promise<{ error: stri
   if (error || !desp) return { error: "Não consegui criar a despesa no Custos." };
 
   await supabase.from("viagem_itens").update({ detalhes: { ...det, despesa_id: desp.id } }).eq("id", itemId);
+  await dividirPelosParticipantes(supabase, itemId, desp.id);
   revalidatePath(`/viagens/${item.viagem_id}`);
   revalidatePath("/custos");
   return { error: null, despesaId: desp.id };

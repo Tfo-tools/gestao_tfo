@@ -6,6 +6,9 @@ import { congelarPlanoDoMes } from "@/lib/acompanhamento-plano";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 import { lerNotaFiscal, notaIaConfigurada, type NotaExtraida } from "@/lib/custos-ia";
 import { salvarPagamentoDetalhe, resumoFormaPagamentoJson } from "@/lib/pagamento-detalhe";
+import { gerarAcertoAvulso, rateioIgual, salvarRateio } from "@/lib/acertos-socias";
+import { hojeSP } from "@/lib/rotinas";
+import { enviarPush } from "@/lib/push";
 
 /** Lê uma nota/comprovante com IA e devolve os campos pra preencher o lançamento (data/valor/
  * descrição) + sugestão de conta. A sócia confere tudo antes de salvar. */
@@ -62,6 +65,25 @@ async function anexarArquivo(
     tamanho_bytes: file.size,
     tipo,
   });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function nomesSocias(supabase: any): Promise<string[]> {
+  const { data } = await supabase.from("profiles").select("nome").eq("papel", "socia").order("nome");
+  return ((data ?? []) as { nome: string }[]).map((p) => p.nome);
+}
+
+/** Despesa à vista dividida lançada depois da geração do acerto do mês: vira tarefa avulsa na hora
+ * (3 dias úteis). Antes disso não faz nada — entra no acerto mensal. Falha aqui não desfaz o lançamento. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function acertoAvulsoSeCouber(supabase: any, despesaId: string) {
+  try {
+    const { avisos } = await gerarAcertoAvulso(supabase, despesaId, hojeSP());
+    for (const a of avisos) await enviarPush([a.usuarioId], { title: a.title, body: a.body, url: "/tarefas" });
+    if (avisos.length > 0) revalidatePath("/tarefas");
+  } catch (e) {
+    console.error("Acerto avulso não gerado", e);
+  }
 }
 
 /** Único ponto de entrada do formulário de lançamento — decide entre um lançamento avulso e uma
@@ -141,6 +163,13 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
 
   await anexarArquivo(supabase, despesa.id, fatura, "fatura");
   await anexarArquivo(supabase, despesa.id, comprovantePagamento, "comprovante_pagamento");
+
+  // Divisão entre sócias: meio a meio por padrão quando quem pagou é uma sócia ("nao" desliga).
+  const socias = await nomesSocias(supabase);
+  if (formData.get("rateio") !== "nao" && pagador && socias.includes(pagador)) {
+    await salvarRateio(supabase, despesa.id, rateioIgual(socias));
+    await acertoAvulsoSeCouber(supabase, despesa.id);
+  }
 
   revalidatePath("/custos");
   revalidatePath("/custos/extrato");
@@ -315,6 +344,9 @@ export async function atualizarDespesa(
   await anexarArquivo(supabase, id, fatura, "fatura");
   await anexarArquivo(supabase, id, comprovantePagamento, "comprovante_pagamento");
 
+  // Despesa que já tinha divisão e só agora ganhou pagador (ex.: lançada a partir da viagem).
+  await acertoAvulsoSeCouber(supabase, id);
+
   revalidatePath("/custos");
   revalidatePath("/custos/extrato");
   revalidatePath("/custos/recorrentes");
@@ -330,6 +362,9 @@ export async function excluirDespesa(id: string): Promise<{ error: string | null
   if (await mesFechado(supabase, atual.data_gasto)) {
     return { error: "Esse mês está fechado — reabra em Extrato antes de excluir." };
   }
+  // A parte de uma sócia já entrou num acerto: apagar a despesa apagaria o registro do acerto junto.
+  const { count: emAcerto } = await supabase.from("acerto_itens").select("id", { count: "exact", head: true }).eq("despesa_id", id);
+  if ((emAcerto ?? 0) > 0) return { error: "Essa despesa já entrou num acerto entre sócias — não dá pra excluir." };
 
   const { error } = await supabase.from("despesas").delete().eq("id", id);
   if (error) return { error: "Não foi possível excluir." };
@@ -373,93 +408,29 @@ export async function reabrirMes(mes: string): Promise<{ error: string | null }>
   return { error: null };
 }
 
-export type ParcelaFormState = { error: string | null; success?: boolean };
-
-export async function criarParcelaDespesa(
-  _prevState: ParcelaFormState,
-  formData: FormData,
-): Promise<ParcelaFormState> {
+/** Divide a despesa meio a meio entre as sócias (substitui a divisão anterior). Se ela é à vista e
+ * o acerto do mês já saiu, gera o acerto avulso na hora. */
+export async function dividirMeioAMeio(despesaId: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
-
-  const despesa_id = String(formData.get("despesa_id") || "");
-  const numero_parcela = Number(formData.get("numero_parcela") || 1);
-  const valor = Number(formData.get("valor") || 0);
-  const data_prevista = String(formData.get("data_prevista") || "");
-  const pagador = String(formData.get("pagador") || "").trim() || null;
-
-  if (!despesa_id || !valor || !data_prevista) {
-    return { error: "Preencha valor e data prevista." };
-  }
-
-  const { error } = await supabase.from("despesa_parcelas").insert({
-    despesa_id,
-    numero_parcela,
-    valor,
-    data_prevista,
-    pagador,
-  });
-
-  if (error) return { error: "Não foi possível salvar a parcela." };
-
-  revalidatePath("/custos/extrato");
-  revalidatePath("/custos");
-  return { error: null, success: true };
-}
-
-export async function marcarParcelaPaga(id: string, paga: boolean, pagador: string | null) {
-  const supabase = await createClient();
-  await supabase
-    .from("despesa_parcelas")
-    .update({
-      status: paga ? "paga" : "prevista",
-      paga_em: paga ? new Date().toISOString().slice(0, 10) : null,
-      ...(paga && pagador ? { pagador } : {}),
-    })
-    .eq("id", id);
-  revalidatePath("/custos/extrato");
-  revalidatePath("/custos");
-}
-
-export async function excluirParcelaDespesa(id: string) {
-  const supabase = await createClient();
-  await supabase.from("despesa_parcelas").delete().eq("id", id);
-  revalidatePath("/custos/extrato");
-  revalidatePath("/custos");
-}
-
-/** Divide o valor da despesa igualmente entre as duas primeiras sócias da lista de pagadores —
- * usa o mesmo mecanismo de despesa_parcelas (já marcadas como pagas) pra alimentar o rateio entre
- * sócias que já existe no Extrato. Chamar de novo substitui a divisão anterior. */
-export async function ratearIgualmente(despesaId: string, valorTotal: number, dataGasto: string, pagadores: string[]): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const dupla = pagadores.slice(0, 2);
-  if (dupla.length < 2) return { error: "É preciso ter pelo menos duas sócias cadastradas pra ratear." };
-
-  await supabase.from("despesa_parcelas").delete().eq("despesa_id", despesaId);
-  const metade = Math.round((valorTotal / 2) * 100) / 100;
-  const { error } = await supabase.from("despesa_parcelas").insert([
-    { despesa_id: despesaId, numero_parcela: 1, valor: metade, data_prevista: dataGasto, pagador: dupla[0], status: "paga", paga_em: dataGasto },
-    {
-      despesa_id: despesaId,
-      numero_parcela: 2,
-      valor: Math.round((valorTotal - metade) * 100) / 100,
-      data_prevista: dataGasto,
-      pagador: dupla[1],
-      status: "paga",
-      paga_em: dataGasto,
-    },
-  ]);
-  if (error) return { error: "Não foi possível ratear essa despesa." };
+  const { count } = await supabase.from("acerto_itens").select("id", { count: "exact", head: true }).eq("despesa_id", despesaId);
+  if ((count ?? 0) > 0) return { error: "Essa despesa já entrou num acerto — a divisão não muda mais." };
+  const socias = await nomesSocias(supabase);
+  if (socias.length < 2) return { error: "É preciso ter pelo menos duas sócias cadastradas pra dividir." };
+  await salvarRateio(supabase, despesaId, rateioIgual(socias));
+  await acertoAvulsoSeCouber(supabase, despesaId);
 
   revalidatePath("/custos/extrato");
   revalidatePath("/custos");
   return { error: null };
 }
 
-export async function desfazerRateio(despesaId: string): Promise<{ error: string | null }> {
+/** Tira a divisão — só enquanto nenhuma parte dela entrou num acerto. */
+export async function desfazerDivisao(despesaId: string): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase.from("despesa_parcelas").delete().eq("despesa_id", despesaId);
-  if (error) return { error: "Não foi possível desfazer o rateio." };
+  const { count } = await supabase.from("acerto_itens").select("id", { count: "exact", head: true }).eq("despesa_id", despesaId);
+  if ((count ?? 0) > 0) return { error: "Parte dessa despesa já entrou num acerto — não dá pra desfazer a divisão." };
+  const { error } = await supabase.from("despesa_rateio").delete().eq("despesa_id", despesaId);
+  if (error) return { error: "Não foi possível desfazer a divisão." };
 
   revalidatePath("/custos/extrato");
   revalidatePath("/custos");

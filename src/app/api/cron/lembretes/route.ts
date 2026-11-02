@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import webpush from "web-push";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { gerarOcorrenciasRotinas } from "@/lib/rotinas";
+import { gerarOcorrenciasRotinas, hojeSP } from "@/lib/rotinas";
+import { gerarAcertoMensal } from "@/lib/acertos-socias";
+import { enviarPush } from "@/lib/push";
 import { carregarMaes, rotuloTarefa } from "@/lib/agenda-combinada";
 
 function hojeISO(offsetDias = 0) {
@@ -29,6 +31,15 @@ export async function GET(request: NextRequest) {
     await gerarOcorrenciasRotinas(createAdminClient());
   } catch (e) {
     console.error("Rotinas: falha ao gerar ocorrências", e);
+  }
+
+  // Acerto mensal entre sócias: 5 dias antes do vencimento do cartão que vence primeiro, uma tarefa
+  // pra cada uma com as parcelas e despesas divididas e o saldo a transferir. Uma vez por mês.
+  try {
+    const { avisos } = await gerarAcertoMensal(createAdminClient(), hojeSP());
+    for (const a of avisos) await enviarPush([a.usuarioId], { title: a.title, body: a.body, url: "/tarefas" });
+  } catch (e) {
+    console.error("Acertos: falha ao gerar o acerto do mês", e);
   }
 
   // Retenção de atas: guardamos no máximo 60 dias. Atas de reuniões mais antigas são apagadas (a

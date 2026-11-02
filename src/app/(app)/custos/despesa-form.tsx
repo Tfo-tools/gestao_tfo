@@ -180,6 +180,16 @@ export function DespesaForm({
             {pagadorPadrao && <p className="mt-1 text-[10.5px] text-text-faint">Preenchido com seu usuário — troque se foi a Empresa quem pagou.</p>}
           </Field>
 
+          {!recorrente && pagador && pagador !== "Empresa" && (
+            <Field label="Dividir entre as sócias?">
+              <select name="rateio" defaultValue="meio" className="input">
+                <option value="meio">Meio a meio</option>
+                <option value="nao">Não dividir</option>
+              </select>
+              <p className="mt-1 text-[10.5px] text-text-faint">A parte da outra entra no acerto do mês (vira tarefa).</p>
+            </Field>
+          )}
+
           <Field label="Forma de pagamento">
             <DetalhePagamento
               key={pagamentoKey}
