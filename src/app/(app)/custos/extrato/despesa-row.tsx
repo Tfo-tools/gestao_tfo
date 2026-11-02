@@ -189,6 +189,7 @@ export function DespesaRow({
                 pagador={pagadorEditado}
                 nomesSocias={nomesSocias}
                 dataReferencia={dataGasto}
+                permitirAjusteMes
               />
             </div>
             <div>

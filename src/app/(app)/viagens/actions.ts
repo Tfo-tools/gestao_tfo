@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lerDocumentoViagem, leituraViagemConfigurada, type ItemViagemExtraido, type TipoItemViagem } from "@/lib/viagens-ia";
 import { enviarPush } from "@/lib/push";
+import { salvarPagamentoDetalhe } from "@/lib/pagamento-detalhe";
 
 export type ViagemFormState = { error: string | null; id?: string };
 
@@ -116,6 +117,7 @@ export type ItemInput = {
   localizador?: string | null;
   endereco?: string | null;
   observacoes?: string | null;
+  conexoes?: string | null;
   valor?: number | null;
   participantes?: string[];
 };
@@ -145,7 +147,12 @@ export async function salvarItem(input: ItemInput): Promise<{ error: string | nu
     local: input.local?.trim() || null,
     localizador: input.localizador?.trim() || null,
     endereco: input.endereco?.trim() || null,
-    detalhes: { observacoes: input.observacoes?.trim() || null, valor: typeof input.valor === "number" ? input.valor : null, despesa_id: despesaIdExistente },
+    detalhes: {
+      observacoes: input.observacoes?.trim() || null,
+      conexoes: input.conexoes?.trim() || null,
+      valor: typeof input.valor === "number" ? input.valor : null,
+      despesa_id: despesaIdExistente,
+    },
   };
   let itemId = input.id ?? null;
   if (input.id) {
@@ -164,6 +171,65 @@ export async function salvarItem(input: ItemInput): Promise<{ error: string | nu
   }
   revalidatePath(`/viagens/${input.viagemId}`);
   return { error: null, id: itemId! };
+}
+
+/**
+ * Salva o item E, se tiver valor, lança/atualiza a despesa no Custos já classificada e COM a forma
+ * de pagamento (cartão/parcelas/titular) — tudo no mesmo fluxo do assistente. Substitui o antigo
+ * "Lançar no Custos" solto, que criava a despesa sem detalhe de pagamento. O nome do item vira a
+ * descrição (campo de busca) da despesa. Sem valor ou sem detalhe, só salva o item.
+ */
+export async function salvarItemComCusto(
+  input: ItemInput & { custo?: { contaId?: string | null; pagador?: string | null; pagamentoDetalheJson?: string | null } | null },
+): Promise<{ error: string | null; id?: string }> {
+  const base = await salvarItem(input);
+  if (base.error || !base.id) return base;
+  const itemId = base.id;
+
+  const valor = typeof input.valor === "number" ? input.valor : 0;
+  if (!input.custo || !valor || valor <= 0) return { error: null, id: itemId };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { data: itemAtual } = await supabase.from("viagem_itens").select("detalhes, inicio, titulo").eq("id", itemId).maybeSingle();
+  const det = (itemAtual?.detalhes ?? {}) as { despesa_id?: string | null };
+  let despesaId = det.despesa_id ?? null;
+
+  const conta = input.custo.contaId || CONTA_POR_TIPO[input.tipo] || CONTA_POR_TIPO.outro;
+  const dataGasto = (itemAtual?.inicio ? new Date(itemAtual.inicio) : new Date()).toISOString().slice(0, 10);
+  const descricao = (input.titulo || itemAtual?.titulo || "Item da viagem").trim();
+  const pagador = input.custo.pagador?.trim() || null;
+
+  if (despesaId) {
+    const { error } = await supabase
+      .from("despesas")
+      .update({ data_gasto: dataGasto, plano_contas_id: conta, valor_total: valor, descricao, pagador })
+      .eq("id", despesaId);
+    if (error) return { error: "Item salvo, mas não consegui atualizar a despesa no Custos.", id: itemId };
+  } else {
+    const { data: desp, error } = await supabase
+      .from("despesas")
+      .insert({ data_gasto: dataGasto, plano_contas_id: conta, valor_total: valor, descricao, comprovado: false, pagador, criado_por: user?.id ?? null, viagem_id: input.viagemId })
+      .select("id")
+      .single();
+    if (error || !desp) return { error: "Item salvo, mas não consegui criar a despesa no Custos.", id: itemId };
+    despesaId = desp.id;
+  }
+  if (!despesaId) return { error: null, id: itemId };
+
+  const resumo = await salvarPagamentoDetalhe(supabase, despesaId, {
+    pagamentoDetalheJson: input.custo.pagamentoDetalheJson ?? "",
+    dataGasto,
+    pagador,
+  });
+  if (resumo) await supabase.from("despesas").update({ forma_pagamento: resumo }).eq("id", despesaId);
+
+  await supabase.from("viagem_itens").update({ detalhes: { ...det, despesa_id: despesaId } }).eq("id", itemId);
+  revalidatePath(`/viagens/${input.viagemId}`);
+  revalidatePath("/custos");
+  revalidatePath("/custos/extrato");
+  return { error: null, id: itemId };
 }
 
 export async function excluirItem(id: string, viagemId: string): Promise<{ error: string | null }> {

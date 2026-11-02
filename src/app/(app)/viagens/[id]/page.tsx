@@ -16,12 +16,16 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
   const { data: viagem } = await supabase.from("viagens").select("id, titulo, destino, data_inicio, data_fim, observacoes").eq("id", id).maybeSingle();
   if (!viagem) notFound();
 
-  const [{ data: itens }, { data: anexos }, { data: participantes }, { data: pessoas }, { data: despesas }] = await Promise.all([
+  const [{ data: itens }, { data: anexos }, { data: participantes }, { data: pessoas }, { data: despesas }, { data: planoContas }, { data: meiosPagamento }, { data: todasDespesasContas }, { data: programas }] = await Promise.all([
     supabase.from("viagem_itens").select("*").eq("viagem_id", id).order("inicio", { ascending: true, nullsFirst: false }).order("created_at"),
     supabase.from("viagem_anexos").select("id, item_id, nome_arquivo, caminho_arquivo, tipo_mime").eq("viagem_id", id).order("created_at"),
     supabase.from("viagem_participantes").select("profile_id").eq("viagem_id", id),
-    supabase.from("profiles").select("id, nome").in("papel", ["socia", "equipe"]).order("nome"),
+    supabase.from("profiles").select("id, nome, cartao_dia_vencimento, cartao_dias_fechamento_antes").in("papel", ["socia", "equipe"]).order("nome"),
     supabase.from("despesas").select("id, data_gasto, valor_total, descricao, comprovado, plano_contas:plano_contas_id(conta)").eq("viagem_id", id).order("data_gasto"),
+    supabase.from("plano_contas").select("id, codigo, conta, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
+    supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, dia_vencimento, dias_fechamento_antes, programa_id").eq("ativo", true).order("banco"),
+    supabase.from("despesas").select("plano_contas_id"),
+    supabase.from("programas_investimento").select("id, nome").order("nome"),
   ]);
   type DespesaRow = { id: string; data_gasto: string; valor_total: number; descricao: string | null; comprovado: boolean; plano_contas: { conta: string } | { conta: string }[] | null };
   const gastos = (despesas ?? []) as DespesaRow[];
@@ -45,6 +49,20 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
   const participantesViagem = (participantes ?? [])
     .map((p) => ({ id: p.profile_id, nome: nomePorId.get(p.profile_id) ?? "" }))
     .filter((p) => p.nome);
+
+  // Dados pro passo de custo+pagamento do assistente (mesmos do formulário de Custos).
+  const pessoasPagamento = (pessoas ?? []).map((p) => ({
+    id: p.id,
+    nome: p.nome,
+    cartao_dia_vencimento: p.cartao_dia_vencimento,
+    cartao_dias_fechamento_antes: p.cartao_dias_fechamento_antes,
+  }));
+  const pagadores = (pessoas ?? []).map((p) => p.nome);
+  const usoPorConta: Record<string, number> = {};
+  for (const d of todasDespesasContas ?? []) {
+    if (!d.plano_contas_id) continue;
+    usoPorConta[d.plano_contas_id] = (usoPorConta[d.plano_contas_id] ?? 0) + 1;
+  }
 
   // Mapa por pessoa: cidade de cada pessoa em cada dia (hospedagem que cobre o dia; senão último voo).
   const diaKey = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString("en-CA") : null);
@@ -110,6 +128,12 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
         anexos={(anexos ?? []) as AnexoViagem[]}
         participantesViagem={participantesViagem}
         participantesPorItem={participantesPorItem}
+        planoContas={planoContas ?? []}
+        usoPorConta={usoPorConta}
+        meiosPagamento={meiosPagamento ?? []}
+        pessoas={pessoasPagamento}
+        pagadores={pagadores}
+        programas={programas ?? []}
       />
 
       {temMapa && <MapaPessoas participantes={participantesViagem} dias={dias} matriz={matriz} cores={cores} />}
@@ -121,7 +145,7 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
         </div>
         {gastos.length === 0 ? (
           <p className="text-[12px] text-text-muted">
-            Nenhum custo lançado ainda. Use o botão <b>“Lançar no Custos”</b> num item com valor — a despesa entra no Lançamentos já classificada e aparece aqui.
+            Nenhum custo lançado ainda. Ao adicionar um item com valor, o custo entra no Lançamentos já classificado e com a forma de pagamento — e aparece aqui.
           </p>
         ) : (
           <div className="flex flex-col gap-1.5">

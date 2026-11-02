@@ -39,7 +39,25 @@ export type ItemPagamento = {
    *  servidor calcula em qual(is) fatura(s) a compra cai — ver src/lib/fatura-cartao.ts. */
   dia_vencimento?: number | null;
   dias_fechamento_antes?: number | null;
+  /** Mês da 1ª parcela fixado à mão (AAAA-MM-01) — só na edição da despesa, quando o fechamento
+   *  oscilou e a compra caiu numa fatura diferente da calculada. Vazio = usa o cálculo automático. */
+  vencimento_primeira?: string | null;
 };
+
+const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+/** Opções de mês ao redor da fatura calculada (de -2 a +4), pra ajustar a 1ª parcela na edição. */
+function opcoesMes(baseIso: string): { valor: string; rotulo: string }[] {
+  const base = new Date(`${baseIso.slice(0, 7)}-01T00:00:00`);
+  if (isNaN(base.getTime())) return [];
+  const arr: { valor: string; rotulo: string }[] = [];
+  for (let i = -2; i <= 4; i++) {
+    const d = new Date(base);
+    d.setMonth(d.getMonth() + i);
+    arr.push({ valor: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`, rotulo: `${MESES_CURTOS[d.getMonth()]}/${d.getFullYear()}` });
+  }
+  return arr;
+}
 
 export const LABEL_FORMA: Record<FormaPagamentoTipo, string> = {
   cartao_credito_socias: "Cartão de crédito (sócias)",
@@ -89,6 +107,7 @@ export function DetalhePagamento({
   nomesSocias,
   dataReferencia,
   programas,
+  permitirAjusteMes = false,
 }: {
   /** Programas — só pra marcar uma conta nova como conta específica de um deles. */
   programas?: { id: string; nome: string }[];
@@ -98,6 +117,8 @@ export function DetalhePagamento({
   onChange?: (itens: ItemPagamento[]) => void;
   meios: MeioPagamento[];
   pessoas: Pessoa[];
+  /** Mostra o seletor de mês da 1ª parcela (só faz sentido na EDIÇÃO da despesa). */
+  permitirAjusteMes?: boolean;
   /** Quem pagou (mesmo valor do select "Pagador" do formulário) — decide se pede pra detalhar
    *  banco/cartão (só quando NÃO é uma das sócias) e de onde vem o ciclo padrão da fatura. */
   pagador?: string;
@@ -291,6 +312,27 @@ export function DetalhePagamento({
                           {previaFatura(dataReferencia, item)}
                         </p>
                       )}
+
+                      {/* Ajuste do mês da 1ª parcela — só na edição: no lançamento ainda não se sabe
+                          em qual fatura caiu; quando o fechamento oscila, corrige-se aqui. */}
+                      {permitirAjusteMes && cicloValido(item.dia_vencimento, item.dias_fechamento_antes) && dataReferencia && (() => {
+                        const auto = datasDasParcelas(dataReferencia, item.dia_vencimento!, item.dias_fechamento_antes!, 1)[0];
+                        const atual = (item.vencimento_primeira ?? auto).slice(0, 7) + "-01";
+                        return (
+                          <div className="col-span-2">
+                            <label className="mb-1 block text-[10.5px] text-text-faint">1ª parcela caiu na fatura de (ajuste se o fechamento oscilou)</label>
+                            <select
+                              value={atual}
+                              onChange={(e) => atualizarItem(idx, { vencimento_primeira: e.target.value === auto.slice(0, 7) + "-01" ? null : e.target.value })}
+                              className="input w-full"
+                            >
+                              {opcoesMes(auto).map((o) => (
+                                <option key={o.valor} value={o.valor}>{o.rotulo}{o.valor === auto.slice(0, 7) + "-01" ? " (automático)" : ""}</option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })()}
 
                       <label className="col-span-2 flex items-center gap-2 text-[12px]">
                         <input

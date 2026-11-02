@@ -57,6 +57,20 @@ export function datasDasParcelas(dataCompraIso: string, diaVencimento: number, d
   });
 }
 
+/** Igual a datasDasParcelas, mas com a 1ª fatura FIXADA num mês escolhido (`primeiraFaturaIso`,
+ *  AAAA-MM-DD — normalmente o dia 1º do mês). Usado só na EDIÇÃO da despesa: no lançamento a gente
+ *  ainda não sabe em qual fatura caiu de verdade; quando o fechamento oscila, a sócia corrige aqui
+ *  e as parcelas seguintes seguem uma por mês a partir desse mês, no dia de vencimento do cartão. */
+export function datasDasParcelasDeInicio(primeiraFaturaIso: string, diaVencimento: number, numParcelas: number): string[] {
+  const base = new Date(`${primeiraFaturaIso.slice(0, 10)}T00:00:00`);
+  if (isNaN(base.getTime())) return [];
+  const n = Math.max(1, Math.round(numParcelas) || 1);
+  return Array.from({ length: n }, (_, i) => {
+    const d = addMeses(base, i);
+    return toIso(vencimentoDoMes(d.getFullYear(), d.getMonth(), diaVencimento));
+  });
+}
+
 export function cicloValido(diaVencimento: unknown, diasFechamentoAntes: unknown): diaVencimento is number {
   const dv = Number(diaVencimento);
   const df = Number(diasFechamentoAntes);

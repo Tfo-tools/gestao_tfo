@@ -3,10 +3,27 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { salvarItem, excluirItem, iniciarUploadEticket, lerEticket, registrarAnexo, excluirAnexo, urlAnexo, lancarDespesaDoItem } from "../actions";
+import { salvarItemComCusto, excluirItem, iniciarUploadEticket, lerEticket, registrarAnexo, excluirAnexo, urlAnexo, lancarDespesaDoItem } from "../actions";
 import type { TipoItemViagem } from "@/lib/viagens-ia";
 import { AssistenteGuiado, type PassoGuiado, type Respostas } from "@/components/assistente-guiado";
 import { ArquivoColavel } from "@/components/arquivo-colavel";
+import { BuscaConta } from "../../custos/busca-conta";
+import { DetalhePagamento, LABEL_FORMA, type ItemPagamento } from "../../custos/detalhe-pagamento";
+import type { MeioPagamento } from "../../custos/meios-pagamento-actions";
+
+// Conta do plano por tipo de item (mesma do servidor em ../actions.ts) — sugestão de classificação.
+const CONTA_POR_TIPO: Record<string, string> = {
+  voo: "2df5c9c6-d529-4441-9d9a-9da7fff18b94",
+  carro: "2df5c9c6-d529-4441-9d9a-9da7fff18b94",
+  transporte: "2df5c9c6-d529-4441-9d9a-9da7fff18b94",
+  hospedagem: "0096b299-d99d-4499-8599-53bf6bd0624b",
+  evento: "54c459b5-649d-4a7e-86ca-840eaa6d5e17",
+  seguro: "d893e912-d998-44ad-a249-76f6998355b0",
+  outro: "2df5c9c6-d529-4441-9d9a-9da7fff18b94",
+};
+
+type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
+type PessoaPagamento = { id: string; nome: string; cartao_dia_vencimento?: number | null; cartao_dias_fechamento_antes?: number | null };
 
 export type ItemViagem = {
   id: string;
@@ -21,7 +38,7 @@ export type ItemViagem = {
   local: string | null;
   localizador: string | null;
   endereco: string | null;
-  detalhes: { observacoes?: string | null; valor?: number | null; despesa_id?: string | null } | null;
+  detalhes: { observacoes?: string | null; conexoes?: string | null; valor?: number | null; despesa_id?: string | null } | null;
 };
 export type AnexoViagem = { id: string; item_id: string | null; nome_arquivo: string; caminho_arquivo: string; tipo_mime: string | null };
 
@@ -50,11 +67,12 @@ type Rascunho = {
   localizador?: string | null;
   endereco?: string | null;
   observacoes?: string | null;
+  conexoes?: string | null;
   valor?: number | null;
   participantes?: string[];
   anexo?: { caminho: string; nome: string; mime: string; tamanho: number };
 };
-type CampoTexto = "tipo" | "titulo" | "fornecedor" | "inicio" | "fim" | "origem" | "destino" | "local" | "localizador" | "endereco" | "observacoes";
+type CampoTexto = "tipo" | "titulo" | "fornecedor" | "inicio" | "fim" | "origem" | "destino" | "local" | "localizador" | "endereco" | "observacoes" | "conexoes";
 
 const paraInput = (iso: string | null | undefined) => {
   if (!iso) return "";
@@ -69,14 +87,23 @@ const diaKey = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("
 const diaLabel = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }) : "Sem data definida";
 
-export function Itinerario({ viagemId, itens, anexos, participantesViagem, participantesPorItem }: {
+export function Itinerario({ viagemId, itens, anexos, participantesViagem, participantesPorItem, planoContas, usoPorConta, meiosPagamento, pessoas, pagadores, programas }: {
   viagemId: string;
   itens: ItemViagem[];
   anexos: AnexoViagem[];
   participantesViagem: { id: string; nome: string }[];
   participantesPorItem: Record<string, string[]>;
+  planoContas: PlanoContas[];
+  usoPorConta: Record<string, number>;
+  meiosPagamento: MeioPagamento[];
+  pessoas: PessoaPagamento[];
+  pagadores: string[];
+  programas: { id: string; nome: string }[];
 }) {
   const todosIds = participantesViagem.map((p) => p.id);
+  const nomesSocias = pessoas.map((p) => p.nome);
+  // Forma de pagamento do passo de custo (mesmo componente do formulário de Custos).
+  const [pagamentoItens, setPagamentoItens] = useState<ItemPagamento[]>([]);
   const cap = (n: string) => n.charAt(0).toUpperCase() + n.slice(1);
   const nomeDe = (id: string) => cap(participantesViagem.find((p) => p.id === id)?.nome ?? "");
   const router = useRouter();
@@ -93,6 +120,7 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
   async function anexarEticket(file: File) {
     setErro(null);
     setModoFormulario(false);
+    setPagamentoItens([]);
     setStatus("Enviando e-ticket…");
     const ini = await iniciarUploadEticket(viagemId, file.name);
     if (ini.error || !ini.caminho || !ini.token) { setStatus(null); setErro(ini.error ?? "Falha ao enviar."); return; }
@@ -108,24 +136,39 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
       return;
     }
     const it = r.item;
-    setForm({ viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: it.observacoes, valor: it.valor, participantes: todosIds, anexo });
+    setForm({ viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: it.observacoes, conexoes: it.conexoes, valor: it.valor, participantes: todosIds, anexo });
+  }
+
+  type Custo = { contaId: string | null; pagador: string | null; pagamentoDetalheJson: string | null };
+
+  // Monta o custo (conta + quem pagou + forma de pagamento) a partir das respostas, só se tiver valor.
+  function construirCusto(r: Respostas): Custo | null {
+    const valor = r.valor == null || r.valor === "" ? 0 : Number(r.valor);
+    if (!valor || valor <= 0) return null;
+    return {
+      contaId: (r.plano_contas_id as string) || null,
+      pagador: (r.pagador as string) || null,
+      pagamentoDetalheJson: pagamentoItens.length ? JSON.stringify(pagamentoItens) : null,
+    };
   }
 
   // Salva um rascunho (vindo do formulário OU do assistente) e devolve o erro, se houver.
-  async function persistir(r: Rascunho): Promise<{ error?: string }> {
-    const res = await salvarItem({
+  async function persistir(r: Rascunho, custo?: Custo | null): Promise<{ error?: string }> {
+    const res = await salvarItemComCusto({
       id: r.id,
       viagemId,
       tipo: (r.tipo ?? "outro") as TipoItemViagem,
       titulo: r.titulo ?? "",
       fornecedor: r.fornecedor, inicio: r.inicio, fim: r.fim, origem: r.origem,
       destino: r.destino, local: r.local, localizador: r.localizador, endereco: r.endereco,
-      observacoes: r.observacoes, valor: r.valor,
+      observacoes: r.observacoes, conexoes: r.conexoes, valor: r.valor,
       participantes: r.participantes ?? todosIds,
+      custo: custo ?? null,
     });
     if (res.error || !res.id) return { error: res.error ?? "Não consegui salvar." };
     if (r.anexo) await registrarAnexo(viagemId, res.id, r.anexo.caminho, r.anexo.nome, r.anexo.mime, r.anexo.tamanho);
     setForm(null);
+    setPagamentoItens([]);
     router.refresh();
     return {};
   }
@@ -148,10 +191,14 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
     fim: paraInput(f.fim) || null,
     origem: f.origem ?? null,
     destino: f.destino ?? null,
+    conexoes: f.conexoes ?? null,
     endereco: f.endereco ?? null,
     localizador: f.localizador ?? null,
     participantes: f.participantes ?? todosIds,
     valor: f.valor ?? null,
+    // Classificação sugerida pela natureza do item (editável no passo da conta).
+    plano_contas_id: CONTA_POR_TIPO[f.tipo ?? "outro"] ?? CONTA_POR_TIPO.outro,
+    pagador: null,
     observacoes: f.observacoes ?? null,
   });
   const montarRascunho = (r: Respostas): Rascunho => ({
@@ -164,6 +211,7 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
     fim: (r.fim as string) || null,
     origem: (r.origem as string) || null,
     destino: (r.destino as string) || null,
+    conexoes: (r.conexoes as string) || null,
     endereco: (r.endereco as string) || null,
     localizador: (r.localizador as string) || null,
     observacoes: (r.observacoes as string) || null,
@@ -210,18 +258,81 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
   // Roteiro do assistente guiado pra um item do itinerário.
   const temLugar = (r: Respostas) => ["hospedagem", "evento", "carro"].includes(String(r.tipo));
   const temRota = (r: Respostas) => ["voo", "transporte"].includes(String(r.tipo));
+  const temValor = (r: Respostas) => r.valor != null && r.valor !== "" && Number(r.valor) > 0;
+  const resumoPagamento = () => {
+    if (!pagamentoItens.length) return "—";
+    if (pagamentoItens.length === 1) {
+      const it = pagamentoItens[0];
+      return LABEL_FORMA[it.forma] + (it.parcelado && it.num_parcelas ? ` · ${it.num_parcelas}x` : "");
+    }
+    return `Combinada (${pagamentoItens.length})`;
+  };
   const stepsItem: PassoGuiado[] = [
     { id: "tipo", pergunta: "Que tipo de item é esse?", rotulo: "Tipo", tipo: "opcoes", obrigatorio: true, opcoes: TIPOS.map((t) => ({ valor: t.v, rotulo: t.l })) },
-    { id: "titulo", pergunta: "Dá um nome pra esse item", rotulo: "Título", tipo: "texto", obrigatorio: true, placeholder: "Ex.: Voo GRU → REC", ajuda: "É como ele aparece no itinerário." },
+    { id: "titulo", pergunta: "Dá um nome pra esse item", rotulo: "Nome do item", tipo: "texto", obrigatorio: true, placeholder: "Ex.: Voo GRU → REC", ajuda: "É como ele aparece no itinerário — e vira a descrição (busca) no Custos, se tiver valor." },
     { id: "fornecedor", pergunta: "Qual a companhia / hotel / fornecedor?", rotulo: "Fornecedor", tipo: "texto", placeholder: "Companhia aérea, hotel, locadora…" },
     { id: "inicio", pergunta: "Quando começa?", rotulo: "Início", tipo: "datahora", ajuda: "Embarque, check-in, início do evento…" },
     { id: "fim", pergunta: "Quando termina?", rotulo: "Fim", tipo: "datahora", quando: temLugar, ajuda: "Check-out, devolução, fim do evento." },
     { id: "origem", pergunta: "Saindo de onde?", rotulo: "Origem", tipo: "texto", quando: temRota, placeholder: "Cidade ou aeroporto de origem" },
     { id: "destino", pergunta: "Indo pra onde?", rotulo: "Destino", tipo: "texto", quando: temRota, placeholder: "Cidade ou aeroporto de destino" },
+    { id: "conexoes", pergunta: "Tem conexão / escala? (opcional)", rotulo: "Conexões", tipo: "texto", quando: temRota, placeholder: "Ex.: Brasília (BSB)", ajuda: "Cidades/aeroportos intermediários. Deixe em branco se for direto." },
     { id: "endereco", pergunta: "Qual o endereço?", rotulo: "Endereço", tipo: "texto", quando: temLugar, placeholder: "Endereço do hotel / local", ajuda: "Pra abrir no Maps/Waze durante a viagem." },
     { id: "localizador", pergunta: "Tem localizador / código de reserva?", rotulo: "Localizador", tipo: "texto", placeholder: "Ex.: ABC123" },
     { id: "participantes", pergunta: "Quem está neste trecho?", rotulo: "Quem vai", tipo: "multi", quando: () => participantesViagem.length > 0, padrao: todosIds, opcoes: participantesViagem.map((p) => ({ valor: p.id, rotulo: cap(p.nome) })), ajuda: "Começa com todas — desmarque quem não estiver nesse trecho." },
-    { id: "valor", pergunta: "Quanto custou? (opcional)", rotulo: "Valor", tipo: "dinheiro", ajuda: "Se preencher, dá pra lançar no Custos depois." },
+    { id: "valor", pergunta: "Quanto custou? (opcional)", rotulo: "Valor", tipo: "dinheiro", ajuda: "Se preencher, o custo entra no Custos já classificado e com a forma de pagamento." },
+
+    // Custo + pagamento no mesmo fluxo — só aparecem quando o item tem valor.
+    {
+      id: "plano_contas_id",
+      pergunta: "Em que conta classificar?",
+      rotulo: "Conta",
+      quando: temValor,
+      ajuda: "Já vem sugerida pela natureza do item — toque pra trocar.",
+      resumo: (v) => planoContas.find((c) => c.id === v)?.conta ?? "—",
+      render: ({ valor, setValor }) => {
+        const c = valor ? planoContas.find((p) => p.id === valor) : undefined;
+        return (
+          <BuscaConta
+            planoContas={planoContas}
+            usoPorConta={usoPorConta}
+            inicial={c ? { id: c.id, conta: c.conta } : null}
+            onChange={(sel) => setValor(sel?.id ?? null)}
+          />
+        );
+      },
+    },
+    {
+      id: "pagador",
+      pergunta: "Quem pagou?",
+      rotulo: "Quem pagou",
+      tipo: "opcoes",
+      quando: temValor,
+      opcoes: [...pagadores.map((p) => ({ valor: p, rotulo: cap(p) })), { valor: "Empresa", rotulo: "Empresa (conta/cartão PJ)" }],
+      ajuda: "No cartão da sócia, é de quem é o cartão.",
+    },
+    {
+      id: "pagamento",
+      pergunta: "Como foi pago?",
+      rotulo: "Pagamento",
+      quando: temValor,
+      ajuda: "Pix, débito, cartão ou boleto. Toque pra escolher o cartão e lançar as parcelas.",
+      resumo: resumoPagamento,
+      render: ({ respostas, setValor }) => (
+        <DetalhePagamento
+          name="pagamento_detalhe"
+          valorTotal={Number(respostas.valor) || 0}
+          defaultValue={pagamentoItens.length ? pagamentoItens : undefined}
+          onChange={(itens) => { setPagamentoItens(itens); setValor(itens.length ? "ok" : null); }}
+          meios={meiosPagamento}
+          programas={programas}
+          pessoas={pessoas}
+          pagador={respostas.pagador ? String(respostas.pagador) : undefined}
+          nomesSocias={nomesSocias}
+          dataReferencia={respostas.inicio ? String(respostas.inicio).slice(0, 10) : null}
+        />
+      ),
+    },
+
     { id: "observacoes", pergunta: "Alguma observação?", rotulo: "Obs.", tipo: "texto", placeholder: "Assento, portão, telefone do hotel…" },
   ];
 
@@ -230,7 +341,7 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
       {!form && (
         <div className="flex flex-col gap-2.5">
           <ArquivoColavel onArquivo={(f) => anexarEticket(f)} rotulo="Anexar e-ticket (IA preenche)" ocupado={status} />
-          <button type="button" onClick={() => { setModoFormulario(false); setForm({ viagemId, tipo: "voo", titulo: "", participantes: todosIds }); }} className="self-start rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
+          <button type="button" onClick={() => { setModoFormulario(false); setPagamentoItens([]); setForm({ viagemId, tipo: "voo", titulo: "", participantes: todosIds }); }} className="self-start rounded-lg border border-primary-fill px-3.5 py-2 text-[12.5px] font-medium text-primary-deep">
             Adicionar item
           </button>
         </div>
@@ -244,7 +355,7 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
           passos={stepsItem}
           respostasIniciais={respostasDoForm(form)}
           pularPreenchidos={!!form.anexo}
-          onSalvar={(r) => persistir(montarRascunho(r))}
+          onSalvar={(r) => persistir(montarRascunho(r), construirCusto(r))}
           onFormularioDireto={() => setModoFormulario(true)}
           onCancelar={() => { setForm(null); setErro(null); }}
           rotuloSalvar="Salvar item"
@@ -283,6 +394,9 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
             </label>
             <label className="flex flex-col gap-1 text-[12px]">Destino
               <input value={form.destino ?? ""} onChange={(e) => campo("destino", e.target.value)} className="input" />
+            </label>
+            <label className="flex flex-col gap-1 text-[12px] sm:col-span-2">Conexões <span className="text-text-faint">(escalas, opcional)</span>
+              <input value={form.conexoes ?? ""} onChange={(e) => campo("conexoes", e.target.value)} className="input" placeholder="Ex.: Brasília (BSB)" />
             </label>
             <label className="flex flex-col gap-1 text-[12px] sm:col-span-2">Endereço
               <input value={form.endereco ?? ""} onChange={(e) => campo("endereco", e.target.value)} className="input" placeholder="Endereço do hotel / local do evento" />
@@ -346,6 +460,7 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
                           {it.fornecedor ? ` · ${it.fornecedor}` : ""}
                           {(it.origem || it.destino) ? ` · ${[it.origem, it.destino].filter(Boolean).join(" → ")}` : ""}
                         </p>
+                        {it.detalhes?.conexoes && <p className="text-[11px] text-text-faint">Conexão: {it.detalhes.conexoes}</p>}
                         {it.localizador && (
                           <p className="mt-0.5 text-[11.5px] text-text-muted">Localizador: <span className="font-mono text-text">{it.localizador}</span>{" "}
                             <button type="button" onClick={() => navigator.clipboard?.writeText(it.localizador!)} className="text-primary-deep">copiar</button>
@@ -381,7 +496,7 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
                         )}
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1.5">
-                        <button type="button" onClick={() => { setModoFormulario(false); setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: obs, valor: it.detalhes?.valor ?? null, participantes: participantesPorItem[it.id]?.length ? participantesPorItem[it.id] : todosIds }); }} className="text-[11.5px] font-medium text-primary-deep">Editar</button>
+                        <button type="button" onClick={() => { setModoFormulario(false); setPagamentoItens([]); setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: obs, conexoes: it.detalhes?.conexoes ?? null, valor: it.detalhes?.valor ?? null, participantes: participantesPorItem[it.id]?.length ? participantesPorItem[it.id] : todosIds }); }} className="text-[11.5px] font-medium text-primary-deep">Editar</button>
                         <button type="button" onClick={() => remover(it)} className="text-[11.5px] font-medium text-danger">Remover</button>
                       </div>
                     </div>
