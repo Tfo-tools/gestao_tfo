@@ -38,7 +38,9 @@ function extensaoDoMime(mime: string): string {
 }
 
 function tokenDaRequisicao(req: Request): string | null {
-  const header = req.headers.get("x-tfo-token");
+  // Aceita a senha de vários jeitos, pra casar com qualquer atalho: cabeçalho x-tfo-token ou x-token,
+  // Authorization: Bearer, ou a query ?t=.
+  const header = req.headers.get("x-tfo-token") || req.headers.get("x-token");
   if (header) return header.trim();
   const auth = req.headers.get("authorization");
   if (auth?.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
@@ -52,12 +54,17 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
 
-  const { data: perfil } = await admin
-    .from("profiles")
-    .select("id, nome")
-    .eq("inbox_token", token)
-    .maybeSingle();
-  if (!perfil) return NextResponse.json({ ok: false, error: "Senha inválida." }, { status: 401 });
+  // Senha compartilhada (uma só para as duas sócias — atalho único que a Emyli só salva) ou a senha
+  // individual de cada uma (profiles.inbox_token). Compartilhada: o documento chega sem remetente.
+  const compartilhada = process.env.ENTRADA_FINANCEIRO_TOKEN;
+  let perfil: { id: string; nome: string } | null = null;
+  if (compartilhada && token === compartilhada) {
+    perfil = null;
+  } else {
+    const { data } = await admin.from("profiles").select("id, nome").eq("inbox_token", token).maybeSingle();
+    if (!data) return NextResponse.json({ ok: false, error: "Senha inválida." }, { status: 401 });
+    perfil = data;
+  }
 
   // Aceita o arquivo em QUALQUER formato que o atalho mandar: como multipart/form-data (campo de
   // arquivo, qualquer nome) OU como corpo cru (quando o atalho posta "Arquivo" direto, sem formulário).
@@ -97,15 +104,15 @@ export async function POST(req: Request) {
   for (const item of recebidos) {
     if (item.tamanho > 25 * 1024 * 1024) continue; // 25 MB por arquivo
     const nome = nomeArquivoSeguro(item.nome);
-    const caminho = `entrada/${perfil.id}/${Date.now()}-${nome}`;
+    const caminho = `entrada/${perfil?.id ?? "compartilhado"}/${Date.now()}-${nome}`;
     const { error: upErro } = await admin.storage.from(BUCKET).upload(caminho, item.data, { contentType: item.mime });
     if (upErro) continue;
 
     const { data: linha, error: insErro } = await admin
       .from("entrada_documentos")
       .insert({
-        remetente_id: perfil.id,
-        remetente_nome: perfil.nome,
+        remetente_id: perfil?.id ?? null,
+        remetente_nome: perfil?.nome ?? null,
         caminho_arquivo: caminho,
         nome_arquivo: nome,
         tipo_mime: item.mime,
@@ -120,13 +127,20 @@ export async function POST(req: Request) {
 
   if (criados.length === 0) return NextResponse.json({ ok: false, error: "Não consegui guardar o arquivo." }, { status: 500 });
 
-  // Avisa a própria sócia que chegou (fica na caixa de entrada esperando a classificação).
+  // Avisa quem precisa saber: quem enviou (senha individual) ou todas as sócias (senha compartilhada).
   try {
-    await enviarPush([perfil.id], {
-      title: "Documento recebido",
-      body: criados.length === 1 ? "1 documento na caixa de entrada de Custos." : `${criados.length} documentos na caixa de entrada de Custos.`,
-      url: "/custos",
-    });
+    let destinatarios: string[] = perfil ? [perfil.id] : [];
+    if (!perfil) {
+      const { data: socias } = await admin.from("profiles").select("id").eq("papel", "socia");
+      destinatarios = ((socias ?? []) as { id: string }[]).map((s) => s.id);
+    }
+    if (destinatarios.length > 0) {
+      await enviarPush(destinatarios, {
+        title: "Documento recebido",
+        body: criados.length === 1 ? "1 documento na caixa de entrada de Custos." : `${criados.length} documentos na caixa de entrada de Custos.`,
+        url: "/custos",
+      });
+    }
   } catch {
     // aviso é melhor-esforço
   }
