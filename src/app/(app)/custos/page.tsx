@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NovoLancamento } from "./novo-lancamento";
 import { DespesaRow, type DespesaRowData } from "./extrato/despesa-row";
+import { CaixaEntrada, type DocumentoEntrada } from "./caixa-entrada";
 
 // Ler a nota com IA (ação do formulário) pode levar até ~1 min; o padrão da Vercel é curto demais.
 export const maxDuration = 300;
@@ -45,6 +46,13 @@ export default async function LancamentosPage() {
         .order("banco"),
     ]);
 
+  // Documentos recebidos por compartilhamento (atalho iOS/Mac), ainda não classificados.
+  const { data: entradaDocs } = await supabase
+    .from("entrada_documentos")
+    .select("id, remetente_nome, nome_arquivo, caminho_arquivo, tipo_mime, observacao, created_at")
+    .eq("status", "pendente")
+    .order("created_at", { ascending: false });
+
   // Programas que uma despesa pode comprovar (pago com o recurso deles → prestação de contas).
   const { data: programas } = await supabase.from("programas_investimento").select("id, nome").order("nome");
   const pagadores = (profiles ?? []).map((p) => p.nome);
@@ -67,8 +75,10 @@ export default async function LancamentosPage() {
   const deRecorrencia = pendentes.filter((d) => d.despesa_recorrente_id != null).length;
 
   return (
-    // Duas colunas da mesma largura: a lista de pendentes empilha a informação de cada lançamento
-    // pra caber ao lado do formulário sem rolar a página.
+    <div className="flex flex-col gap-5">
+    <CaixaEntrada documentos={(entradaDocs ?? []) as DocumentoEntrada[]} planoContas={planoContas ?? []} pagadores={pagadores} />
+    {/* Duas colunas da mesma largura: a lista de pendentes empilha a informação de cada lançamento
+        pra caber ao lado do formulário sem rolar a página. */}
     <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
       <NovoLancamento
         programas={programas ?? []}
@@ -117,6 +127,7 @@ export default async function LancamentosPage() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }
