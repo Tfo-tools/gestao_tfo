@@ -21,6 +21,22 @@ export const maxDuration = 60;
 
 const BUCKET = "comprovantes";
 
+/** Extensão a partir do tipo do arquivo, pra nomear o corpo cru postado pelo atalho. */
+function extensaoDoMime(mime: string): string {
+  const m = mime.split(";")[0].trim().toLowerCase();
+  const mapa: Record<string, string> = {
+    "application/pdf": ".pdf",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/heic": ".heic",
+    "image/heif": ".heic",
+    "image/webp": ".webp",
+    "image/tiff": ".tiff",
+  };
+  return mapa[m] ?? "";
+}
+
 function tokenDaRequisicao(req: Request): string | null {
   const header = req.headers.get("x-tfo-token");
   if (header) return header.trim();
@@ -43,27 +59,46 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (!perfil) return NextResponse.json({ ok: false, error: "Senha inválida." }, { status: 401 });
 
-  let form: FormData;
-  try {
-    form = await req.formData();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Envie o arquivo como multipart/form-data." }, { status: 400 });
+  // Aceita o arquivo em QUALQUER formato que o atalho mandar: como multipart/form-data (campo de
+  // arquivo, qualquer nome) OU como corpo cru (quando o atalho posta "Arquivo" direto, sem formulário).
+  // Assim dá pra duplicar o atalho do Viagens e só trocar a URL, sem se preocupar com o formato.
+  type Recebido = { data: Blob | ArrayBuffer; nome: string; mime: string; tamanho: number };
+  const url = new URL(req.url);
+  const contentType = req.headers.get("content-type") || "";
+  const recebidos: Recebido[] = [];
+  let observacao: string | null = null;
+
+  if (contentType.includes("multipart/form-data")) {
+    let form: FormData;
+    try {
+      form = await req.formData();
+    } catch {
+      return NextResponse.json({ ok: false, error: "Não consegui ler o formulário." }, { status: 400 });
+    }
+    observacao = String(form.get("observacao") || form.get("nota") || "").trim() || null;
+    for (const v of form.values()) {
+      if (v instanceof File && v.size > 0) recebidos.push({ data: v, nome: v.name || "documento", mime: v.type || "application/octet-stream", tamanho: v.size });
+    }
+  } else {
+    // Corpo cru: o próprio arquivo. Nome e tipo vêm da query ou do content-type.
+    const buf = await req.arrayBuffer();
+    if (buf.byteLength > 0) {
+      const mime = contentType || "application/octet-stream";
+      const nomeQuery = url.searchParams.get("nome");
+      const nome = nomeQuery || `documento${extensaoDoMime(mime)}`;
+      recebidos.push({ data: buf, nome, mime, tamanho: buf.byteLength });
+    }
+    observacao = url.searchParams.get("observacao") || null;
   }
 
-  // Aceita qualquer campo de arquivo (o atalho usa "arquivo", mas o iOS às vezes nomeia diferente).
-  const arquivos = [...form.values()].filter((v): v is File => v instanceof File && v.size > 0);
-  if (arquivos.length === 0) return NextResponse.json({ ok: false, error: "Nenhum arquivo recebido." }, { status: 400 });
+  if (recebidos.length === 0) return NextResponse.json({ ok: false, error: "Nenhum arquivo recebido." }, { status: 400 });
 
-  const observacao = String(form.get("observacao") || form.get("nota") || "").trim() || null;
   const criados: string[] = [];
-
-  for (const file of arquivos) {
-    if (file.size > 25 * 1024 * 1024) continue; // 25 MB por arquivo
-    const nome = nomeArquivoSeguro(file.name || "documento");
+  for (const item of recebidos) {
+    if (item.tamanho > 25 * 1024 * 1024) continue; // 25 MB por arquivo
+    const nome = nomeArquivoSeguro(item.nome);
     const caminho = `entrada/${perfil.id}/${Date.now()}-${nome}`;
-    const { error: upErro } = await admin.storage
-      .from(BUCKET)
-      .upload(caminho, file, { contentType: file.type || "application/octet-stream" });
+    const { error: upErro } = await admin.storage.from(BUCKET).upload(caminho, item.data, { contentType: item.mime });
     if (upErro) continue;
 
     const { data: linha, error: insErro } = await admin
@@ -73,8 +108,8 @@ export async function POST(req: Request) {
         remetente_nome: perfil.nome,
         caminho_arquivo: caminho,
         nome_arquivo: nome,
-        tipo_mime: file.type || null,
-        tamanho_bytes: file.size,
+        tipo_mime: item.mime,
+        tamanho_bytes: item.tamanho,
         observacao,
         status: "pendente",
       })
