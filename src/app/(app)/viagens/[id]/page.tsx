@@ -21,17 +21,62 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
     supabase.from("viagem_anexos").select("id, item_id, nome_arquivo, caminho_arquivo, tipo_mime").eq("viagem_id", id).order("created_at"),
     supabase.from("viagem_participantes").select("profile_id").eq("viagem_id", id),
     supabase.from("profiles").select("id, nome, cartao_dia_vencimento, cartao_dias_fechamento_antes").in("papel", ["socia", "equipe"]).order("nome"),
-    supabase.from("despesas").select("id, data_gasto, valor_total, descricao, comprovado, plano_contas:plano_contas_id(conta)").eq("viagem_id", id).order("data_gasto"),
+    supabase.from("despesas").select("id, data_gasto, valor_total, descricao, comprovado, pagador, plano_contas:plano_contas_id(conta), despesa_rateio(pessoa, percentual), despesa_parcelas(numero_parcela, valor, data_prevista, origem)").eq("viagem_id", id).order("data_gasto"),
     supabase.from("plano_contas").select("id, codigo, conta, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
     supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, dia_vencimento, dias_fechamento_antes, programa_id").eq("ativo", true).order("banco"),
     supabase.from("despesas").select("plano_contas_id"),
     supabase.from("programas_investimento").select("id, nome").order("nome"),
   ]);
-  type DespesaRow = { id: string; data_gasto: string; valor_total: number; descricao: string | null; comprovado: boolean; plano_contas: { conta: string } | { conta: string }[] | null };
+  type RateioP = { pessoa: string; percentual: number };
+  type ParcelaP = { numero_parcela: number; valor: number; data_prevista: string; origem: string | null };
+  type DespesaRow = { id: string; data_gasto: string; valor_total: number; descricao: string | null; comprovado: boolean; pagador: string | null; plano_contas: { conta: string } | { conta: string }[] | null; despesa_rateio: RateioP[]; despesa_parcelas: ParcelaP[] };
   const gastos = (despesas ?? []) as DespesaRow[];
   const totalGastos = gastos.reduce((s, d) => s + Number(d.valor_total || 0), 0);
   const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const contaDe = (d: DespesaRow) => (Array.isArray(d.plano_contas) ? d.plano_contas[0]?.conta : d.plano_contas?.conta) ?? "—";
+
+  // Rateio por pessoa, acerto (quem deposita) e distribuição por mês — reusa a divisão e as parcelas
+  // já lançadas. Despesa sem divisão vai inteira pra quem pagou (e entra no aviso "sem divisão").
+  const MESES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  const fmtMes = (m: string) => `${MESES_ABREV[Number(m.slice(5, 7)) - 1]}/${m.slice(2, 4)}`;
+  const capN = (n: string) => n.charAt(0).toUpperCase() + n.slice(1);
+  const arca: Record<string, number> = {};
+  const pagouP: Record<string, number> = {};
+  const porMes: Record<string, Record<string, number>> = {};
+  const mesesSet = new Set<string>();
+  let semDivisao = 0;
+  for (const d of gastos) {
+    const v = Number(d.valor_total || 0);
+    const rateio = (d.despesa_rateio ?? []).filter((r) => r.pessoa && Number(r.percentual) > 0);
+    if (d.pagador) pagouP[d.pagador] = (pagouP[d.pagador] ?? 0) + v;
+    let shares: { pessoa: string; frac: number }[];
+    if (rateio.length > 0) {
+      const tot = rateio.reduce((s, r) => s + Number(r.percentual), 0);
+      shares = rateio.map((r) => ({ pessoa: r.pessoa, frac: Number(r.percentual) / tot }));
+    } else {
+      if (v > 0) semDivisao++;
+      shares = d.pagador ? [{ pessoa: d.pagador, frac: 1 }] : [];
+    }
+    for (const s of shares) arca[s.pessoa] = (arca[s.pessoa] ?? 0) + v * s.frac;
+    const parcelas = (d.despesa_parcelas ?? []).filter((p) => p.origem === "fatura_cartao");
+    const blocos = parcelas.length > 0
+      ? parcelas.map((p) => ({ mes: (p.data_prevista || "").slice(0, 7), valor: Number(p.valor) }))
+      : [{ mes: (d.data_gasto || "").slice(0, 7), valor: v }];
+    for (const b of blocos) {
+      if (!b.mes) continue;
+      mesesSet.add(b.mes);
+      for (const s of shares) (porMes[s.pessoa] ??= {})[b.mes] = (porMes[s.pessoa][b.mes] ?? 0) + b.valor * s.frac;
+    }
+  }
+  const pessoasCusto = [...new Set([...Object.keys(arca), ...Object.keys(pagouP)])].sort();
+  const mesesCusto = [...mesesSet].sort();
+  const saldo: Record<string, number> = {};
+  for (const p of pessoasCusto) saldo[p] = (pagouP[p] ?? 0) - (arca[p] ?? 0);
+  const devedor = pessoasCusto.find((p) => saldo[p] < -0.5);
+  const credor = pessoasCusto.find((p) => saldo[p] > 0.5);
+  const acertoTexto = devedor && credor
+    ? `${capN(devedor)} deposita ${brl(Math.min(-saldo[devedor], saldo[credor]))} para ${capN(credor)}`
+    : pessoasCusto.length > 0 && gastos.length > 0 ? "Contas quitadas entre as sócias." : null;
 
   const nomePorId = new Map((pessoas ?? []).map((p) => [p.id, p.nome]));
   const cap = (n?: string) => (n ? n.charAt(0).toUpperCase() + n.slice(1) : "");
@@ -148,18 +193,107 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
             Nenhum custo lançado ainda. Ao adicionar um item com valor, o custo entra no Lançamentos já classificado e com a forma de pagamento — e aparece aqui.
           </p>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            {gastos.map((d) => (
-              <div key={d.id} className="flex items-center justify-between gap-3 border-b border-border-soft py-1.5 text-[12px] last:border-0">
-                <span className="min-w-0 truncate">{d.descricao ?? "—"} <span className="text-text-faint">· {contaDe(d)}</span></span>
-                <span className="flex shrink-0 items-center gap-2">
-                  {!d.comprovado && <span className="rounded bg-warning-soft px-1.5 py-0.5 text-[9.5px] text-warning">sem comprovante</span>}
-                  <span className="font-medium tabular-nums">{brl(Number(d.valor_total || 0))}</span>
+          <>
+            {/* Resumo — sempre visível */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
+              {pessoasCusto.map((p) => (
+                <span key={p}>
+                  <span className="text-text-faint">{cap(p)}:</span> <span className="font-medium tabular-nums">{brl(arca[p] ?? 0)}</span>
                 </span>
+              ))}
+            </div>
+            {acertoTexto && <p className="mt-1.5 text-[12px] font-medium text-primary-deep">{acertoTexto}</p>}
+            {semDivisao > 0 && (
+              <p className="mt-1 text-[11px] text-warning">{semDivisao} despesa(s) ainda sem divisão — abra no Custos para dividir entre as sócias.</p>
+            )}
+
+            {/* Despesas — recolhido */}
+            <details className="mt-3 border-t border-border-soft pt-2">
+              <summary className="cursor-pointer text-[12px] font-medium text-primary-deep">Despesas ({gastos.length})</summary>
+              <div className="mt-2 flex flex-col gap-1.5">
+                {gastos.map((d) => (
+                  <div key={d.id} className="flex items-center justify-between gap-3 border-b border-border-soft py-1.5 text-[12px] last:border-0">
+                    <span className="min-w-0 truncate">
+                      {d.descricao ?? "—"} <span className="text-text-faint">· {contaDe(d)}{d.pagador ? ` · ${cap(d.pagador)}` : ""}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {!d.comprovado && <span className="rounded bg-warning-soft px-1.5 py-0.5 text-[9.5px] text-warning">sem comprovante</span>}
+                      <span className="font-medium tabular-nums">{brl(Number(d.valor_total || 0))}</span>
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
-            <p className="mt-1 text-[11px] text-text-faint">Lançado no Custos. Para rateio entre sócias, abra o Extrato em Custos e use “ratear”.</p>
-          </div>
+            </details>
+
+            {/* Quem pagou × quem deve — recolhido */}
+            {pessoasCusto.length > 0 && (
+              <details className="mt-2 border-t border-border-soft pt-2">
+                <summary className="cursor-pointer text-[12px] font-medium text-primary-deep">Quem pagou × quem deve</summary>
+                <table className="mt-2 w-full text-[11.5px] tabular-nums">
+                  <thead>
+                    <tr className="text-text-faint">
+                      <th className="text-left font-normal"></th>
+                      {pessoasCusto.map((p) => (
+                        <th key={p} className="pb-1 text-right font-medium">{cap(p)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="text-text-muted">Arca (parte dela)</td>
+                      {pessoasCusto.map((p) => <td key={p} className="text-right">{brl(arca[p] ?? 0)}</td>)}
+                    </tr>
+                    <tr>
+                      <td className="text-text-muted">Pagou</td>
+                      {pessoasCusto.map((p) => <td key={p} className="text-right">{brl(pagouP[p] ?? 0)}</td>)}
+                    </tr>
+                    <tr className="border-t border-border-soft">
+                      <td className="pt-1 text-text-muted">Saldo</td>
+                      {pessoasCusto.map((p) => (
+                        <td key={p} className={`pt-1 text-right font-medium ${(saldo[p] ?? 0) >= 0 ? "text-success" : "text-danger"}`}>{brl(saldo[p] ?? 0)}</td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="mt-1.5 text-[10.5px] text-text-faint">Saldo positivo = pagou mais que a sua parte (tem a receber). Negativo = deve.</p>
+              </details>
+            )}
+
+            {/* Por mês — recolhido */}
+            {mesesCusto.length > 0 && (
+              <details className="mt-2 border-t border-border-soft pt-2">
+                <summary className="cursor-pointer text-[12px] font-medium text-primary-deep">Por mês</summary>
+                <div className="mt-2 -mx-1 overflow-x-auto px-1">
+                  <table className="w-full min-w-max text-[11.5px] tabular-nums">
+                    <thead>
+                      <tr className="text-text-faint">
+                        <th className="pr-3 text-left font-normal">Pessoa</th>
+                        {mesesCusto.map((m) => <th key={m} className="px-2 pb-1 text-right font-medium">{fmtMes(m)}</th>)}
+                        <th className="pl-2 pb-1 text-right font-medium">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pessoasCusto.map((p) => (
+                        <tr key={p}>
+                          <td className="pr-3 text-text-muted">{cap(p)}</td>
+                          {mesesCusto.map((m) => <td key={m} className="px-2 text-right">{brl(porMes[p]?.[m] ?? 0)}</td>)}
+                          <td className="pl-2 text-right font-medium">{brl(mesesCusto.reduce((s, m) => s + (porMes[p]?.[m] ?? 0), 0))}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t border-border-soft">
+                        <td className="pr-3 pt-1 text-text-muted">Total</td>
+                        {mesesCusto.map((m) => (
+                          <td key={m} className="px-2 pt-1 text-right font-medium">{brl(pessoasCusto.reduce((s, p) => s + (porMes[p]?.[m] ?? 0), 0))}</td>
+                        ))}
+                        <td className="pl-2 pt-1 text-right font-medium">{brl(totalGastos)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-1.5 text-[10.5px] text-text-faint">Cada parcela do cartão cai no mês em que vence; o que foi à vista, no mês do gasto.</p>
+              </details>
+            )}
+          </>
         )}
       </div>
     </div>
