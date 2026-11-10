@@ -10,6 +10,7 @@ import { ArquivoColavel } from "@/components/arquivo-colavel";
 import { BuscaConta } from "../../custos/busca-conta";
 import { DetalhePagamento, LABEL_FORMA, type ItemPagamento } from "../../custos/detalhe-pagamento";
 import type { MeioPagamento } from "../../custos/meios-pagamento-actions";
+import { CartaoItem } from "./cartao-item";
 
 // Conta do plano por tipo de item (mesma do servidor em ../actions.ts) — sugestão de classificação.
 const CONTA_POR_TIPO: Record<string, string> = {
@@ -81,13 +82,11 @@ const paraInput = (iso: string | null | undefined) => {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 };
-const fmtHora = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
 const diaKey = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-CA") : "sem");
 const diaLabel = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }) : "Sem data definida";
 
-export function Itinerario({ viagemId, itens, anexos, participantesViagem, participantesPorItem, planoContas, usoPorConta, meiosPagamento, pessoas, pagadores, programas }: {
+export function Itinerario({ viagemId, itens, anexos, participantesViagem, participantesPorItem, planoContas, usoPorConta, meiosPagamento, pessoas, pagadores, programas, cores = {} }: {
   viagemId: string;
   itens: ItemViagem[];
   anexos: AnexoViagem[];
@@ -99,7 +98,13 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
   pessoas: PessoaPagamento[];
   pagadores: string[];
   programas: { id: string; nome: string }[];
+  /** Cor de cada lugar na régua — pinta a faixa do cartão do item. */
+  cores?: Record<string, string>;
 }) {
+  const corDoItem = (it: ItemViagem) => {
+    const lugar = (it.local || it.destino || "").replace(/\(.*?\)/g, "").trim();
+    return (lugar && cores[lugar]) || null;
+  };
   const todosIds = participantesViagem.map((p) => p.id);
   const nomesSocias = pessoas.map((p) => p.nome);
   // Forma de pagamento do passo de custo (mesmo componente do formulário de Custos).
@@ -445,62 +450,21 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
             <p className="mb-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-text-faint">{diaLabel(lista[0].inicio)}</p>
             <div className="flex flex-col gap-2">
               {lista.map((it) => {
-                const obs = it.detalhes?.observacoes;
                 const soDessas = participantesPorItem[it.id] ?? [];
-                const mapa = it.endereco ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(it.endereco)}` : null;
-                const waze = it.endereco ? `https://waze.com/ul?q=${encodeURIComponent(it.endereco)}` : null;
                 return (
-                  <div key={it.id} className="rounded-xl border border-border bg-surface p-3.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <span className="inline-block rounded bg-primary-soft px-1.5 py-0.5 text-[9.5px] font-medium uppercase tracking-wide text-primary-deep">{TIPO_LABEL[it.tipo]}</span>
-                        <p className="mt-1 text-[13px] font-semibold">{it.titulo}</p>
-                        <p className="text-[11.5px] text-text-muted">
-                          {[fmtHora(it.inicio), it.fim ? `até ${fmtHora(it.fim)}` : null].filter(Boolean).join(" ")}
-                          {it.fornecedor ? ` · ${it.fornecedor}` : ""}
-                          {(it.origem || it.destino) ? ` · ${[it.origem, it.destino].filter(Boolean).join(" → ")}` : ""}
-                        </p>
-                        {it.detalhes?.conexoes && <p className="text-[11px] text-text-faint">Conexão: {it.detalhes.conexoes}</p>}
-                        {it.localizador && (
-                          <p className="mt-0.5 text-[11.5px] text-text-muted">Localizador: <span className="font-mono text-text">{it.localizador}</span>{" "}
-                            <button type="button" onClick={() => navigator.clipboard?.writeText(it.localizador!)} className="text-primary-deep">copiar</button>
-                          </p>
-                        )}
-                        {it.endereco && (
-                          <p className="mt-0.5 text-[11.5px] text-text-muted">
-                            📍 {it.endereco}{" "}
-                            {mapa && <a href={mapa} target="_blank" rel="noopener noreferrer" className="text-primary-deep">Maps</a>}{" · "}
-                            {waze && <a href={waze} target="_blank" rel="noopener noreferrer" className="text-primary-deep">Waze</a>}
-                          </p>
-                        )}
-                        {obs && <p className="mt-0.5 text-[11px] text-text-faint">{obs}</p>}
-                        {soDessas.length > 0 && soDessas.length < todosIds.length && (
-                          <p className="mt-0.5 text-[11px] text-text-faint">Só: {soDessas.map(nomeDe).join(", ")}</p>
-                        )}
-                        {anexosDoItem(it.id).map((a) => (
-                          <p key={a.id} className="mt-1 text-[11.5px]">
-                            <button type="button" onClick={() => abrir(a.caminho_arquivo)} className="font-medium text-primary-deep">📎 {a.nome_arquivo}</button>{" "}
-                            <button type="button" onClick={() => removerAnexo(a)} className="text-danger">remover</button>
-                          </p>
-                        ))}
-                        {it.detalhes?.valor != null && (
-                          <p className="mt-1 text-[11.5px]">
-                            <span className="text-text-muted">Valor: </span>
-                            <span className="font-medium">{it.detalhes.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>{" "}
-                            {it.detalhes.despesa_id ? (
-                              <span className="text-success">· ✓ no Custos</span>
-                            ) : (
-                              <button type="button" onClick={() => lancar(it)} className="font-medium text-primary-deep">· Lançar no Custos</button>
-                            )}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1.5">
-                        <button type="button" onClick={() => { setModoFormulario(false); setPagamentoItens([]); setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: obs, conexoes: it.detalhes?.conexoes ?? null, valor: it.detalhes?.valor ?? null, participantes: participantesPorItem[it.id]?.length ? participantesPorItem[it.id] : todosIds }); }} className="text-[11.5px] font-medium text-primary-deep">Editar</button>
-                        <button type="button" onClick={() => remover(it)} className="text-[11.5px] font-medium text-danger">Remover</button>
-                      </div>
-                    </div>
-                  </div>
+                  <CartaoItem
+                    key={it.id}
+                    it={it}
+                    tipoLabel={TIPO_LABEL[it.tipo]}
+                    cor={corDoItem(it)}
+                    anexos={anexosDoItem(it.id)}
+                    soDessas={soDessas.length > 0 && soDessas.length < todosIds.length ? soDessas.map(nomeDe) : []}
+                    onEditar={() => { setModoFormulario(false); setPagamentoItens([]); setForm({ id: it.id, viagemId, tipo: it.tipo, titulo: it.titulo, fornecedor: it.fornecedor, inicio: it.inicio, fim: it.fim, origem: it.origem, destino: it.destino, local: it.local, localizador: it.localizador, endereco: it.endereco, observacoes: it.detalhes?.observacoes, conexoes: it.detalhes?.conexoes ?? null, valor: it.detalhes?.valor ?? null, participantes: participantesPorItem[it.id]?.length ? participantesPorItem[it.id] : todosIds }); }}
+                    onRemover={() => remover(it)}
+                    onLancar={() => lancar(it)}
+                    onAbrirAnexo={abrir}
+                    onRemoverAnexo={removerAnexo}
+                  />
                 );
               })}
             </div>

@@ -8,7 +8,7 @@ import { carregarAgendaCombinada, dataLocal, eventosDeHoje, horaLocal } from "@/
  * inicial abre na frente de gente de fora.
  */
 
-export type Modulo = "Tarefas" | "Custos" | "Agenda";
+export type Modulo = "Tarefas" | "Custos" | "Agenda" | "Viagens";
 export type Urgencia = "atrasado" | "atencao" | "info";
 
 export type Acao = {
@@ -22,7 +22,7 @@ export type Acao = {
   urgencia: Urgencia;
 };
 
-const ORDEM_MODULO: Modulo[] = ["Tarefas", "Custos", "Agenda"];
+const ORDEM_MODULO: Modulo[] = ["Viagens", "Tarefas", "Custos", "Agenda"];
 const ORDEM_URGENCIA: Urgencia[] = ["atrasado", "atencao", "info"];
 
 const plural = (n: number, um: string, varios: string) => (n === 1 ? um : varios);
@@ -207,6 +207,69 @@ export async function montarResumoAcoes(
       href: "/agenda",
       urgencia: "atencao",
     });
+  }
+
+  // ── Viagens ────────────────────────────────────────────────────────────────────────────────
+  // Só o que muda o dia: viagem acontecendo ou começando amanhã, e voo/evento hoje ou amanhã.
+  try {
+    const [{ data: viagens }, { data: itens }] = await Promise.all([
+      supabase.from("viagens").select("id, titulo, data_inicio, data_fim, viagem_participantes(profile_id)").lte("data_inicio", amanha).gte("data_fim", hoje),
+      supabase
+        .from("viagem_itens")
+        .select("viagem_id, tipo, titulo, inicio, viagem_item_participantes(profile_id)")
+        .in("tipo", ["voo", "evento"])
+        .gte("inicio", `${hoje}T00:00:00-03:00`)
+        .lte("inicio", `${amanha}T23:59:59-03:00`),
+    ]);
+    type ViagemLinha = { id: string; titulo: string; data_inicio: string | null; data_fim: string | null; viagem_participantes: { profile_id: string }[] | null };
+    type ItemLinha = { viagem_id: string; tipo: string; titulo: string; inicio: string | null; viagem_item_participantes: { profile_id: string }[] | null };
+    const minhaViagem = (v: ViagemLinha) => !opts.soMinhas || (v.viagem_participantes ?? []).some((p) => p.profile_id === opts.userId);
+    const lista = ((viagens ?? []) as ViagemLinha[]).filter(minhaViagem);
+    const idsViagens = new Set(lista.map((v) => v.id));
+    for (const v of lista) {
+      const comecaAmanha = v.data_inicio === amanha;
+      acoes.push({
+        modulo: "Viagens",
+        quantidade: 1,
+        texto: comecaAmanha ? "viagem começa amanhã" : "viagem acontecendo agora",
+        detalhe: v.titulo,
+        verbo: "Abrir",
+        href: `/viagens/${v.id}`,
+        urgencia: comecaAmanha ? "atencao" : "info",
+      });
+    }
+    // Sem marcação no item = todas estão (regra do módulo).
+    const meuItem = (i: ItemLinha) => !opts.soMinhas || !(i.viagem_item_participantes ?? []).length || (i.viagem_item_participantes ?? []).some((p) => p.profile_id === opts.userId);
+    const proximos = ((itens ?? []) as ItemLinha[]).filter((i) => i.inicio && meuItem(i) && (idsViagens.size === 0 || idsViagens.has(i.viagem_id) || !opts.soMinhas));
+    const voosHoje = proximos.filter((i) => i.tipo === "voo");
+    const eventos = proximos.filter((i) => i.tipo === "evento");
+    if (voosHoje.length > 0) {
+      const primeiro = [...voosHoje].sort((a, b) => a.inicio!.localeCompare(b.inicio!))[0];
+      const eHoje = dataLocal(primeiro.inicio!) === hoje;
+      acoes.push({
+        modulo: "Viagens",
+        quantidade: voosHoje.length,
+        texto: plural(voosHoje.length, "voo até amanhã", "voos até amanhã"),
+        detalhe: `${eHoje ? "hoje" : "amanhã"} às ${horaLocal(primeiro.inicio!)} · ${primeiro.titulo}`,
+        verbo: "Ver",
+        href: `/viagens/${primeiro.viagem_id}`,
+        urgencia: eHoje ? "atencao" : "info",
+      });
+    }
+    if (eventos.length > 0) {
+      const primeiro = [...eventos].sort((a, b) => a.inicio!.localeCompare(b.inicio!))[0];
+      acoes.push({
+        modulo: "Viagens",
+        quantidade: eventos.length,
+        texto: plural(eventos.length, "evento até amanhã", "eventos até amanhã"),
+        detalhe: `${dataLocal(primeiro.inicio!) === hoje ? "hoje" : "amanhã"} · ${primeiro.titulo}`,
+        verbo: "Ver",
+        href: `/viagens/${primeiro.viagem_id}`,
+        urgencia: "info",
+      });
+    }
+  } catch (e) {
+    console.error("Tela inicial: viagens indisponíveis:", e);
   }
 
   return acoes.sort(

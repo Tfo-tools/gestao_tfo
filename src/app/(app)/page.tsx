@@ -27,6 +27,7 @@ const INTERNOS = [
   { nome: "Agenda", descricao: "Reuniões, atas e compromissos", href: "/agenda" },
   { nome: "Custos", descricao: "Lançamentos, extrato e comprovantes", href: "/custos" },
   { nome: "Plano", descricao: "Cenários, receita e indicadores", href: "/cenarios" },
+  { nome: "Viagens", descricao: "Itinerário, régua e e-tickets", href: "/viagens" },
 ];
 
 const COR_URGENCIA: Record<Urgencia, string> = {
@@ -194,7 +195,7 @@ export default async function VisaoGeralPage() {
               </a>
             ))}
           </div>
-          <div className="grid grid-cols-4 gap-2 lg:grid-cols-2">
+          <div className="grid grid-cols-5 gap-2 lg:grid-cols-2">
             {INTERNOS.map((a) => (
               <Link
                 key={a.href}

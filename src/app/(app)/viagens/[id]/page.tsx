@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { Itinerario, type ItemViagem, type AnexoViagem } from "./itinerario";
 import { MapaPessoas } from "./mapa-pessoas";
 import { ExcluirViagem } from "./excluir-viagem";
+import { dataLocal } from "@/lib/agenda-combinada";
+import { montarMapaViagem } from "@/lib/viagem-mapa";
 
 // Ler o e-ticket com IA pode levar até ~1 min; o padrão da Vercel é curto demais.
 export const maxDuration = 300;
@@ -64,55 +66,24 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
     usoPorConta[d.plano_contas_id] = (usoPorConta[d.plano_contas_id] ?? 0) + 1;
   }
 
-  // Mapa por pessoa: cidade de cada pessoa em cada dia (hospedagem que cobre o dia; senão último voo).
-  const diaKey = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString("en-CA") : null);
-  const inicios = itensV.map((i) => diaKey(i.inicio)).filter(Boolean) as string[];
-  const fins = itensV.map((i) => diaKey(i.fim ?? i.inicio)).filter(Boolean) as string[];
-  const dIni = viagem.data_inicio ?? (inicios.length ? [...inicios].sort()[0] : null);
-  const dFim = viagem.data_fim ?? (fins.length ? [...fins].sort().slice(-1)[0] : null);
-  const dias: { key: string; dia: string; mes: string }[] = [];
-  if (dIni && dFim) {
-    const d = new Date(`${dIni}T12:00:00`);
-    const fim = new Date(`${dFim}T12:00:00`);
-    for (let i = 0; d <= fim && i < 90; i++) {
-      dias.push({ key: d.toLocaleDateString("en-CA"), dia: d.toLocaleDateString("pt-BR", { day: "2-digit" }), mes: d.toLocaleDateString("pt-BR", { month: "2-digit" }) });
-      d.setDate(d.getDate() + 1);
-    }
-  }
-  const estaNoItem = (it: ItemViagem, pid: string) => {
-    const lista = participantesPorItem[it.id];
-    return lista && lista.length ? lista.includes(pid) : true; // sem marcação = todos
-  };
-  const cidadeDe = (it: ItemViagem) => it.local || it.destino || it.origem || null;
-  const matriz: Record<string, Record<string, string | null>> = {};
-  const cidadesUsadas = new Set<string>();
-  for (const p of participantesViagem) {
-    matriz[p.id] = {};
-    for (const dk of dias.map((x) => x.key)) {
-      let cidade: string | null = null;
-      const hosp = itensV.find((it) => it.tipo === "hospedagem" && estaNoItem(it, p.id) && diaKey(it.inicio) && diaKey(it.inicio)! <= dk && dk <= (diaKey(it.fim ?? it.inicio) ?? diaKey(it.inicio)!));
-      if (hosp) cidade = cidadeDe(hosp);
-      if (!cidade) {
-        const voos = itensV
-          .filter((it) => it.tipo === "voo" && estaNoItem(it, p.id) && diaKey(it.inicio) && diaKey(it.inicio)! <= dk)
-          .sort((a, b) => (a.inicio ?? "").localeCompare(b.inicio ?? ""));
-        if (voos.length) cidade = voos[voos.length - 1].destino || voos[voos.length - 1].local || null;
-      }
-      matriz[p.id][dk] = cidade;
-      if (cidade) cidadesUsadas.add(cidade);
-    }
-  }
-  const PALETA = ["#e9edf7", "#e8f2ec", "#fbf7cf", "#f4e9ec", "#eceef1", "#e4f0e8", "#f3e8de"];
-  const cores: Record<string, string> = {};
-  [...cidadesUsadas].forEach((c, i) => { cores[c] = PALETA[i % PALETA.length]; });
-  const temMapa = dias.length > 0 && participantesViagem.length > 0 && cidadesUsadas.size > 0;
+  // A régua (mapa por pessoa) vem primeiro: durante a viagem, "onde está cada uma hoje" é a
+  // pergunta que mais se faz — o itinerário completo e os custos vêm depois.
+  const mapa = montarMapaViagem(viagem, participantesViagem, itensV, participantesPorItem);
+  const hoje = dataLocal(new Date().toISOString());
+  const hojeIndex = mapa ? mapa.dias.indexOf(hoje) : -1;
+  const estado = !viagem.data_inicio ? null : hoje < viagem.data_inicio ? "proxima" : viagem.data_fim && hoje > viagem.data_fim ? "passada" : "andamento";
+  const diasAte = viagem.data_inicio ? Math.round((new Date(`${viagem.data_inicio}T00:00:00Z`).getTime() - new Date(`${hoje}T00:00:00Z`).getTime()) / 86400000) : null;
+  const selo = estado === "andamento" ? "Acontecendo agora" : estado === "proxima" ? (diasAte === 1 ? "Amanhã" : `Em ${diasAte} dias`) : estado === "passada" ? "Passada" : null;
 
   return (
     <div>
       <Link href="/viagens" className="text-[12px] font-medium text-primary-deep">← Viagens</Link>
-      <div className="mt-2 mb-5">
+      <div className="mt-2 mb-4">
         <div className="flex items-start justify-between gap-3">
-          <h1 className="font-heading text-[22px] font-semibold">{viagem.titulo}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-heading text-[22px] font-semibold">{viagem.titulo}</h1>
+            {selo && <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${estado === "andamento" ? "bg-success-soft text-success" : estado === "proxima" ? "bg-primary-soft text-primary-deep" : "bg-bg text-text-faint"}`}>{selo}</span>}
+          </div>
           <ExcluirViagem id={viagem.id} titulo={viagem.titulo} />
         </div>
         <p className="mt-1 text-[13px] text-text-muted">
@@ -120,6 +91,15 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
           {quem.length > 0 && ` · ${quem.join(", ")}`}
         </p>
         {viagem.observacoes && <p className="mt-1 text-[12px] text-text-faint">{viagem.observacoes}</p>}
+      </div>
+
+      <div className="mb-5 rounded-xl border border-border bg-surface p-4">
+        <h2 className="mb-2 font-heading text-sm font-semibold">Onde está cada uma</h2>
+        {mapa && mapa.faixas.length > 0 ? (
+          <MapaPessoas mapa={mapa} hojeIndex={hojeIndex} />
+        ) : (
+          <p className="text-[12px] text-text-muted">A régua aparece quando a viagem tiver datas e o primeiro voo ou hospedagem.</p>
+        )}
       </div>
 
       <Itinerario
@@ -134,9 +114,8 @@ export default async function ViagemPage({ params }: { params: Promise<{ id: str
         pessoas={pessoasPagamento}
         pagadores={pagadores}
         programas={programas ?? []}
+        cores={mapa?.cores ?? {}}
       />
-
-      {temMapa && <MapaPessoas participantes={participantesViagem} dias={dias} matriz={matriz} cores={cores} />}
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4">
         <div className="mb-2 flex items-center justify-between">
