@@ -463,6 +463,8 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
                 const soDessas = participantesPorItem[it.id] ?? [];
                 const mapa = it.endereco ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(it.endereco)}` : null;
                 const waze = it.endereco ? `https://waze.com/ul?q=${encodeURIComponent(it.endereco)}` : null;
+                // Uber: abre o app (ou m.uber.com) já com o destino preenchido; a origem é a localização atual.
+                const uber = it.endereco ? `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=${encodeURIComponent(it.endereco)}` : null;
                 return (
                   <div key={it.id} className="rounded-xl border border-border bg-surface p-3.5">
                     <div className="flex items-start justify-between gap-2">
@@ -483,8 +485,10 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
                         {it.endereco && (
                           <p className="mt-0.5 text-[11.5px] text-text-muted">
                             📍 {it.endereco}{" "}
+                            <button type="button" onClick={() => navigator.clipboard?.writeText(it.endereco!)} className="font-medium text-primary-deep">copiar</button>{" · "}
                             {mapa && <a href={mapa} target="_blank" rel="noopener noreferrer" className="text-primary-deep">Maps</a>}{" · "}
-                            {waze && <a href={waze} target="_blank" rel="noopener noreferrer" className="text-primary-deep">Waze</a>}
+                            {waze && <a href={waze} target="_blank" rel="noopener noreferrer" className="text-primary-deep">Waze</a>}{" · "}
+                            {uber && <a href={uber} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-deep">Uber</a>}
                           </p>
                         )}
                         {obs && <p className="mt-0.5 text-[11px] text-text-faint">{obs}</p>}
