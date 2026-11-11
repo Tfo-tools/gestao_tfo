@@ -237,11 +237,25 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
   async function abrir(caminho: string) {
     const url = await urlAnexo(caminho);
     if (url) window.open(url, "_blank", "noopener");
-    else setErro("Não consegui abrir o e-ticket.");
+    else setErro("Não consegui abrir o documento.");
+  }
+
+  // Anexa um documento a mais num item que já existe (ticket de embarque, comprovante, voucher…) —
+  // sem passar pela IA. O item pode guardar quantos documentos precisar; todos abrem como PDF.
+  async function anexarDocNoItem(itemId: string, file: File) {
+    setErro(null);
+    setStatus("Anexando documento…");
+    const ini = await iniciarUploadEticket(viagemId, file.name);
+    if (ini.error || !ini.caminho || !ini.token) { setStatus(null); setErro(ini.error ?? "Falha ao enviar."); return; }
+    const { error: upErr } = await createClient().storage.from("comprovantes").uploadToSignedUrl(ini.caminho, ini.token, file, { contentType: file.type || undefined });
+    if (upErr) { setStatus(null); setErro("Não consegui enviar o documento."); return; }
+    await registrarAnexo(viagemId, itemId, ini.caminho, file.name, file.type || "application/pdf", file.size);
+    setStatus(null);
+    router.refresh();
   }
 
   function removerAnexo(a: AnexoViagem) {
-    if (!confirm(`Remover o e-ticket "${a.nome_arquivo}"?`)) return;
+    if (!confirm(`Remover o documento "${a.nome_arquivo}"?`)) return;
     startSalvar(async () => { await excluirAnexo(a.id, a.caminho_arquivo, viagemId); router.refresh(); });
   }
 
@@ -483,6 +497,14 @@ export function Itinerario({ viagemId, itens, anexos, participantesViagem, parti
                             <button type="button" onClick={() => removerAnexo(a)} className="text-danger">remover</button>
                           </p>
                         ))}
+                        <label className="mt-1 inline-block cursor-pointer text-[11px] font-medium text-primary-deep">
+                          + anexar documento (ticket, comprovante…)
+                          <input
+                            type="file"
+                            className="hidden"
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) anexarDocNoItem(it.id, f); e.target.value = ""; }}
+                          />
+                        </label>
                         {it.detalhes?.valor != null && (
                           <p className="mt-1 text-[11.5px]">
                             <span className="text-text-muted">Valor: </span>
