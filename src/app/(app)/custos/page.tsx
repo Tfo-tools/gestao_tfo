@@ -55,6 +55,16 @@ export default async function LancamentosPage() {
 
   // Programas que uma despesa pode comprovar (pago com o recurso deles → prestação de contas).
   const { data: programas } = await supabase.from("programas_investimento").select("id, nome").order("nome");
+
+  // Viagens, pra vincular um gasto (Uber, etc.) à viagem — aí ele conta no total dela.
+  const { data: viagensRaw } = await supabase
+    .from("viagens")
+    .select("id, titulo, destino, data_inicio")
+    .order("data_inicio", { ascending: false, nullsFirst: false });
+  const viagens = (viagensRaw ?? []).map((v) => ({
+    id: v.id as string,
+    label: [v.titulo, v.destino].filter(Boolean).join(" · ") || "viagem",
+  }));
   const pagadores = (profiles ?? []).map((p) => p.nome);
   const pessoas = (profiles ?? []).map((p) => ({
     id: p.id,
@@ -76,7 +86,7 @@ export default async function LancamentosPage() {
 
   return (
     <div className="flex flex-col gap-5">
-    <CaixaEntrada documentos={(entradaDocs ?? []) as DocumentoEntrada[]} planoContas={planoContas ?? []} pagadores={pagadores} />
+    <CaixaEntrada documentos={(entradaDocs ?? []) as DocumentoEntrada[]} planoContas={planoContas ?? []} pagadores={pagadores} viagens={viagens} />
     {/* Duas colunas da mesma largura: a lista de pendentes empilha a informação de cada lançamento
         pra caber ao lado do formulário sem rolar a página. */}
     <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
@@ -88,6 +98,7 @@ export default async function LancamentosPage() {
         usuarioAtual={perfilAtual?.nome ?? null}
         meiosPagamento={meiosPagamento ?? []}
         pessoas={pessoas}
+        viagens={viagens}
       />
 
       <div className="flex flex-col rounded-xl border border-border bg-surface p-5 lg:max-h-[calc(100vh-11rem)]">

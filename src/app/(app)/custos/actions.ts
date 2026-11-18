@@ -114,6 +114,8 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
   const comprovantePagamento = formData.get("comprovante_pagamento") as File | null;
   // Programa que a despesa comprova (pago com o recurso dele) — define o "usado" da prestação.
   const programa_id = String(formData.get("programa_id") || "") || null;
+  // Viagem à qual o gasto pertence (Uber, etc.) — aparece no total daquela viagem.
+  const viagem_id = String(formData.get("viagem_id") || "") || null;
 
   if (!data_gasto || !plano_contas_id || !valor_total) {
     return { error: "Preencha data, categoria e valor." };
@@ -140,6 +142,7 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
       forma_pagamento,
       valor_fatura,
       programa_id,
+      viagem_id,
       criado_por: user?.id ?? null,
     })
     .select("id")
@@ -174,6 +177,7 @@ async function criarDespesaAvulsa(formData: FormData): Promise<DespesaFormState>
   revalidatePath("/custos");
   revalidatePath("/custos/extrato");
   revalidatePath("/");
+  if (viagem_id) revalidatePath(`/viagens/${viagem_id}`);
   return { error: null, success: true };
 }
 

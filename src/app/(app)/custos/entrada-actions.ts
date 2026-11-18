@@ -5,6 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { nomeArquivoSeguro } from "@/lib/nome-arquivo-seguro";
 import { lerNotaFiscal, notaIaConfigurada, type NotaExtraida } from "@/lib/custos-ia";
+import { gerarAcertoAvulso, rateioIgual, salvarRateio } from "@/lib/acertos-socias";
+import { enviarPush } from "@/lib/push";
+import { hojeSP } from "@/lib/rotinas";
 
 const BUCKET = "comprovantes";
 type TipoDoc = "fatura" | "comprovante_pagamento";
@@ -115,6 +118,8 @@ export async function lancarDoDocumento(input: {
   valor_total: number;
   descricao: string | null;
   pagador: string | null;
+  viagem_id?: string | null;
+  dividir?: boolean;
 }): Promise<{ error: string | null }> {
   if (!input.data_gasto || !input.plano_contas_id || !input.valor_total) {
     return { error: "Preencha data, categoria e valor." };
@@ -144,6 +149,7 @@ export async function lancarDoDocumento(input: {
       descricao: input.descricao,
       comprovado,
       pagador: input.pagador,
+      viagem_id: input.viagem_id ?? null,
       criado_por: user?.id ?? null,
     })
     .select("id")
@@ -165,10 +171,28 @@ export async function lancarDoDocumento(input: {
     await admin.storage.from(BUCKET).remove([doc.caminho_arquivo]);
   }
 
+  // Divisão meio a meio entre as sócias, quando pedido e quem pagou é sócia (igual ao lançamento
+  // normal): a parte da outra entra no acerto do mês.
+  if (input.dividir && input.pagador) {
+    const { data: sociasData } = await supabase.from("profiles").select("nome").eq("papel", "socia").order("nome");
+    const socias = ((sociasData ?? []) as { nome: string }[]).map((p) => p.nome);
+    if (socias.includes(input.pagador)) {
+      await salvarRateio(supabase, despesa.id, rateioIgual(socias));
+      try {
+        const { avisos } = await gerarAcertoAvulso(supabase, despesa.id, hojeSP());
+        for (const a of avisos) await enviarPush([a.usuarioId], { title: a.title, body: a.body, url: "/tarefas" });
+        if (avisos.length > 0) revalidatePath("/tarefas");
+      } catch (e) {
+        console.error("Acerto avulso não gerado", e);
+      }
+    }
+  }
+
   await supabase.from("entrada_documentos").update({ status: "processado", despesa_id: despesa.id }).eq("id", input.docId);
 
   revalidatePath("/custos");
   revalidatePath("/custos/extrato");
+  if (input.viagem_id) revalidatePath(`/viagens/${input.viagem_id}`);
   return { error: null };
 }
 

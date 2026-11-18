@@ -28,12 +28,13 @@ type Props = {
   usuarioAtual?: string | null;
   meiosPagamento: MeioPagamento[];
   pessoas: Pessoa[];
+  viagens: { id: string; label: string }[];
 };
 
 const vazioR = (v: unknown) => v == null || v === "";
 const hoje = () => new Date().toISOString().slice(0, 10);
 
-export function NovoLancamento(props: Props) {
+export function NovoLancamento({ viagens, ...props }: Props) {
   const [modo, setModo] = useState<"guiado" | "form">("guiado");
 
   if (modo === "form") {
@@ -47,7 +48,7 @@ export function NovoLancamento(props: Props) {
     );
   }
 
-  return <LancamentoGuiado {...props} onFormularioDireto={() => setModo("form")} />;
+  return <LancamentoGuiado {...props} viagens={viagens} onFormularioDireto={() => setModo("form")} />;
 }
 
 function LancamentoGuiado({
@@ -58,6 +59,7 @@ function LancamentoGuiado({
   meiosPagamento,
   pessoas,
   programas = [],
+  viagens,
   onFormularioDireto,
 }: Props & { onFormularioDireto: () => void }) {
   const router = useRouter();
@@ -185,6 +187,25 @@ function LancamentoGuiado({
     },
 
     {
+      id: "viagem_id",
+      pergunta: "É de alguma viagem?",
+      rotulo: "Viagem",
+      ajuda: "Opcional. Vincula o gasto a uma viagem — ele conta no total dela.",
+      quando: (r) => r.recorrente !== true,
+      resumo: (v) => viagens.find((x) => x.id === v)?.label ?? "Nenhuma",
+      render: ({ valor, setValor }) => (
+        <select value={(valor as string) ?? ""} onChange={(e) => setValor(e.target.value || null)} className="input w-full">
+          <option value="">Nenhuma</option>
+          {viagens.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.label}
+            </option>
+          ))}
+        </select>
+      ),
+    },
+
+    {
       id: "descricao",
       pergunta: "Uma descrição curta",
       rotulo: "Descrição",
@@ -229,6 +250,7 @@ function LancamentoGuiado({
     fd.set("valor_total", String(r.valor ?? ""));
     if (r.descricao) fd.set("descricao", String(r.descricao));
     if (r.pagador) fd.set("pagador", String(r.pagador));
+    if (r.viagem_id) fd.set("viagem_id", String(r.viagem_id));
     if (r.rateio === "nao") fd.set("rateio", "nao");
 
     // Forma de pagamento vem do mesmo componente do formulário (cartão/parcelas/combinação).

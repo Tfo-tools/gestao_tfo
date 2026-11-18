@@ -21,6 +21,7 @@ export type DocumentoEntrada = {
   created_at: string;
 };
 type PlanoContas = { id: string; codigo: string; conta: string };
+export type Viagem = { id: string; label: string };
 type TipoDoc = "fatura" | "comprovante_pagamento";
 type DespesaAchada = { id: string; data_gasto: string; descricao: string | null; valor_total: number; comprovado: boolean; conta: string | null };
 
@@ -36,10 +37,12 @@ export function CaixaEntrada({
   documentos,
   planoContas,
   pagadores,
+  viagens,
 }: {
   documentos: DocumentoEntrada[];
   planoContas: PlanoContas[];
   pagadores: string[];
+  viagens: Viagem[];
 }) {
   if (documentos.length === 0) return null;
   return (
@@ -54,14 +57,14 @@ export function CaixaEntrada({
       </p>
       <div className="flex flex-col gap-3">
         {documentos.map((d) => (
-          <DocumentoCard key={d.id} doc={d} planoContas={planoContas} pagadores={pagadores} />
+          <DocumentoCard key={d.id} doc={d} planoContas={planoContas} pagadores={pagadores} viagens={viagens} />
         ))}
       </div>
     </div>
   );
 }
 
-function DocumentoCard({ doc, planoContas, pagadores }: { doc: DocumentoEntrada; planoContas: PlanoContas[]; pagadores: string[] }) {
+function DocumentoCard({ doc, planoContas, pagadores, viagens }: { doc: DocumentoEntrada; planoContas: PlanoContas[]; pagadores: string[]; viagens: Viagem[] }) {
   const router = useRouter();
   const [tipo, setTipo] = useState<TipoDoc | null>(null);
   const [destino, setDestino] = useState<"existente" | "nova" | null>(null);
@@ -154,7 +157,7 @@ function DocumentoCard({ doc, planoContas, pagadores }: { doc: DocumentoEntrada;
       )}
 
       {tipo && destino === "nova" && (
-        <LancarNova docId={doc.id} tipo={tipo} planoContas={planoContas} pagadores={pagadores} pending={pending} onLancar={(campos) => acao(() => lancarDoDocumento({ docId: doc.id, tipo, ...campos }))} />
+        <LancarNova docId={doc.id} tipo={tipo} planoContas={planoContas} pagadores={pagadores} viagens={viagens} pending={pending} onLancar={(campos) => acao(() => lancarDoDocumento({ docId: doc.id, tipo, ...campos }))} />
       )}
 
       {erro && <p className="mt-2 text-[11px] text-danger">{erro}</p>}
@@ -244,6 +247,7 @@ function LancarNova({
   tipo,
   planoContas,
   pagadores,
+  viagens,
   pending,
   onLancar,
 }: {
@@ -251,8 +255,17 @@ function LancarNova({
   tipo: TipoDoc;
   planoContas: PlanoContas[];
   pagadores: string[];
+  viagens: Viagem[];
   pending: boolean;
-  onLancar: (campos: { data_gasto: string; plano_contas_id: string; valor_total: number; descricao: string | null; pagador: string | null }) => void;
+  onLancar: (campos: {
+    data_gasto: string;
+    plano_contas_id: string;
+    valor_total: number;
+    descricao: string | null;
+    pagador: string | null;
+    viagem_id: string | null;
+    dividir: boolean;
+  }) => void;
 }) {
   const hoje = new Date().toISOString().slice(0, 10);
   const [lendo, setLendo] = useState(false);
@@ -262,6 +275,8 @@ function LancarNova({
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
   const [pagador, setPagador] = useState("");
+  const [viagemId, setViagemId] = useState("");
+  const [dividir, setDividir] = useState(false);
 
   async function lerIA() {
     setLendo(true);
@@ -324,11 +339,29 @@ function LancarNova({
             <option value="Empresa">Empresa</option>
           </select>
         </div>
+        <div className="col-span-2">
+          <label className="mb-1 block text-[10.5px] text-text-faint">Viagem (opcional)</label>
+          <select value={viagemId} onChange={(e) => setViagemId(e.target.value)} className="input w-full">
+            <option value="">Nenhuma</option>
+            {viagens.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-0.5 text-[10px] text-text-faint">Vincula o gasto à viagem — ele conta no total dela.</p>
+        </div>
+        {pagador && pagador !== "Empresa" && (
+          <label className="col-span-2 flex items-center gap-1.5 text-[11.5px]">
+            <input type="checkbox" checked={dividir} onChange={(e) => setDividir(e.target.checked)} className="h-3.5 w-3.5 rounded border-border" />
+            Dividir meio a meio com a sócia
+          </label>
+        )}
       </div>
       <button
         type="button"
         disabled={pending}
-        onClick={() => onLancar({ data_gasto: data, plano_contas_id: contaId, valor_total: Number(valor) || 0, descricao: descricao.trim() || null, pagador: pagador || null })}
+        onClick={() => onLancar({ data_gasto: data, plano_contas_id: contaId, valor_total: Number(valor) || 0, descricao: descricao.trim() || null, pagador: pagador || null, viagem_id: viagemId || null, dividir })}
         className="mt-3 rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60"
       >
         {pending ? "…" : `Lançar como nova despesa (${tipo === "fatura" ? "fatura/NF" : "comprovante"})`}
