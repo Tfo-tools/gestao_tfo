@@ -23,6 +23,9 @@
 export const DIAS_ANTES_VENCIMENTO = 5;
 export const DIAS_UTEIS_AVULSO = 3;
 const DIA_VENCIMENTO_PADRAO = 10;
+// O acerto deixou de ser automático (tarefa gerada sozinha): virou controle manual na tela
+// "Entre sócias" (tabela de rateio + rateio_pagamentos). As funções abaixo ficam desativadas.
+const ACERTOS_AUTOMATICOS: boolean = false;
 
 export type RateioLinha = { despesa_id: string; pessoa: string; percentual: number };
 export type DespesaAcerto = {
@@ -349,6 +352,7 @@ async function gravarAcertos(
  * vista até hoje, ainda fora de qualquer acerto. Idempotente (acertos_ciclos).
  */
 export async function gerarAcertoMensal(supabase: Db, hoje: string) {
+  if (!ACERTOS_AUTOMATICOS) return { criados: 0, avisos: [] };
   const ciclo = cicloDoMes(hoje, await diaVencimentoCiclo(supabase));
   if (hoje < ciclo.geracao) return { criados: 0, avisos: [] };
   const { data: feito } = await supabase.from("acertos_ciclos").select("mes").eq("mes", ciclo.mes).maybeSingle();
@@ -377,6 +381,7 @@ export async function gerarAcertoMensal(supabase: Db, hoje: string) {
  * Despesa no cartão nunca vira avulso: as parcelas entram no mensal do mês em que vencem.
  */
 export async function gerarAcertoAvulso(supabase: Db, despesaId: string, hoje: string) {
+  if (!ACERTOS_AUTOMATICOS) return { criados: 0, avisos: [] };
   const { count } = await supabase.from("despesa_parcelas").select("id", { count: "exact", head: true }).eq("despesa_id", despesaId).eq("origem", "fatura_cartao");
   if ((count ?? 0) > 0) return { criados: 0, avisos: [] };
   const ciclo = cicloDoMes(hoje, await diaVencimentoCiclo(supabase));
