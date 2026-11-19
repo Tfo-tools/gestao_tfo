@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   urlDocumentoEntrada,
@@ -10,6 +10,7 @@ import {
   lancarDoDocumento,
   descartarDocumento,
 } from "./entrada-actions";
+import { BuscaConta } from "./busca-conta";
 
 export type DocumentoEntrada = {
   id: string;
@@ -20,7 +21,7 @@ export type DocumentoEntrada = {
   observacao: string | null;
   created_at: string;
 };
-type PlanoContas = { id: string; codigo: string; conta: string };
+type PlanoContas = { id: string; codigo: string; conta: string; tipo: string };
 export type Viagem = { id: string; label: string };
 type TipoDoc = "fatura" | "comprovante_pagamento";
 type DespesaAchada = { id: string; data_gasto: string; descricao: string | null; valor_total: number; comprovado: boolean; conta: string | null };
@@ -38,11 +39,13 @@ export function CaixaEntrada({
   planoContas,
   pagadores,
   viagens,
+  usoPorConta,
 }: {
   documentos: DocumentoEntrada[];
   planoContas: PlanoContas[];
   pagadores: string[];
   viagens: Viagem[];
+  usoPorConta: Record<string, number>;
 }) {
   if (documentos.length === 0) return null;
   return (
@@ -57,14 +60,14 @@ export function CaixaEntrada({
       </p>
       <div className="flex flex-col gap-3">
         {documentos.map((d) => (
-          <DocumentoCard key={d.id} doc={d} planoContas={planoContas} pagadores={pagadores} viagens={viagens} />
+          <DocumentoCard key={d.id} doc={d} planoContas={planoContas} pagadores={pagadores} viagens={viagens} usoPorConta={usoPorConta} />
         ))}
       </div>
     </div>
   );
 }
 
-function DocumentoCard({ doc, planoContas, pagadores, viagens }: { doc: DocumentoEntrada; planoContas: PlanoContas[]; pagadores: string[]; viagens: Viagem[] }) {
+function DocumentoCard({ doc, planoContas, pagadores, viagens, usoPorConta }: { doc: DocumentoEntrada; planoContas: PlanoContas[]; pagadores: string[]; viagens: Viagem[]; usoPorConta: Record<string, number> }) {
   const router = useRouter();
   const [tipo, setTipo] = useState<TipoDoc | null>(null);
   const [destino, setDestino] = useState<"existente" | "nova" | null>(null);
@@ -157,7 +160,7 @@ function DocumentoCard({ doc, planoContas, pagadores, viagens }: { doc: Document
       )}
 
       {tipo && destino === "nova" && (
-        <LancarNova docId={doc.id} tipo={tipo} planoContas={planoContas} pagadores={pagadores} viagens={viagens} pending={pending} onLancar={(campos) => acao(() => lancarDoDocumento({ docId: doc.id, tipo, ...campos }))} />
+        <LancarNova docId={doc.id} tipo={tipo} planoContas={planoContas} pagadores={pagadores} viagens={viagens} usoPorConta={usoPorConta} pending={pending} onLancar={(campos) => acao(() => lancarDoDocumento({ docId: doc.id, tipo, ...campos }))} />
       )}
 
       {erro && <p className="mt-2 text-[11px] text-danger">{erro}</p>}
@@ -248,6 +251,7 @@ function LancarNova({
   planoContas,
   pagadores,
   viagens,
+  usoPorConta,
   pending,
   onLancar,
 }: {
@@ -256,6 +260,7 @@ function LancarNova({
   planoContas: PlanoContas[];
   pagadores: string[];
   viagens: Viagem[];
+  usoPorConta: Record<string, number>;
   pending: boolean;
   onLancar: (campos: {
     data_gasto: string;
@@ -271,7 +276,7 @@ function LancarNova({
   const [lendo, setLendo] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [data, setData] = useState(hoje);
-  const [contaId, setContaId] = useState("");
+  const [conta, setConta] = useState<{ id: string; nome: string } | null>(null);
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
   const [pagador, setPagador] = useState("");
@@ -284,7 +289,7 @@ function LancarNova({
     const r = await lerDocumentoEntrada(docId);
     setLendo(false);
     if (r.error || !r.nota) {
-      setAviso(r.error ?? "Não consegui ler — preencha à mão.");
+      setAviso(r.error ?? "Não consegui ler sozinha — preencha os campos abaixo.");
       return;
     }
     const n = r.nota;
@@ -293,14 +298,21 @@ function LancarNova({
     if (n.descricao || n.fornecedor) setDescricao(n.descricao || n.fornecedor || "");
     if (n.conta_codigo) {
       const c = planoContas.find((p) => p.codigo === n.conta_codigo);
-      if (c) setContaId(c.id);
+      if (c) setConta({ id: c.id, nome: c.conta });
     }
   }
+
+  // A IA lê o documento sozinha assim que a tela abre (igual ao lançamento normal, que lê ao anexar),
+  // pra já adiantar data, valor, descrição e categoria — sem a sócia precisar tocar em nada.
+  useEffect(() => {
+    lerIA();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="mt-3 rounded-lg border border-border-soft bg-bg p-3">
       <button type="button" onClick={lerIA} disabled={lendo} className="mb-2 rounded-lg border border-border px-3 py-1.5 text-[12px] font-medium text-primary-deep disabled:opacity-50">
-        {lendo ? "Lendo com IA…" : "Ler com IA e preencher"}
+        {lendo ? "Lendo o documento com IA…" : "Ler de novo com IA"}
       </button>
       {aviso && <p className="mb-2 text-[11px] text-danger">{aviso}</p>}
       <div className="grid grid-cols-2 gap-2">
@@ -314,14 +326,13 @@ function LancarNova({
         </div>
         <div className="col-span-2">
           <label className="mb-1 block text-[10.5px] text-text-faint">Categoria</label>
-          <select value={contaId} onChange={(e) => setContaId(e.target.value)} className="input w-full">
-            <option value="">Escolha a conta</option>
-            {planoContas.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.codigo} — {c.conta}
-              </option>
-            ))}
-          </select>
+          <BuscaConta
+            key={conta?.id ?? "vazio"}
+            planoContas={planoContas}
+            usoPorConta={usoPorConta}
+            inicial={conta ? { id: conta.id, conta: conta.nome } : null}
+            onChange={(sel) => setConta(sel ? { id: sel.id, nome: sel.conta } : null)}
+          />
         </div>
         <div className="col-span-2">
           <label className="mb-1 block text-[10.5px] text-text-faint">Descrição</label>
@@ -361,7 +372,7 @@ function LancarNova({
       <button
         type="button"
         disabled={pending}
-        onClick={() => onLancar({ data_gasto: data, plano_contas_id: contaId, valor_total: Number(valor) || 0, descricao: descricao.trim() || null, pagador: pagador || null, viagem_id: viagemId || null, dividir })}
+        onClick={() => onLancar({ data_gasto: data, plano_contas_id: conta?.id ?? "", valor_total: Number(valor) || 0, descricao: descricao.trim() || null, pagador: pagador || null, viagem_id: viagemId || null, dividir })}
         className="mt-3 rounded-lg bg-wine-deep px-3 py-2 text-[12px] font-medium text-white disabled:opacity-60"
       >
         {pending ? "…" : `Lançar como nova despesa (${tipo === "fatura" ? "fatura/NF" : "comprovante"})`}

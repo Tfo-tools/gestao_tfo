@@ -86,7 +86,7 @@ export default async function LancamentosPage() {
 
   return (
     <div className="flex flex-col gap-5">
-    <CaixaEntrada documentos={(entradaDocs ?? []) as DocumentoEntrada[]} planoContas={planoContas ?? []} pagadores={pagadores} viagens={viagens} />
+    <CaixaEntrada documentos={(entradaDocs ?? []) as DocumentoEntrada[]} planoContas={planoContas ?? []} pagadores={pagadores} viagens={viagens} usoPorConta={usoPorConta} />
     {/* Duas colunas da mesma largura: a lista de pendentes empilha a informação de cada lançamento
         pra caber ao lado do formulário sem rolar a página. */}
     <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
