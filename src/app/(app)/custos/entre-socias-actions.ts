@@ -19,7 +19,7 @@ const mesDe = (iso: string) => iso.slice(0, 7);
 const mesAtual = () => new Date().toISOString().slice(0, 7);
 const chave = (despesaId: string, numeroParcela: number) => `${despesaId}|${numeroParcela}`;
 
-export type CelulaMatriz = { despesaId: string; numeroParcela: number; valor: number; pago: boolean };
+export type CelulaMatriz = { despesaId: string; numeroParcela: number; cheio: number; valor: number; pago: boolean };
 export type LinhaMatriz = {
   chave: string;
   despesaId: string;
@@ -80,7 +80,7 @@ export async function matrizEntreSocias(): Promise<MatrizEntreSocias> {
         const parte = partesDoValor(u.valor, rateio)[devedora] ?? 0;
         if (parte <= 0) continue;
         const estaPago = pago.has(chave(d.id, u.numero));
-        porMes[u.mes] = { despesaId: d.id, numeroParcela: u.numero, valor: parte, pago: estaPago };
+        porMes[u.mes] = { despesaId: d.id, numeroParcela: u.numero, cheio: u.valor, valor: parte, pago: estaPago };
         mesesComCelula.add(u.mes);
         if (!estaPago) mesesComDevido.add(u.mes);
       }
