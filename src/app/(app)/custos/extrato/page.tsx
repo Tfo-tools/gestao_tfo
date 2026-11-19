@@ -1,16 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { DespesaRow, type DespesaRowData } from "./despesa-row";
 import { FecharMesButton } from "./fechar-mes-button";
-import { carregarDevidos, rotuloMes } from "@/lib/acertos-socias";
 import { categoriaDeConta, labelCategoriaNegocio, CATEGORIAS_NEGOCIO } from "@/lib/categoria-negocio";
-
-function formatBRL(value: number) {
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function formatDate(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("pt-BR");
-}
 
 export default async function ExtratoPage({
   searchParams,
@@ -33,18 +24,13 @@ export default async function ExtratoPage({
   const ordemAscendente = ordem === "antigas";
   const supabase = await createClient();
 
-  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: acertosAbertos }, { data: meiosPagamento }] =
+  const [{ data: produtos }, { data: contaAtual }, { data: planoContas }, { data: profiles }, { data: mesesFechadosRaw }, { data: meiosPagamento }] =
     await Promise.all([
       supabase.from("produtos").select("id, nome").order("nome"),
       conta ? supabase.from("plano_contas").select("codigo, conta").eq("id", conta).single() : Promise.resolve({ data: null }),
       supabase.from("plano_contas").select("id, codigo, conta, tipo").in("tipo", ["cogs", "opex", "financeiro", "ativo"]).order("codigo"),
       supabase.from("profiles").select("id, nome, papel").order("nome"),
       supabase.from("meses_fechados").select("mes"),
-      supabase
-        .from("acertos_socias")
-        .select("id, tipo, mes_referencia, vencimento, devedora, credora, valor")
-        .eq("status", "aberto")
-        .order("vencimento", { ascending: true }),
       supabase.from("meios_pagamento").select("id, banco, tipo, titular_tipo, titular_pessoa_id, bandeira, programa_id").eq("ativo", true).order("banco"),
     ]);
 
@@ -53,7 +39,6 @@ export default async function ExtratoPage({
   const pagadores = (profiles ?? []).map((p) => p.nome);
   const pessoas = (profiles ?? []).map((p) => ({ id: p.id, nome: p.nome }));
   const mesesFechados = new Set((mesesFechadosRaw ?? []).map((m) => (m.mes as string).slice(0, 7)));
-  const hojeIso = new Date().toISOString().slice(0, 10);
   // "Fechar mês" só faz sentido quando De/Até apontam pro mesmo mês — não existe mais um campo
   // "Mês exato" separado, isso já cobre o caso (e evita redundância com o período).
   const mesExato = desde && ate && desde === ate ? desde : null;
@@ -81,43 +66,6 @@ export default async function ExtratoPage({
 
   const { data: despesas } = await query;
 
-  // Rateio entre sócias — sobre o MESMO recorte filtrado acima (período, produto, descrição...),
-  // pra dar pra isolar um evento/feira específico em vez de sempre olhar o total acumulado. Só o
-  // que saiu do bolso de cada uma entra; pago pela "Empresa" (cartão/conta PJ) fica de fora. Cada
-  // despesa conta UMA vez, pelo valor total, pra quem pagou ao fornecedor (no cartão, a dona do
-  // cartão); o que a outra já transferiu num acerto quitado passa de uma pra outra. O que ainda
-  // não foi acertado aparece à parte.
-  const pessoasSet = new Set(pagadores);
-  const porPagador = new Map<string, number>();
-  const somar = (pessoa: string, v: number) => porPagador.set(pessoa, (porPagador.get(pessoa) ?? 0) + v);
-  let totalOutros = 0;
-  let totalAcertoPendente = 0;
-  for (const d of despesas ?? []) {
-    if (!d.pagador || d.pagador === "Empresa" || !pessoasSet.has(d.pagador)) {
-      totalOutros += Number(d.valor_total);
-      continue;
-    }
-    somar(d.pagador, Number(d.valor_total));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const it of ((d as any).acerto_itens ?? []) as { devedora: string; valor: number; acertos_socias: { status: string } | null }[]) {
-      if (it.acertos_socias?.status !== "quitado") {
-        totalAcertoPendente += Number(it.valor);
-        continue;
-      }
-      somar(it.devedora, Number(it.valor));
-      somar(d.pagador, -Number(it.valor));
-    }
-  }
-
-  // Partes divididas que ainda não entraram em nenhum acerto (parcelas futuras do cartão e o que foi
-  // pago à vista depois da última geração) — o que as próximas tarefas vão cobrar.
-  const sociasNomes = new Set((profiles ?? []).filter((p) => (p as { papel?: string }).papel === "socia").map((p) => p.nome));
-  const { itens: aAcertar } = await carregarDevidos(supabase, { ateParcela: "9999-12-31", ateGasto: "9999-12-31", pessoas: sociasNomes });
-  const aAcertarPorDupla = new Map<string, number>();
-  for (const it of aAcertar) aAcertarPorDupla.set(`${it.devedora} → ${it.credora}`, (aAcertarPorDupla.get(`${it.devedora} → ${it.credora}`) ?? 0) + it.valor);
-  const totalGeral = [...porPagador.values()].reduce((a, b) => a + b, 0);
-  const linhasPagador = [...porPagador.entries()].sort((a, b) => b[1] - a[1]);
-  const metade = totalGeral / 2;
   const temFiltroAtivo = !!(desde || ate || produto || comprovado || pagador || conta || descricao || tipo);
 
   const exportQs = new URLSearchParams();
@@ -132,90 +80,6 @@ export default async function ExtratoPage({
 
   return (
     <div className="flex flex-col gap-5">
-      {((acertosAbertos ?? []).length > 0 || aAcertarPorDupla.size > 0) && (
-        <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-heading text-sm font-semibold">Acertos entre sócias</h2>
-          <p className="mb-4 text-[11.5px] text-text-muted">
-            Despesas divididas pagas por uma de vocês. Cada acerto vira uma tarefa: concluir a tarefa de quem deve marca como pago e avisa a outra.
-          </p>
-          <div className="flex flex-col gap-2">
-            {(acertosAbertos ?? []).map((a) => (
-              <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-bg px-3.5 py-3">
-                <div className="text-[12.5px] font-medium">
-                  {Number(a.valor) > 0 ? `${a.devedora} transfere ${formatBRL(Number(a.valor))} para ${a.credora}` : `${a.devedora} e ${a.credora}: nada a transferir`}
-                  <span className="ml-2 text-[11px] font-normal text-text-muted">
-                    {a.tipo === "mensal" && a.mes_referencia ? `fatura de ${rotuloMes(a.mes_referencia)}` : "avulso"}
-                    {a.vencimento ? ` · até ${formatDate(a.vencimento)}` : ""}
-                    {a.vencimento && a.vencimento < hojeIso ? " · atrasado" : ""}
-                  </span>
-                </div>
-                <a href="/tarefas" className="text-[11.5px] font-medium text-primary-deep">
-                  Ver tarefa
-                </a>
-              </div>
-            ))}
-            {[...aAcertarPorDupla.entries()].map(([dupla, valor]) => (
-              <p key={dupla} className="text-[11px] text-text-faint">
-                Ainda vai entrar nos próximos acertos ({dupla}): {formatBRL(valor)} — parcelas futuras do cartão e o que foi pago à vista depois da última geração.
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {linhasPagador.length > 0 && totalGeral > 0 && (
-        <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-heading text-sm font-semibold">Rateio entre sócias</h2>
-          <p className="mb-4 text-[11.5px] text-text-muted">
-            Só o que saiu do bolso de cada uma ({formatBRL(totalGeral)}) — pago pela “Empresa” não entra, já foi coberto direto.
-            {temFiltroAtivo
-              ? " Sobre o recorte filtrado abaixo — use período e descrição pra isolar um evento específico."
-              : " Sobre tudo lançado até agora — filtre por período ou descrição abaixo pra isolar só um evento/feira."}
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            {linhasPagador.map(([nome, valor]) => {
-              const pct = totalGeral > 0 ? (valor / totalGeral) * 100 : 0;
-              const diff = valor - metade;
-              return (
-                <div key={nome} className="rounded-lg border border-border-soft px-4 py-3.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-semibold">{nome}</span>
-                    <span className="font-mono text-[14px] font-semibold">{formatBRL(valor)}</span>
-                  </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border-soft">
-                    <div
-                      className="h-full rounded-full bg-primary-fill"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <div className="mt-1.5 text-[11px] text-text-faint">
-                    {pct.toFixed(0)}% do total
-                    {Math.abs(diff) > 1 && (
-                      <>
-                        {" · "}
-                        {diff > 0
-                          ? `pagou R$ ${diff.toFixed(0)} a mais que a metade`
-                          : `falta depositar R$ ${Math.abs(diff).toFixed(0)} pra fechar a metade`}
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {totalOutros > 0 && (
-            <p className="mt-3 text-[11px] text-text-faint">
-              {formatBRL(totalOutros)} pagos pela empresa (ou sem pagador definido) ficaram fora dessa conta.
-            </p>
-          )}
-          {totalAcertoPendente > 0 && (
-            <p className="mt-1 text-[11px] text-text-faint">
-              {formatBRL(totalAcertoPendente)} em acertos ainda abertos — entram aqui quando a tarefa for concluída.
-            </p>
-          )}
-        </div>
-      )}
-
       <div className="rounded-xl border border-border bg-surface p-6">
         {(conta || desde || ate || descricao || tipo) && (
           <div className="mb-4 flex items-center justify-between rounded-lg bg-primary-soft px-3.5 py-2.5 text-[12px] text-primary-deep">
