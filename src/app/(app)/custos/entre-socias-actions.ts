@@ -31,6 +31,7 @@ export type LinhaMatriz = {
 };
 export type MatrizEntreSocias = {
   meses: string[];
+  inicioPadrao: string;
   linhas: LinhaMatriz[];
   subtotais: { devedora: string; porMes: Record<string, number> }[];
   consolidado: { devedora: string; credora: string; valor: number } | null;
@@ -45,7 +46,7 @@ export async function matrizEntreSocias(): Promise<MatrizEntreSocias> {
   const { data: rateios } = await supabase.from("despesa_rateio").select("despesa_id, pessoa, percentual");
   const linhasRateio = (rateios ?? []) as { despesa_id: string; pessoa: string; percentual: number }[];
   const ids = [...new Set(linhasRateio.map((r) => r.despesa_id))];
-  if (ids.length === 0) return { meses: [], linhas: [], subtotais: [], consolidado: null };
+  if (ids.length === 0) return { meses: [], inicioPadrao: mesAtual(), linhas: [], subtotais: [], consolidado: null };
 
   const [{ data: despesas }, { data: parcelas }, { data: pagos }] = await Promise.all([
     supabase.from("despesas").select("id, descricao, pagador, data_gasto, valor_total").in("id", ids),
@@ -90,9 +91,12 @@ export async function matrizEntreSocias(): Promise<MatrizEntreSocias> {
     }
   }
 
-  // Colunas: meses pra frente. Esconde mês passado que já está 100% pago; mostra o que ainda deve.
+  // Devolve TODOS os meses (a tela filtra por período, inclusive passado, pra ver o racha quitado).
+  // O início padrão da visão é o mês atual — ou antes, se houver algo vencido não pago.
   const agora = mesAtual();
-  const meses = [...mesesComCelula].filter((m) => m >= agora || mesesComDevido.has(m)).sort();
+  const meses = [...mesesComCelula].sort();
+  const mesesDevido = [...mesesComDevido].sort();
+  const inicioPadrao = mesesDevido.length > 0 && mesesDevido[0] < agora ? mesesDevido[0] : agora;
 
   // Subtotais por sócia: o que falta depositar (não pago) em cada mês.
   const nomes = [...socias].sort();
@@ -125,7 +129,7 @@ export async function matrizEntreSocias(): Promise<MatrizEntreSocias> {
     else consolidado = { devedora: a, credora: b, valor: 0 };
   }
 
-  return { meses, linhas, subtotais, consolidado };
+  return { meses, inicioPadrao, linhas, subtotais, consolidado };
 }
 
 async function nomeAtual(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
