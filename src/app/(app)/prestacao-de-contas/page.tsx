@@ -1,9 +1,11 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { carregarExecucaoPrograma, type ExecucaoPrograma } from "@/lib/execucao-programa";
 import { carregarAcompanhamento } from "@/lib/acompanhamento-plano";
 import { AcompanhamentoPlano } from "@/app/(app)/relatorios/acompanhamento-plano";
+import { CronogramaPrograma } from "./cronograma";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -103,6 +105,8 @@ async function VisaoFomento({ escopoId }: { escopoId: string | null }) {
         )}
         <ExecucaoDoPrograma execucao={execucao} />
       </div>
+
+      <CronogramaPrograma programaId={escopoId} />
 
       {rubricas && rubricas.length > 0 && (
         <div className="rounded-xl border border-border bg-surface p-6">
@@ -262,13 +266,16 @@ async function VisaoSocia({ cenarioComparar }: { cenarioComparar: string | null 
       </div>
 
       {execucoes.map(({ programa, execucao }) => (
-        <div key={programa.id} className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-1 font-heading text-sm font-semibold">
-            {programa.nome} <span className="font-normal text-text-faint">· execução</span>
-          </h2>
-          <p className="mb-4 text-[11.5px] text-text-muted">O que o avaliador desse programa vê: previsto no orçamento × pago com o recurso.</p>
-          <ExecucaoDoPrograma execucao={execucao} />
-        </div>
+        <Fragment key={programa.id}>
+          <div className="rounded-xl border border-border bg-surface p-6">
+            <h2 className="mb-1 font-heading text-sm font-semibold">
+              {programa.nome} <span className="font-normal text-text-faint">· execução</span>
+            </h2>
+            <p className="mb-4 text-[11.5px] text-text-muted">O que o avaliador desse programa vê: previsto no orçamento × pago com o recurso.</p>
+            <ExecucaoDoPrograma execucao={execucao} />
+          </div>
+          <CronogramaPrograma programaId={programa.id} />
+        </Fragment>
       ))}
     </div>
   );
