@@ -9,6 +9,7 @@ const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 const MES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const rotuloMes = (ym: string) => `${MES[Number(ym.slice(5, 7)) - 1]}/${ym.slice(2, 4)}`;
 const dataBR = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+const r2 = (v: number) => Math.round(v * 100) / 100;
 
 const COR: Record<StatusCel, string> = {
   ok: "bg-[#DCFCE7] text-[#166534] hover:bg-[#bbf7d0]",
@@ -17,6 +18,7 @@ const COR: Record<StatusCel, string> = {
   vazio: "bg-[#F3F4F6] text-[#9CA3AF] hover:bg-[#e8eaed]",
 };
 const ROTULO_STATUS: Record<StatusCel, string> = { ok: "comprovado", parcial: "falta evidência", atrasado: "atrasado", vazio: "previsto / nada lançado" };
+const COL1 = "sticky left-0 z-10 min-w-[230px] max-w-[280px]";
 
 export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Prestacao; rubricasOpcoes: { id: string; nome: string }[] }) {
   const router = useRouter();
@@ -35,20 +37,21 @@ export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Pr
     fd.set("arquivo", file);
     start(async () => { await anexarEvidencia(fd); refresh(); });
   }
-  function remover(anexoId: string) {
-    start(async () => { await removerEvidencia(anexoId); refresh(); });
-  }
-  async function abrir(anexoId: string) {
-    const url = await urlAnexo(anexoId);
-    if (url) window.open(url, "_blank");
-  }
-  function classificar(despesaId: string, rubricaId: string) {
-    start(async () => { await atribuirRubrica(despesaId, rubricaId || null); refresh(); });
-  }
+  function remover(anexoId: string) { start(async () => { await removerEvidencia(anexoId); refresh(); }); }
+  async function abrir(anexoId: string) { const url = await urlAnexo(anexoId); if (url) window.open(url, "_blank"); }
+  function classificar(despesaId: string, rubricaId: string) { start(async () => { await atribuirRubrica(despesaId, rubricaId || null); refresh(); }); }
+
+  // Subtotais do rodapé — por ora só o fomento; a estrutura aceita outros (contrapartida, diferença…).
+  const somaMes = (grupo: RubricaLinha[], m: string) => r2(grupo.reduce((s, r) => s + (r.porMes[m]?.previsto ?? 0), 0));
+  const somaTotal = (grupo: RubricaLinha[]) => r2(grupo.reduce((s, r) => s + r.totalPrevisto, 0));
+  const subtotais: { label: string; grupo: RubricaLinha[] }[] = [{ label: "Subtotal fomento", grupo: rubricas }];
+  const bolsaTotal = somaTotal(bolsa);
+  const totalFomento = somaTotal(rubricas);
+  const totalGeral = r2(totalFomento + bolsaTotal);
 
   const linha = (r: RubricaLinha) => (
     <tr key={r.id} className="border-b border-border-soft">
-      <td className="sticky left-0 z-10 max-w-[200px] bg-surface px-2 py-1.5">
+      <td className={`${COL1} bg-surface px-2 py-1.5`}>
         <div className="font-medium leading-tight">{r.nome}</div>
       </td>
       {meses.map((m) => {
@@ -71,23 +74,6 @@ export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Pr
     </tr>
   );
 
-  const tabela = (grupo: RubricaLinha[]) => (
-    <div className="overflow-x-auto rounded-xl border border-border bg-surface">
-      <table className="w-full border-collapse text-[12px]">
-        <thead>
-          <tr className="border-b border-border text-text-muted">
-            <th className="sticky left-0 z-10 bg-surface px-2 py-2 text-left font-medium">Rubrica</th>
-            {meses.map((m) => (
-              <th key={m} className="whitespace-nowrap px-1 py-2 text-center font-medium">{rotuloMes(m)}</th>
-            ))}
-            <th className="whitespace-nowrap px-2 py-2 text-right font-semibold">Previsto</th>
-          </tr>
-        </thead>
-        <tbody>{grupo.map(linha)}</tbody>
-      </table>
-    </div>
-  );
-
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-muted">
@@ -98,15 +84,45 @@ export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Pr
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#F3F4F6]" /> previsto</span>
       </div>
 
-      {tabela(rubricas)}
+      <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+        <table className="w-full border-collapse text-[12px]">
+          <thead>
+            <tr className="border-b border-border text-text-muted">
+              <th className={`${COL1} bg-surface px-2 py-2 text-left font-medium`}>Rubrica</th>
+              {meses.map((m) => (<th key={m} className="whitespace-nowrap px-1 py-2 text-center font-medium">{rotuloMes(m)}</th>))}
+              <th className="whitespace-nowrap px-2 py-2 text-right font-semibold">Previsto</th>
+            </tr>
+          </thead>
+          <tbody>{rubricas.map(linha)}</tbody>
+          <tfoot>
+            {subtotais.map((s) => (
+              <tr key={s.label} className="border-t-2 border-border bg-bg font-semibold">
+                <td className={`${COL1} bg-bg px-2 py-2`}>{s.label}</td>
+                {meses.map((m) => (<td key={m} className="whitespace-nowrap px-1 py-2 text-right font-mono">{fmt(somaMes(s.grupo, m))}</td>))}
+                <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmt(somaTotal(s.grupo))}</td>
+              </tr>
+            ))}
+          </tfoot>
+        </table>
+      </div>
 
       {bolsa.length > 0 && (
-        <div className="border-t border-border pt-4">
-          <h3 className="mb-0.5 text-[12.5px] font-semibold">Bolsa — à parte</h3>
-          <p className="mb-2 text-[11px] text-text-muted">Ainda sem instrução da FAPES sobre a comprovação da bolsa.</p>
-          {tabela(bolsa)}
+        <div className="rounded-xl border border-border bg-bg/50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-[12.5px] font-semibold">Bolsa</h3>
+            <span className="font-mono text-[12.5px] font-semibold">{fmt(bolsaTotal)}</span>
+          </div>
+          <p className="mt-0.5 text-[11px] text-text-muted">Aguardando data de início e parcelas — ainda sem orientação da FAPES. Não entra na distribuição mensal nem no fomento acima.</p>
         </div>
       )}
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-wine/30 bg-wine-soft/40 px-4 py-3">
+        <span className="font-heading text-[13px] font-semibold text-wine-deep">Total geral</span>
+        <span className="text-right">
+          <span className="font-mono text-[15px] font-bold">{fmt(totalGeral)}</span>
+          <span className="ml-2 text-[10.5px] text-text-muted">fomento {fmt(totalFomento)}{bolsaTotal > 0 ? ` + bolsa ${fmt(bolsaTotal)}` : ""}</span>
+        </span>
+      </div>
 
       {naoAtribuidas.length > 0 && (
         <div className="rounded-xl border border-wine/30 bg-wine-soft/40 p-4">
