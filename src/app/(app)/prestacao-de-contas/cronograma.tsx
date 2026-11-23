@@ -71,52 +71,70 @@ export async function CronogramaPrograma({ programaId }: { programaId: string })
   }
 
   const meses = [...mesesSet].sort();
-  const rubricas = [...porRubrica.entries()].sort((a, b) => a[1].inicio.localeCompare(b[1].inicio) || a[0].localeCompare(b[0]));
-  const totalMes = (m: string) => r2(rubricas.reduce((s, [, r]) => s + (r.porMes[m] ?? 0), 0));
-  const totalGeral = r2(rubricas.reduce((s, [, r]) => s + r.total, 0));
+  const todas = [...porRubrica.entries()].sort((a, b) => a[1].inicio.localeCompare(b[1].inicio) || a[0].localeCompare(b[0]));
+  const ehBolsa = (nome: string) => /bolsa/i.test(nome);
+  const rubricas = todas.filter(([n]) => !ehBolsa(n));
+  const bolsa = todas.filter(([n]) => ehBolsa(n));
+  const somaMes = (grupo: typeof todas, m: string) => r2(grupo.reduce((s, [, r]) => s + (r.porMes[m] ?? 0), 0));
+  const somaTotal = (grupo: typeof todas) => r2(grupo.reduce((s, [, r]) => s + r.total, 0));
+
+  const tabela = (grupo: typeof todas, rotuloTotal: string) => (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-[11.5px]">
+        <thead>
+          <tr className="border-b border-border text-text-muted">
+            <th className="sticky left-0 z-10 bg-surface px-2 py-2 text-left font-medium">Rubrica</th>
+            {meses.map((m) => (
+              <th key={m} className="whitespace-nowrap px-2 py-2 text-right font-medium">{rotuloMes(m)}</th>
+            ))}
+            <th className="whitespace-nowrap px-2 py-2 text-right font-semibold">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {grupo.map(([nome, r]) => (
+            <tr key={nome} className="border-b border-border-soft">
+              <td className="sticky left-0 z-10 max-w-[220px] bg-surface px-2 py-2">{nome}</td>
+              {meses.map((m) => (
+                <td key={m} className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                  {r.porMes[m] ? fmt(r.porMes[m]) : <span className="text-text-faint">·</span>}
+                </td>
+              ))}
+              <td className="whitespace-nowrap px-2 py-2 text-right font-mono font-semibold">{fmt(r.total)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-border bg-bg font-semibold">
+            <td className="sticky left-0 z-10 bg-bg px-2 py-2">{rotuloTotal}</td>
+            {meses.map((m) => (
+              <td key={m} className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmt(somaMes(grupo, m))}</td>
+            ))}
+            <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmt(somaTotal(grupo))}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
 
   return (
     <div className="rounded-xl border border-border bg-surface p-6">
       <h2 className="mb-1 font-heading text-sm font-semibold">Cronograma físico-financeiro</h2>
       <p className="mb-4 text-[11.5px] text-text-muted">
-        Previsto por rubrica e mês. Distribuição <strong>linear no período</strong> de cada rubrica — exata nas parcelas mensais
-        (bolsa, pró-labore, contábil, jurídica); estimada nos serviços por hora.
+        Previsto por rubrica e mês (a comprovar). Distribuição <strong>linear no período</strong> de cada rubrica — exata nas parcelas
+        mensais (pró-labore, contábil, jurídica); estimada nos serviços por hora.
       </p>
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[11.5px]">
-          <thead>
-            <tr className="border-b border-border text-text-muted">
-              <th className="sticky left-0 z-10 bg-surface px-2 py-2 text-left font-medium">Rubrica</th>
-              {meses.map((m) => (
-                <th key={m} className="whitespace-nowrap px-2 py-2 text-right font-medium">{rotuloMes(m)}</th>
-              ))}
-              <th className="whitespace-nowrap px-2 py-2 text-right font-semibold">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rubricas.map(([nome, r]) => (
-              <tr key={nome} className="border-b border-border-soft">
-                <td className="sticky left-0 z-10 max-w-[220px] bg-surface px-2 py-2">{nome}</td>
-                {meses.map((m) => (
-                  <td key={m} className="whitespace-nowrap px-2 py-2 text-right font-mono">
-                    {r.porMes[m] ? fmt(r.porMes[m]) : <span className="text-text-faint">·</span>}
-                  </td>
-                ))}
-                <td className="whitespace-nowrap px-2 py-2 text-right font-mono font-semibold">{fmt(r.total)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t-2 border-border bg-bg font-semibold">
-              <td className="sticky left-0 z-10 bg-bg px-2 py-2">Total por mês</td>
-              {meses.map((m) => (
-                <td key={m} className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmt(totalMes(m))}</td>
-              ))}
-              <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmt(totalGeral)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+
+      {tabela(rubricas, "Total por mês (a comprovar)")}
+
+      {bolsa.length > 0 && (
+        <div className="mt-6 border-t border-border pt-5">
+          <h3 className="mb-0.5 text-[12.5px] font-semibold">Bolsa — à parte</h3>
+          <p className="mb-2 text-[11px] text-text-muted">
+            Separada do restante: ainda não houve instrução da FAPES sobre a comprovação da bolsa. Não entra no total &ldquo;a comprovar&rdquo; acima.
+          </p>
+          {tabela(bolsa, "Total da bolsa")}
+        </div>
+      )}
     </div>
   );
 }
