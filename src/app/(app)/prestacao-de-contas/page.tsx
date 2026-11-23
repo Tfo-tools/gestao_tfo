@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { carregarExecucaoPrograma, type ExecucaoPrograma } from "@/lib/execucao-programa";
-import { CronogramaPrograma } from "./cronograma";
+import { PrestacaoDoPrograma } from "./prestacao-wrapper";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -98,7 +98,7 @@ async function VisaoFomento({ escopoId }: { escopoId: string | null }) {
         <ExecucaoDoPrograma execucao={execucao} />
       </div>
 
-      <CronogramaPrograma programaId={escopoId} />
+      <PrestacaoDoPrograma programaId={escopoId} programaNome={programa.nome} />
 
       {rubricas && rubricas.length > 0 && (
         <div className="rounded-xl border border-border bg-surface p-6">
@@ -189,18 +189,30 @@ async function VisaoSocia() {
       <div>
         <h1 className="font-heading text-[22px] font-semibold">Prestação de contas</h1>
         <p className="mt-1 max-w-2xl text-[13px] text-text-muted">
-          O que cada conta de investidor enxerga aqui — uma tela só, escopada a um programa de fomento ou a um
-          cenário, nunca aos dois nem ao resto do app. Pra convidar ou mudar o escopo de uma conta,{" "}
-          <Link href="/configuracoes" className="font-medium text-primary-deep underline">
-            Configurações → Usuárias
-          </Link>
-          .
+          Acompanhamento e comprovação dos programas de fomento aprovados e em execução.
         </p>
       </div>
 
+      {execucoes.map(({ programa, execucao }) => (
+        <Fragment key={programa.id}>
+          <PrestacaoDoPrograma programaId={programa.id} programaNome={programa.nome} />
+          <div className="rounded-xl border border-border bg-surface p-6">
+            <h2 className="mb-1 font-heading text-sm font-semibold">
+              {programa.nome} <span className="font-normal text-text-faint">· execução por conta</span>
+            </h2>
+            <p className="mb-4 text-[11.5px] text-text-muted">Previsto no orçamento × pago com o recurso (visão por conta).</p>
+            <ExecucaoDoPrograma execucao={execucao} />
+          </div>
+        </Fragment>
+      ))}
+
       <div className="rounded-xl border border-border bg-surface p-6">
+        <h2 className="mb-3 font-heading text-sm font-semibold">Acessos de investidor</h2>
         {(investidores ?? []).length === 0 ? (
-          <p className="text-[13px] text-text-muted">Nenhuma conta de investidor cadastrada ainda.</p>
+          <p className="text-[12.5px] text-text-muted">
+            Nenhuma conta de investidor cadastrada. Convide em{" "}
+            <Link href="/configuracoes" className="font-medium text-primary-deep underline">Configurações → Usuárias</Link>.
+          </p>
         ) : (
           <table className="w-full border-collapse text-[12.5px]">
             <thead>
@@ -228,19 +240,6 @@ async function VisaoSocia() {
           </table>
         )}
       </div>
-
-      {execucoes.map(({ programa, execucao }) => (
-        <Fragment key={programa.id}>
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <h2 className="mb-1 font-heading text-sm font-semibold">
-              {programa.nome} <span className="font-normal text-text-faint">· execução</span>
-            </h2>
-            <p className="mb-4 text-[11.5px] text-text-muted">O que o avaliador desse programa vê: previsto no orçamento × pago com o recurso.</p>
-            <ExecucaoDoPrograma execucao={execucao} />
-          </div>
-          <CronogramaPrograma programaId={programa.id} />
-        </Fragment>
-      ))}
     </div>
   );
 }
