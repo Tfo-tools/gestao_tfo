@@ -180,7 +180,7 @@ export function DespesaRow({
               <label className="mb-1 block text-[10.5px] text-text-faint">Forma de pagamento</label>
               <DetalhePagamento
                 name="pagamento_detalhe"
-                valorTotal={Number(despesa.valor_total)}
+                valorTotal={Number(valorPago) || 0}
                 defaultValue={itensPagamento}
                 onChange={aoMudarPagamento}
                 meios={meiosPagamento}
