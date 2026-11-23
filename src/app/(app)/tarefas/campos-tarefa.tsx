@@ -7,6 +7,38 @@ import type { CandidataDependencia, FaseProjeto, Pessoa, Produto, Projeto, Taref
 const rotulo = "mb-0.5 block text-[10px] text-text-faint";
 
 /**
+ * Campo de data que se digita direto (dd/mm/aaaa), sem o "pulo" entre dia/mês/ano do campo nativo
+ * no Mac. Guarda o ISO (aaaa-mm-dd) num input escondido com o mesmo `name` — o formulário continua
+ * recebendo o valor igual a antes. ISO só é preenchido quando a data digitada é real.
+ */
+function CampoData({ name, defaultValue, className }: { name: string; defaultValue?: string | null; className?: string }) {
+  const isoParaBR = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "");
+  const [texto, setTexto] = useState(isoParaBR(defaultValue ?? ""));
+
+  function aoDigitar(v: string) {
+    const d = v.replace(/\D/g, "").slice(0, 8);
+    if (d.length > 4) setTexto(`${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`);
+    else if (d.length > 2) setTexto(`${d.slice(0, 2)}/${d.slice(2)}`);
+    else setTexto(d);
+  }
+
+  const m = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  let iso = "";
+  if (m) {
+    const [, dd, mm, aaaa] = m;
+    const dt = new Date(`${aaaa}-${mm}-${dd}T00:00:00Z`);
+    if (!Number.isNaN(dt.getTime()) && dt.getUTCDate() === Number(dd) && dt.getUTCMonth() + 1 === Number(mm)) iso = `${aaaa}-${mm}-${dd}`;
+  }
+
+  return (
+    <>
+      <input type="hidden" name={name} value={iso} />
+      <input type="text" inputMode="numeric" placeholder="dd/mm/aaaa" value={texto} onChange={(e) => aoDigitar(e.target.value)} maxLength={10} className={className} />
+    </>
+  );
+}
+
+/**
  * Campos compartilhados entre "nova tarefa" e "editar" — em grade de 2 colunas pra caber numa
  * caixinha. Ordem (decisão de 16/10/2026): essencial em cima (título, responsável, prazo, projeto,
  * fase), descrição e subtarefas sempre à vista, o resto atrás de "mais opções" e, no fim, "depende
@@ -71,7 +103,7 @@ export function CamposTarefa({
           ))}
         </select>
         {/* Prazo opcional na atividade: quando o cliente pede uma data só pra aquela etapa. */}
-        <input name="prazo" type="date" defaultValue={tarefa?.prazo ?? ""} className="input input-compacto w-[130px] shrink-0" title="Prazo da atividade (opcional)" />
+        <CampoData name="prazo" defaultValue={tarefa?.prazo ?? null} className="input input-compacto w-[130px] shrink-0" />
       </div>
     );
   }
@@ -94,7 +126,7 @@ export function CamposTarefa({
       </div>
       <div>
         <label className={rotulo}>Prazo</label>
-        <input name="prazo" type="date" defaultValue={tarefa?.prazo ?? ""} className="input input-compacto w-full" />
+        <CampoData name="prazo" defaultValue={tarefa?.prazo ?? null} className="input input-compacto w-full" />
       </div>
       {fixarProjeto ? (
         <input type="hidden" name="projeto_id" value={projetoId} />
@@ -176,7 +208,7 @@ export function CamposTarefa({
         <>
           <div>
             <label className={rotulo}>Início</label>
-            <input name="data_inicio" type="date" defaultValue={tarefa?.data_inicio ?? ""} className="input input-compacto w-full" />
+            <CampoData name="data_inicio" defaultValue={tarefa?.data_inicio ?? null} className="input input-compacto w-full" />
           </div>
           <div>
             <label className={rotulo}>Etiquetas (vírgula)</label>
