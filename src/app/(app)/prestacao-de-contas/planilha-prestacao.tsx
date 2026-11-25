@@ -24,10 +24,10 @@ export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Pr
   const router = useRouter();
   const [pending, start] = useTransition();
   const [abertaKey, setAbertaKey] = useState<{ rubricaId: string; mes: string } | null>(null);
-  const { meses, rubricas, bolsa, naoAtribuidas } = prestacao;
+  const { meses, rubricas, contrapartida, bolsa, naoAtribuidas } = prestacao;
 
   const refresh = () => router.refresh();
-  const rubAberta = abertaKey ? [...rubricas, ...bolsa].find((r) => r.id === abertaKey.rubricaId) ?? null : null;
+  const rubAberta = abertaKey ? [...rubricas, ...contrapartida, ...bolsa].find((r) => r.id === abertaKey.rubricaId) ?? null : null;
   const celAberta = rubAberta && abertaKey ? rubAberta.porMes[abertaKey.mes] ?? null : null;
 
   function subir(despesaId: string, tipo: string, file: File) {
@@ -41,18 +41,30 @@ export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Pr
   async function abrir(anexoId: string) { const url = await urlAnexo(anexoId); if (url) window.open(url, "_blank"); }
   function classificar(despesaId: string, rubricaId: string) { start(async () => { await atribuirRubrica(despesaId, rubricaId || null); refresh(); }); }
 
-  // Subtotais do rodapé — por ora só o fomento; a estrutura aceita outros (contrapartida, diferença…).
+  // Subtotais do rodapé: fomento (subvenção) e contrapartida separados; bolsa à parte.
   const somaMes = (grupo: RubricaLinha[], m: string) => r2(grupo.reduce((s, r) => s + (r.porMes[m]?.previsto ?? 0), 0));
   const somaTotal = (grupo: RubricaLinha[]) => r2(grupo.reduce((s, r) => s + r.totalPrevisto, 0));
-  const subtotais: { label: string; grupo: RubricaLinha[] }[] = [{ label: "Subtotal fomento", grupo: rubricas }];
   const bolsaTotal = somaTotal(bolsa);
   const totalFomento = somaTotal(rubricas);
-  const totalGeral = r2(totalFomento + bolsaTotal);
+  const totalContrapartida = somaTotal(contrapartida);
+  const totalGeral = r2(totalFomento + totalContrapartida + bolsaTotal);
+
+  const subtotalRow = (label: string, grupo: RubricaLinha[], tom: "fomento" | "contrapartida") => (
+    <tr className={`border-t-2 border-border font-semibold ${tom === "contrapartida" ? "bg-wine-soft/40 text-wine-deep" : "bg-bg"}`}>
+      <td className={`${COL1} px-2 py-2 ${tom === "contrapartida" ? "bg-wine-soft/40" : "bg-bg"}`}>{label}</td>
+      {meses.map((m) => (<td key={m} className="whitespace-nowrap px-1 py-2 text-right font-mono">{fmt(somaMes(grupo, m))}</td>))}
+      <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmt(somaTotal(grupo))}</td>
+    </tr>
+  );
 
   const linha = (r: RubricaLinha) => (
     <tr key={r.id} className="border-b border-border-soft">
-      <td className={`${COL1} bg-surface px-2 py-1.5`}>
-        <div className="font-medium leading-tight">{r.nome}</div>
+      <td className={`${COL1} bg-surface px-2 py-1.5 ${r.contrapartida ? "border-l-[3px] border-l-wine" : ""}`}>
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium leading-tight">{r.nome}</span>
+          {r.contrapartida && <span className="shrink-0 rounded-full bg-wine-soft px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-wine">contrapartida</span>}
+        </div>
+        {r.contrapartida && r.atividade && <div className="mt-0.5 text-[10px] font-normal leading-snug text-text-faint">{r.atividade}</div>}
       </td>
       {meses.map((m) => {
         const c = r.porMes[m];
@@ -82,6 +94,7 @@ export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Pr
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#FEF9C3]" /> falta evidência</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#FEE2E2]" /> atrasado</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#F3F4F6]" /> previsto</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-3.5 rounded-sm bg-wine-soft ring-1 ring-wine" /> <span className="font-semibold text-wine-deep">contrapartida</span> (recurso da TFO, não entra no teto do fomento)</span>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border bg-surface">
@@ -93,16 +106,12 @@ export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Pr
               <th className="whitespace-nowrap px-2 py-2 text-right font-semibold">Previsto</th>
             </tr>
           </thead>
-          <tbody>{rubricas.map(linha)}</tbody>
-          <tfoot>
-            {subtotais.map((s) => (
-              <tr key={s.label} className="border-t-2 border-border bg-bg font-semibold">
-                <td className={`${COL1} bg-bg px-2 py-2`}>{s.label}</td>
-                {meses.map((m) => (<td key={m} className="whitespace-nowrap px-1 py-2 text-right font-mono">{fmt(somaMes(s.grupo, m))}</td>))}
-                <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmt(somaTotal(s.grupo))}</td>
-              </tr>
-            ))}
-          </tfoot>
+          <tbody>
+            {rubricas.map(linha)}
+            {subtotalRow("Subtotal fomento", rubricas, "fomento")}
+            {contrapartida.length > 0 && contrapartida.map(linha)}
+            {contrapartida.length > 0 && subtotalRow("Subtotal contrapartida", contrapartida, "contrapartida")}
+          </tbody>
         </table>
       </div>
 
@@ -120,7 +129,7 @@ export function PlanilhaPrestacao({ prestacao, rubricasOpcoes }: { prestacao: Pr
         <span className="font-heading text-[13px] font-semibold text-wine-deep">Total geral</span>
         <span className="text-right">
           <span className="font-mono text-[15px] font-bold">{fmt(totalGeral)}</span>
-          <span className="ml-2 text-[10.5px] text-text-muted">fomento {fmt(totalFomento)}{bolsaTotal > 0 ? ` + bolsa ${fmt(bolsaTotal)}` : ""}</span>
+          <span className="ml-2 text-[10.5px] text-text-muted">fomento {fmt(totalFomento)}{totalContrapartida > 0 ? ` + contrapartida ${fmt(totalContrapartida)}` : ""}{bolsaTotal > 0 ? ` + bolsa ${fmt(bolsaTotal)}` : ""}</span>
         </span>
       </div>
 

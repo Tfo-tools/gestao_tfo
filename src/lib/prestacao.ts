@@ -67,10 +67,11 @@ export type DespesaCel = {
 };
 export type StatusCel = "vazio" | "parcial" | "ok" | "atrasado";
 export type Celula = { mes: string; previsto: number; realizado: number; despesas: DespesaCel[]; status: StatusCel };
-export type RubricaLinha = { id: string; nome: string; natureza: Natureza; porMes: Record<string, Celula>; totalPrevisto: number; totalRealizado: number };
+export type RubricaLinha = { id: string; nome: string; natureza: Natureza; fonte: string; contrapartida: boolean; atividade: string | null; porMes: Record<string, Celula>; totalPrevisto: number; totalRealizado: number };
 export type Prestacao = {
   meses: string[];
   rubricas: RubricaLinha[];
+  contrapartida: RubricaLinha[];
   bolsa: RubricaLinha[];
   naoAtribuidas: { id: string; descricao: string; valor: number; data_gasto: string }[];
 };
@@ -93,19 +94,22 @@ function distribui(valor: number, meses: string[]): Record<string, number> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function carregarPrestacao(supabase: any, programaId: string): Promise<Prestacao> {
   const [{ data: rubricasRaw }, { data: linhas }, { data: despesasRaw }] = await Promise.all([
-    supabase.from("programa_rubricas").select("id, nome").eq("programa_id", programaId),
-    supabase.from("programa_linhas_previstas").select("rubrica_id, valor, data_inicio, data_fim").eq("programa_id", programaId),
+    supabase.from("programa_rubricas").select("id, nome, fonte").eq("programa_id", programaId),
+    supabase.from("programa_linhas_previstas").select("rubrica_id, atividade, valor, data_inicio, data_fim").eq("programa_id", programaId),
     supabase.from("despesas").select("id, descricao, valor_total, data_gasto, comprovado, rubrica_id, anexos_despesa(id, tipo)").eq("programa_id", programaId),
   ]);
 
-  const rubricas = (rubricasRaw ?? []) as { id: string; nome: string }[];
+  const rubricas = (rubricasRaw ?? []) as { id: string; nome: string; fonte: string | null }[];
   const mesesSet = new Set<string>();
   const hoje = new Date().toISOString().slice(0, 7);
 
-  // Previsto por rubrica/mês (distribuição linear no período de cada linha).
+  // Previsto por rubrica/mês (distribuição linear no período de cada linha) e a atividade da linha.
   const previsto = new Map<string, Record<string, number>>();
-  for (const l of (linhas ?? []) as { rubrica_id: string | null; valor: number; data_inicio: string | null; data_fim: string | null }[]) {
-    if (!l.rubrica_id || !l.data_inicio || !l.data_fim) continue;
+  const atividadePorRubrica = new Map<string, string>();
+  for (const l of (linhas ?? []) as { rubrica_id: string | null; atividade: string | null; valor: number; data_inicio: string | null; data_fim: string | null }[]) {
+    if (!l.rubrica_id) continue;
+    if (l.atividade && !atividadePorRubrica.has(l.rubrica_id)) atividadePorRubrica.set(l.rubrica_id, l.atividade);
+    if (!l.data_inicio || !l.data_fim) continue;
     const ms = mesesEntre(l.data_inicio, l.data_fim);
     ms.forEach((m) => mesesSet.add(m));
     const parts = distribui(Number(l.valor), ms);
@@ -140,8 +144,9 @@ export async function carregarPrestacao(supabase: any, programaId: string): Prom
 
   const meses = [...mesesSet].sort();
 
-  const montaRubrica = (r: { id: string; nome: string }): RubricaLinha => {
+  const montaRubrica = (r: { id: string; nome: string; fonte: string | null }): RubricaLinha => {
     const nat = naturezaDaRubrica(r.nome);
+    const fonte = r.fonte ?? "subvencao";
     const prev = previsto.get(r.id) ?? {};
     const porMes: Record<string, Celula> = {};
     let totalPrevisto = 0; let totalRealizado = 0;
@@ -156,7 +161,7 @@ export async function carregarPrestacao(supabase: any, programaId: string): Prom
       else status = desp.every((d) => d.completa) ? "ok" : "parcial";
       porMes[m] = { mes: m, previsto: p, realizado: real, despesas: desp, status };
     }
-    return { id: r.id, nome: r.nome, natureza: nat, porMes, totalPrevisto, totalRealizado };
+    return { id: r.id, nome: r.nome, natureza: nat, fonte, contrapartida: fonte === "contrapartida", atividade: atividadePorRubrica.get(r.id) ?? null, porMes, totalPrevisto, totalRealizado };
   };
 
   const todas = rubricas.map(montaRubrica).filter((r) => Object.keys(r.porMes).length > 0 || r.totalPrevisto > 0);
@@ -164,7 +169,9 @@ export async function carregarPrestacao(supabase: any, programaId: string): Prom
 
   return {
     meses,
-    rubricas: todas.filter((r) => r.natureza !== "bolsa"),
+    // Fomento = subvenção econômica (fora bolsa). Contrapartida é da TFO: não entra no teto do fomento.
+    rubricas: todas.filter((r) => r.natureza !== "bolsa" && !r.contrapartida),
+    contrapartida: todas.filter((r) => r.natureza !== "bolsa" && r.contrapartida),
     bolsa: todas.filter((r) => r.natureza === "bolsa"),
     naoAtribuidas: naoAtribuidas.sort((a, b) => a.data_gasto.localeCompare(b.data_gasto)),
   };
