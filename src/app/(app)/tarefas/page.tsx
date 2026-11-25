@@ -13,6 +13,7 @@ import { NovoBotao } from "./novo-botao";
 import { AbrirTarefaFoco } from "./abrir-tarefa-foco";
 import { RotinasPanel } from "./rotinas-panel";
 import { NotaParaTarefas } from "./nota-para-tarefas";
+import { OrganizarIA } from "./organizar-ia";
 import { iaConfigurada } from "@/lib/ia";
 import { gerarOcorrenciasRotinas, hojeSP, proximaData, type Rotina } from "@/lib/rotinas";
 import { achatar, montarArvore, STATUS_LABEL, STATUS_ORDEM, type Dependencia, type FaseProdutoOpcao, type FaseProjeto, type NotaTarefa, type Projeto, type Tarefa, type TarefaNo, type AnexoTarefa } from "./tipos";
@@ -139,6 +140,8 @@ export default async function TarefasPage({
   // e a criada pela IA sem revisão (etiqueta criada-automaticamente) pode ter ficado sem responsável.
   const semPrazo = todas.filter((t) => t.status !== "feito" && !t.parent_id && !t.prazo).length;
   const semResponsavel = todas.filter((t) => t.status !== "feito" && !t.parent_id && !t.responsavel_id);
+  // Tarefas soltas (sem projeto e sem mãe, abertas) — base do "Organizar com IA".
+  const soltasCount = todas.filter((t) => t.status !== "feito" && !t.parent_id && !t.projeto_id).length;
   const { data: programasRaw } = await supabase.from("programas_investimento").select("id, nome").order("nome");
   // Sugestões da IA (atas do Fathom) esperando decisão — aparecem no topo, com aviso de duplicata.
   const { data: sugestoesRaw } = await supabase
@@ -279,6 +282,11 @@ export default async function TarefasPage({
             {atrasadas} atrasada{atrasadas === 1 ? "" : "s"}
           </a>
         )}
+        {sugestoes.length > 0 && (
+          <a href="#sugestoes-ia" className="rounded-full bg-amber-100 px-2 py-0.5 text-[11.5px] font-semibold text-amber-800" title="Sugestões da IA esperando sua decisão">
+            {sugestoes.length} sugest{sugestoes.length === 1 ? "ão" : "ões"} a revisar
+          </a>
+        )}
         <p className="text-[12px] text-text-muted">
           {hojeCount > 0 && <span className="font-semibold text-primary-deep">{hojeCount} vence{hojeCount === 1 ? "" : "m"} hoje</span>}
           {hojeCount > 0 && (semPrazo > 0 || bloqueadas > 0 || semResponsavel.length > 0) && " · "}
@@ -286,7 +294,6 @@ export default async function TarefasPage({
           {semPrazo > 0 && semResponsavel.length > 0 && " · "}
           {semResponsavel.length > 0 && <span className="text-amber-700">{semResponsavel.length} sem responsável</span>}
           {bloqueadas > 0 && <span className="text-text-faint"> · {bloqueadas} aguardando outra</span>}
-          {sugestoes.length > 0 && <span className="text-amber-800"> · {sugestoes.length} sugest{sugestoes.length === 1 ? "ão" : "ões"} da IA para aprovar</span>}
           {atrasadas === 0 && hojeCount === 0 && semPrazo === 0 && semResponsavel.length === 0 && "Tudo em dia."}
         </p>
         <NovoBotao
@@ -359,7 +366,13 @@ export default async function TarefasPage({
         </a>
       </div>
 
-      {sugestoes.length > 0 && <SugestoesPanel sugestoes={sugestoes} pessoas={pessoas ?? []} projetos={projetos.filter((p) => p.status === "ativo").map((p) => ({ id: p.id, nome: p.nome }))} />}
+      {iaConfigurada() && soltasCount >= 2 && <OrganizarIA soltasCount={soltasCount} />}
+
+      {sugestoes.length > 0 && (
+        <div id="sugestoes-ia">
+          <SugestoesPanel sugestoes={sugestoes} pessoas={pessoas ?? []} projetos={projetos.filter((p) => p.status === "ativo").map((p) => ({ id: p.id, nome: p.nome }))} />
+        </div>
+      )}
 
       {busca && (
         <p className="text-[12px] text-text-muted">

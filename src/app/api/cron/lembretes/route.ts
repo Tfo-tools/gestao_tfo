@@ -159,6 +159,25 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // Sugestões da IA (atas) esperando decisão — um empurrão diário pra não ficarem esquecidas na fila.
+  try {
+    const { count } = await supabase.from("sugestoes_tarefa").select("id", { count: "exact", head: true }).eq("status", "pendente");
+    if (count && count > 0) {
+      const { data: internos } = await supabase.from("profiles").select("id, papel");
+      const sociaIds = (internos ?? []).filter((p) => p.papel !== "investidor_fomento" && p.papel !== "investidor").map((p) => p.id);
+      for (const id of sociaIds) {
+        lembretes.push({
+          usuarioId: id,
+          title: count === 1 ? "1 sugestão da IA para revisar" : `${count} sugestões da IA para revisar`,
+          body: "Vindas das atas de reunião — aprove ou recuse em Tarefas.",
+          url: "/tarefas#sugestoes-ia",
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Sugestões: falha ao montar o lembrete", e);
+  }
+
   if (lembretes.length === 0) {
     return NextResponse.json({ status: "ok", enviados: 0 });
   }
