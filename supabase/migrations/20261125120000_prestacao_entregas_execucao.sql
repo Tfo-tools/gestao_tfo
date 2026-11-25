@@ -14,7 +14,9 @@
 alter table public.programa_linhas_previstas
   add column if not exists fim_real date,
   add column if not exists status text not null default 'previsto'
-    check (status in ('previsto', 'andamento', 'entregue'));
+    check (status in ('previsto', 'andamento', 'entregue')),
+  -- valor do orçamento fechado (cotação aprovada). null = ainda não negociado (segue no previsto).
+  add column if not exists negociado numeric;
 
 alter table public.despesas
   add column if not exists linha_id uuid
@@ -28,3 +30,5 @@ comment on column public.programa_linhas_previstas.status is
   'Execução física da atividade: previsto | andamento | entregue.';
 comment on column public.despesas.linha_id is
   'Atividade (linha do orçamento) que esta despesa paga — acende o ponto azul (pago) na barra do cronograma.';
+comment on column public.programa_linhas_previstas.negociado is
+  'Valor do orçamento fechado (cotação aprovada). Enquanto null, a linha segue no previsto (aprovado). Vira o valor oficial da linha para a projeção de estouro.';

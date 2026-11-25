@@ -37,6 +37,18 @@ export async function definirExecucao(linhaId: string, status: string, fimReal: 
   return { error: null };
 }
 
+/** Define (ou limpa) o valor negociado de uma linha — o orçamento fechado vira o valor oficial. */
+export async function definirNegociado(linhaId: string, valor: number | null): Promise<Resultado> {
+  const supabase = await createClient();
+  const erro = await exigirSocia(supabase);
+  if (erro) return { error: erro };
+  if (valor != null && (!Number.isFinite(valor) || valor < 0)) return { error: "Valor inválido." };
+  const { error } = await supabase.from("programa_linhas_previstas").update({ negociado: valor }).eq("id", linhaId);
+  if (error) return { error: "Não consegui salvar o valor negociado." };
+  revalidatePath("/prestacao-de-contas");
+  return { error: null };
+}
+
 /** Vincula (ou desvincula) uma despesa a uma atividade — é o que acende o ponto de pago na barra. */
 export async function vincularDespesaEntrega(despesaId: string, linhaId: string | null): Promise<Resultado> {
   const supabase = await createClient();
