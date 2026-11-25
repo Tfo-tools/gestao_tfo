@@ -59,21 +59,8 @@ async function chamarModelo(modelo: string, parts: Part[], maxOutputTokens: numb
  * Manda o prompt + o documento (inline) e devolve o TEXTO (JSON) da resposta — ou um erro claro.
  * Quem chama faz o parse com parseJsonDaIA.
  */
-export async function lerDocumentoTexto(
-  bytes: ArrayBuffer,
-  mime: string,
-  prompt: string,
-  maxOutputTokens = 6000,
-): Promise<{ error: string | null; texto: string | null }> {
-  if (!geminiConfigurado()) return { error: "Leitura por IA indisponível: falta a chave do Gemini (GEMINI_API_KEY).", texto: null };
-  if (!bytes || bytes.byteLength === 0) return { error: "O arquivo chegou vazio — tente anexar de novo.", texto: null };
-  if (bytes.byteLength > TAMANHO_MAX) return { error: "Arquivo grande demais pra IA ler (máx 15 MB).", texto: null };
-
-  const parts: Part[] = [
-    { text: prompt },
-    { inlineData: { mimeType: mime || "application/pdf", data: Buffer.from(bytes).toString("base64") } },
-  ];
-
+/** Roda os parts no modelo principal (2 chances) e nos reservas (1 cada), devolvendo o texto. */
+async function executarComFallback(parts: Part[], maxOutputTokens: number): Promise<{ error: string | null; texto: string | null }> {
   const modelos = [MODELO_PRINCIPAL, ...RESERVAS];
   let ultimoErro: unknown = new Error("sem resposta");
 
@@ -105,8 +92,30 @@ export async function lerDocumentoTexto(
     }
   }
 
-  console.error(`[gemini] leitura falhou em todos os modelos: ${ultimoErro instanceof Error ? ultimoErro.message : String(ultimoErro)}`);
+  console.error(`[gemini] falhou em todos os modelos: ${ultimoErro instanceof Error ? ultimoErro.message : String(ultimoErro)}`);
   return { error: mensagemDeErro(ultimoErro), texto: null };
+}
+
+export async function lerDocumentoTexto(
+  bytes: ArrayBuffer,
+  mime: string,
+  prompt: string,
+  maxOutputTokens = 6000,
+): Promise<{ error: string | null; texto: string | null }> {
+  if (!geminiConfigurado()) return { error: "Leitura por IA indisponível: falta a chave do Gemini (GEMINI_API_KEY).", texto: null };
+  if (!bytes || bytes.byteLength === 0) return { error: "O arquivo chegou vazio — tente anexar de novo.", texto: null };
+  if (bytes.byteLength > TAMANHO_MAX) return { error: "Arquivo grande demais pra IA ler (máx 15 MB).", texto: null };
+  const parts: Part[] = [
+    { text: prompt },
+    { inlineData: { mimeType: mime || "application/pdf", data: Buffer.from(bytes).toString("base64") } },
+  ];
+  return executarComFallback(parts, maxOutputTokens);
+}
+
+/** Texto → resposta (JSON) da IA, sem documento. Quem chama faz o parse com parseJsonDaIA. */
+export async function gerarTextoIA(prompt: string, maxOutputTokens = 2000): Promise<{ error: string | null; texto: string | null }> {
+  if (!geminiConfigurado()) return { error: "IA indisponível: falta a chave do Gemini (GEMINI_API_KEY).", texto: null };
+  return executarComFallback([{ text: prompt }], maxOutputTokens);
 }
 
 function mensagemDeErro(err: unknown): string {

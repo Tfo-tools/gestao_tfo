@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { NovoProjetoRapido, type TarefaParaGrade } from "./novo-projeto-rapido";
 import { NovaTarefaCard, type DadosFormulario } from "./tarefa-card";
+import { CriarComIA } from "./criar-com-ia";
 import type { TarefaNo } from "./tipos";
 
 /**
@@ -23,7 +24,7 @@ export function NovoBotao({
   dependeDe: Map<string, string[]>;
   nos: Record<string, TarefaNo>;
 }) {
-  const [modo, setModo] = useState<"fechado" | "escolha" | "tarefa" | "projeto">("fechado");
+  const [modo, setModo] = useState<"fechado" | "escolha" | "tarefa" | "projeto" | "ia">("fechado");
   const fechar = () => setModo("fechado");
 
   if (modo === "fechado") {
@@ -43,7 +44,10 @@ export function NovoBotao({
   if (modo === "escolha") {
     return (
       <span className="ml-auto flex items-center gap-1.5">
-        <button type="button" onClick={() => setModo("tarefa")} className="rounded-md bg-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-white hover:opacity-90">
+        <button type="button" onClick={() => setModo("ia")} className="rounded-md bg-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-white hover:opacity-90" title="Escreva o que precisa fazer; a IA estrutura os campos">
+          ✨ Com IA
+        </button>
+        <button type="button" onClick={() => setModo("tarefa")} className="rounded-md border border-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-wine-deep hover:bg-wine-soft">
           + Tarefa
         </button>
         <button type="button" onClick={() => setModo("projeto")} className="rounded-md border border-wine-deep px-3 py-1.5 text-[11.5px] font-medium text-wine-deep hover:bg-wine-soft" title="Criar um projeto novo ou editar as tarefas de um existente em grade">
@@ -59,6 +63,9 @@ export function NovoBotao({
   if (modo === "projeto") {
     // Se a lista está filtrada num projeto, a grade já abre nele.
     return <NovoProjetoRapido pessoas={dados.pessoas} projetos={dados.projetos} fases={dados.fases} tarefas={tarefasGrade} dependeDe={dependeDe} nos={nos} dados={dados} projetoInicial={projetoInicial} aoFechar={fechar} />;
+  }
+  if (modo === "ia") {
+    return <CriarComIA dados={dados} projetoInicial={projetoInicial} aoConcluir={fechar} />;
   }
   return <NovaTarefaCard dados={dados} projetoInicial={projetoInicial} abertoInicial aoConcluir={fechar} compacto />;
 }
