@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { carregarExecucaoPrograma, type ExecucaoPrograma } from "@/lib/execucao-programa";
 import { PrestacaoDoPrograma } from "./prestacao-wrapper";
+import { CronogramaDoPrograma } from "./cronograma-wrapper";
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -79,6 +80,8 @@ async function VisaoFomento({ escopoId }: { escopoId: string | null }) {
         <Cartao label="Contrapartida" valor={formatBRL(Number(programa.valor_contrapartida ?? 0))} />
         <Cartao label="Status" valor={LABEL_STATUS[programa.status] ?? programa.status ?? "—"} />
       </div>
+
+      <CronogramaDoPrograma programaId={escopoId} podeEditar={false} mostrarInternos={false} />
 
       <div className="rounded-xl border border-border bg-surface p-6">
         <div className="mb-4 flex items-center justify-between">
@@ -195,6 +198,7 @@ async function VisaoSocia() {
 
       {execucoes.map(({ programa, execucao }) => (
         <Fragment key={programa.id}>
+          <CronogramaDoPrograma programaId={programa.id} podeEditar mostrarInternos />
           <PrestacaoDoPrograma programaId={programa.id} programaNome={programa.nome} />
           <div className="rounded-xl border border-border bg-surface p-6">
             <h2 className="mb-1 font-heading text-sm font-semibold">
