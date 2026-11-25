@@ -18,8 +18,11 @@ export type EstadoMes = "previsto" | "negociado" | "realizado";
 export type CelulaMes = { estado: EstadoMes; val: number; prev: number; delta: number };
 export type LinhaOrc = {
   id: string;
+  rubricaId: string;
   rubrica: string;
   atividade: string;
+  fonte: string;
+  contrapartida: boolean;
   aprovado: number;
   negociado: number | null;
   estado: EstadoMes;
@@ -98,10 +101,11 @@ export async function carregarOrcamentoTempo(
   ]);
 
   const teto = Number(programa?.valor_subvencao ?? 0);
-  // só subvenção econômica (fora a bolsa) entra no controle de teto
-  const rubricas = ((rubricasRaw ?? []) as RubRaw[]).filter((r) => r.fonte === "subvencao" && !/bolsa/i.test(r.nome));
+  // subvenção (fora a bolsa) + contrapartida entram na tabela; só a subvenção conta no teto/estouro.
+  const rubricas = ((rubricasRaw ?? []) as RubRaw[]).filter((r) => (r.fonte === "subvencao" && !/bolsa/i.test(r.nome)) || r.fonte === "contrapartida");
   const rubIds = new Set(rubricas.map((r) => r.id));
   const nomeRub = new Map(rubricas.map((r) => [r.id, r.nome]));
+  const fonteRub = new Map(rubricas.map((r) => [r.id, r.fonte]));
   const linhas = (linhasRaw as LinhaRaw[]).filter((l) => l.rubrica_id && rubIds.has(l.rubrica_id) && l.data_inicio && l.data_fim);
   const despesas = despesasRaw as DespRaw[];
 
@@ -124,6 +128,8 @@ export async function carregarOrcamentoTempo(
   let realizadoTotal = 0;
 
   for (const l of linhas) {
+    const fonte = fonteRub.get(l.rubrica_id!) ?? "subvencao";
+    const ehFomento = fonte === "subvencao"; // só fomento conta no teto/estouro/projeção
     const periodo = mesesEntre(l.data_inicio, l.data_fim);
     const prevDist = distribui(Number(l.valor), periodo);
     const negDist = l.negociado != null ? distribui(Number(l.negociado), periodo) : null;
@@ -139,15 +145,20 @@ export async function carregarOrcamentoTempo(
       return { estado, val, prev, delta: estado === "previsto" ? 0 : r2(val - prev) };
     });
 
-    meses.forEach((_, i) => { previstoMes[i] = r2(previstoMes[i] + cels[i].prev); projecaoMes[i] = r2(projecaoMes[i] + cels[i].val); });
+    if (ehFomento) {
+      meses.forEach((_, i) => { previstoMes[i] = r2(previstoMes[i] + cels[i].prev); projecaoMes[i] = r2(projecaoMes[i] + cels[i].val); });
+      realizadoTotal = r2(realizadoTotal + Object.values(real).reduce((s, v) => s + v, 0));
+    }
     const consolidado = r2(cels.reduce((s, c) => s + c.val, 0));
-    realizadoTotal = r2(realizadoTotal + Object.values(real).reduce((s, v) => s + v, 0));
     const estado: EstadoMes = temRealizado ? "realizado" : l.negociado != null ? "negociado" : "previsto";
 
     linhasOrc.push({
       id: l.id,
+      rubricaId: l.rubrica_id!,
       rubrica: nomeRub.get(l.rubrica_id!) ?? "—",
       atividade: l.atividade || "",
+      fonte,
+      contrapartida: fonte === "contrapartida",
       aprovado: Number(l.valor),
       negociado: l.negociado != null ? Number(l.negociado) : null,
       estado,
@@ -157,7 +168,8 @@ export async function carregarOrcamentoTempo(
     });
   }
 
-  linhasOrc.sort((a, b) => b.aprovado - a.aprovado);
+  // Fomento primeiro (maior aprovado), contrapartida depois.
+  linhasOrc.sort((a, b) => (a.contrapartida === b.contrapartida ? b.aprovado - a.aprovado : a.contrapartida ? 1 : -1));
   const previstoTotal = r2(previstoMes.reduce((s, v) => s + v, 0));
   const projecaoTotal = r2(projecaoMes.reduce((s, v) => s + v, 0));
 

@@ -3,7 +3,7 @@ import { carregarCronogramaEntregas } from "@/lib/prestacao-entregas";
 import { carregarOrcamentoTempo } from "@/lib/orcamento-tempo";
 import { carregarPrestacao } from "@/lib/prestacao";
 import { CronogramaBarras, type DespesaLivre } from "./cronograma-barras";
-import { PlanilhaPrestacao } from "./planilha-prestacao";
+import { OrcamentoControle } from "./orcamento-controle";
 import { PainelTabs } from "./painel-tabs";
 
 const fmt0 = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -81,7 +81,7 @@ export async function CronogramaDoPrograma({
     : <p className="text-[12.5px] text-text-muted">Sem atividades no cronograma ainda.</p>;
 
   const orcamento = temOrcamento
-    ? <PlanilhaPrestacao prestacao={prestacao} rubricasOpcoes={rubricasOpcoes ?? []} />
+    ? <OrcamentoControle orcamento={orc} prestacao={prestacao} rubricasOpcoes={rubricasOpcoes ?? []} podeEditar={podeEditar} />
     : <p className="text-[12.5px] text-text-muted">Sem orçamento cadastrado para este programa ainda.</p>;
 
   const downloadZip = (
