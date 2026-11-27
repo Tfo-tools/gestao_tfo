@@ -29,21 +29,31 @@ type Props = {
   meiosPagamento: MeioPagamento[];
   pessoas: Pessoa[];
   viagens: { id: string; label: string }[];
+  /** Pré-preenchimento vindo da prestação de contas (clique no mês): abre o formulário clássico. */
+  programaInicial?: string;
+  dataInicial?: string;
 };
 
 const vazioR = (v: unknown) => v == null || v === "";
 const hoje = () => new Date().toISOString().slice(0, 10);
 
-export function NovoLancamento({ viagens, ...props }: Props) {
-  const [modo, setModo] = useState<"guiado" | "form">("guiado");
+export function NovoLancamento({ viagens, programaInicial, dataInicial, ...props }: Props) {
+  // Quando vem da prestação de contas (programa pré-definido), abre direto o formulário clássico,
+  // que tem o campo "Comprova o programa" — o assistente guiado não fixa o programa.
+  const [modo, setModo] = useState<"guiado" | "form">(programaInicial ? "form" : "guiado");
 
   if (modo === "form") {
     return (
       <div className="flex flex-col gap-2">
+        {programaInicial && (
+          <p className="rounded-lg border border-wine/30 bg-wine-soft/40 px-3 py-2 text-[11.5px] text-wine-deep">
+            Lançamento já marcado para comprovar o programa de fomento. Preencha a conta, o valor e anexe o comprovante.
+          </p>
+        )}
         <button type="button" onClick={() => setModo("guiado")} className="self-start text-[11.5px] text-text-muted underline underline-offset-2">
           usar o assistente
         </button>
-        <DespesaForm {...props} />
+        <DespesaForm {...props} programaInicial={programaInicial} dataInicial={dataInicial} />
       </div>
     );
   }

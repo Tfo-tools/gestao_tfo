@@ -5,6 +5,7 @@ import { carregarOrcamentoTempo } from "@/lib/orcamento-tempo";
 import { carregarPrestacao } from "@/lib/prestacao";
 import { CronogramaBarras } from "./cronograma-barras";
 import { OrcamentoControle } from "./orcamento-controle";
+import { carregarCotacoesPorRubrica } from "./cotacao-actions";
 import { PainelTabs } from "./painel-tabs";
 
 const fmt0 = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -24,11 +25,12 @@ export async function CronogramaDoPrograma({
   mostrarInternos: boolean;
 }) {
   const supabase = await createClient();
-  const [cron, orc, prestacao, { data: rubricasOpcoes }] = await Promise.all([
+  const [cron, orc, prestacao, { data: rubricasOpcoes }, cotacoesPorRubrica] = await Promise.all([
     carregarCronogramaEntregas(supabase, programaId),
     carregarOrcamentoTempo(supabase, programaId),
     carregarPrestacao(supabase, programaId),
     supabase.from("programa_rubricas").select("id, nome").eq("programa_id", programaId).order("nome"),
+    carregarCotacoesPorRubrica(programaId),
   ]);
 
   const temOrcamento = prestacao.rubricas.length > 0 || prestacao.contrapartida.length > 0 || prestacao.bolsa.length > 0;
@@ -72,7 +74,7 @@ export async function CronogramaDoPrograma({
     : <p className="text-[12.5px] text-text-muted">Sem atividades no cronograma ainda.</p>;
 
   const orcamento = temOrcamento
-    ? <OrcamentoControle orcamento={orc} prestacao={prestacao} rubricasOpcoes={rubricasOpcoes ?? []} podeEditar={podeEditar} />
+    ? <OrcamentoControle orcamento={orc} prestacao={prestacao} rubricasOpcoes={rubricasOpcoes ?? []} podeEditar={podeEditar} programaId={programaId} cotacoesPorRubrica={cotacoesPorRubrica} />
     : <p className="text-[12.5px] text-text-muted">Sem orçamento cadastrado para este programa ainda.</p>;
 
   const downloadZip = (

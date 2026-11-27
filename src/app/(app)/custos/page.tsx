@@ -10,7 +10,9 @@ function formatBRL(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export default async function LancamentosPage() {
+export default async function LancamentosPage({ searchParams }: { searchParams: Promise<{ programa?: string; mes?: string }> }) {
+  const { programa: programaInicial, mes } = await searchParams;
+  const dataInicial = mes && /^\d{4}-\d{2}$/.test(mes) ? `${mes}-15` : undefined;
   const supabase = await createClient();
 
   const {
@@ -99,6 +101,8 @@ export default async function LancamentosPage() {
         meiosPagamento={meiosPagamento ?? []}
         pessoas={pessoas}
         viagens={viagens}
+        programaInicial={programaInicial}
+        dataInicial={dataInicial}
       />
 
       <div className="flex flex-col rounded-xl border border-border bg-surface p-5 lg:max-h-[calc(100vh-11rem)]">

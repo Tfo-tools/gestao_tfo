@@ -4,6 +4,7 @@ import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { definirNegociado } from "./entregas-actions";
 import { atribuirRubrica } from "./planilha-actions";
+import { anexarCotacao, removerCotacao, urlCotacao, type CotacaoAnexo } from "./cotacao-actions";
 import { DossieCelula } from "./dossie-celula";
 import type { OrcamentoTempo, LinhaOrc, EstadoMes } from "@/lib/orcamento-tempo";
 import type { Prestacao, DespesaCel } from "@/lib/prestacao";
@@ -35,16 +36,21 @@ export function OrcamentoControle({
   prestacao,
   rubricasOpcoes,
   podeEditar,
+  programaId,
+  cotacoesPorRubrica,
 }: {
   orcamento: OrcamentoTempo;
   prestacao: Prestacao;
   rubricasOpcoes: { id: string; nome: string }[];
   podeEditar: boolean;
+  programaId: string;
+  cotacoesPorRubrica: Record<string, CotacaoAnexo[]>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [editar, setEditar] = useState<LinhaOrc | null>(null);
   const [dossie, setDossie] = useState<{ rubricaId: string; rubrica: string; mes: string } | null>(null);
+  const [cotacao, setCotacao] = useState<{ rubricaId: string; rubrica: string } | null>(null);
   const { meses, linhas, previstoMes, projecaoMes, estouroMes, previstoTotal, projecaoTotal, estouroTotal } = orcamento;
 
   // Comprovação por célula: rubricaId|mes -> despesas daquele mês.
@@ -100,7 +106,15 @@ export function OrcamentoControle({
             </td>
           ))}
           <td className="border-l border-border px-3 py-2 text-right">
-            <span className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] font-bold ${CELL[l.estado]}`}>{fmt(l.consolidado)}</span>
+            <button
+              type="button"
+              onClick={() => setCotacao({ rubricaId: l.rubricaId, rubrica: l.rubrica })}
+              title="Orçamentos (cotação) deste serviço"
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] font-bold hover:ring-1 hover:ring-wine ${CELL[l.estado]}`}
+            >
+              {fmt(l.consolidado)}
+              <CotacaoBadge n={(cotacoesPorRubrica[l.rubricaId] ?? []).length} contrapartida={l.contrapartida} />
+            </button>
           </td>
         </tr>
         {temDelta && (
@@ -167,7 +181,7 @@ export function OrcamentoControle({
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-2.5 w-4 rounded-sm bg-primary-soft ring-1 ring-primary-fill" /> negociado (orçamento fechado)</span>
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-2.5 w-4 rounded-sm bg-success-soft ring-1 ring-success" /> realizado (pago)</span>
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-2.5 w-4 rounded-sm bg-wine-soft ring-1 ring-wine" /> <span className="font-semibold text-wine-deep">contrapartida</span> (recurso da TFO, fora do teto)</span>
-        <span className="text-text-faint">· clique numa célula pra ver/anexar a comprovação do mês.</span>
+        <span className="text-text-faint">· clique no <b>mês</b> pra o comprovante e no <b>Consolidado</b> pra os orçamentos (cotação do serviço).</span>
       </div>
 
       {prestacao.bolsa.length > 0 && (
@@ -221,9 +235,84 @@ export function OrcamentoControle({
           subtitulo={`${rotuloMes(dossie.mes)} · comprovação do mês`}
           despesas={despMap.get(`${dossie.rubricaId}|${dossie.mes}`) ?? []}
           podeEditar={podeEditar}
+          custosHref={`/custos?programa=${programaId}&mes=${dossie.mes}`}
           onClose={() => setDossie(null)}
         />
       )}
+
+      {cotacao && (
+        <ModalCotacao
+          titulo={cotacao.rubrica}
+          programaId={programaId}
+          rubricaId={cotacao.rubricaId}
+          anexos={cotacoesPorRubrica[cotacao.rubricaId] ?? []}
+          podeEditar={podeEditar}
+          onClose={() => setCotacao(null)}
+          onRefresh={() => router.refresh()}
+        />
+      )}
+    </div>
+  );
+}
+
+function CotacaoBadge({ n, contrapartida }: { n: number; contrapartida: boolean }) {
+  if (contrapartida) return <span className="rounded-full bg-wine-soft px-1 text-[8px] font-bold uppercase text-wine-deep" title="Contrapartida: sem cotação">s/cot.</span>;
+  if (n > 0) return <span className="rounded-full bg-success px-1 text-[8px] font-bold text-white" title={`${n} orçamento(s) anexado(s)`}>{n}📎</span>;
+  return <span className="rounded-full bg-danger-soft px-1 text-[8px] font-bold text-danger" title="Sem orçamento anexado">cotar</span>;
+}
+
+function ModalCotacao({
+  titulo, programaId, rubricaId, anexos, podeEditar, onClose, onRefresh,
+}: {
+  titulo: string; programaId: string; rubricaId: string; anexos: CotacaoAnexo[]; podeEditar: boolean; onClose: () => void; onRefresh: () => void;
+}) {
+  const [busy, start] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+  function subir(file: File) {
+    const fd = new FormData();
+    fd.set("programaId", programaId); fd.set("rubricaId", rubricaId); fd.set("arquivo", file);
+    start(async () => { const r = await anexarCotacao(fd); if (r.error) setErro(r.error); else onRefresh(); });
+  }
+  async function ver(id: string) { const u = await urlCotacao(id); if (u) window.open(u, "_blank"); }
+  function remover(id: string) { start(async () => { await removerCotacao(id); onRefresh(); }); }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4" onClick={onClose}>
+      <div className="mt-10 w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-heading text-sm font-semibold">{titulo}</h3>
+            <p className="text-[11.5px] text-text-muted">Orçamentos do serviço (cotação)</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-[16px] leading-none text-text-muted hover:bg-bg">✕</button>
+        </div>
+        <p className="mb-3 text-[11px] text-text-muted">Serviço PJ acima de R$ 1.481,49 exige <b>3 propostas</b> (Manual 6.2). Anexe aqui a cotação do contrato inteiro — vale para todas as entregas desse serviço.</p>
+
+        {anexos.length === 0 ? (
+          <p className="rounded-lg bg-bg/60 px-3 py-3 text-[12px] text-text-muted">Nenhum orçamento anexado ainda.</p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {anexos.map((a, i) => (
+              <li key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-border-soft px-3 py-2 text-[12px]">
+                <span className="min-w-0 truncate">📎 {a.nome || `Proposta ${i + 1}`}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <button type="button" onClick={() => ver(a.id)} className="text-[11px] text-primary-deep underline">ver</button>
+                  {podeEditar && <button type="button" disabled={busy} onClick={() => remover(a.id)} className="text-[11px] text-danger underline">remover</button>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {podeEditar && (
+          <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-primary-fill bg-primary-soft px-3 py-2 text-[12px] font-medium text-primary-deep hover:bg-primary-soft/70">
+            + anexar orçamento
+            <input type="file" className="hidden" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = ""; }} />
+          </label>
+        )}
+        {erro && <p className="mt-2 text-[11px] text-danger">{erro}</p>}
+        {busy && <p className="mt-2 text-[11px] text-text-faint">salvando…</p>}
+      </div>
     </div>
   );
 }

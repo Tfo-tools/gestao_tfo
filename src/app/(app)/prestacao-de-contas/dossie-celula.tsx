@@ -17,12 +17,14 @@ export function DossieCelula({
   subtitulo,
   despesas,
   podeEditar,
+  custosHref,
   onClose,
 }: {
   titulo: string;
   subtitulo: string;
   despesas: DespesaCel[];
   podeEditar: boolean;
+  custosHref?: string;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -52,10 +54,16 @@ export function DossieCelula({
         </div>
 
         {despesas.length === 0 ? (
-          <p className="py-4 text-[12.5px] text-text-muted">
-            Nenhum pagamento lançado nesse mês ainda. Lance a despesa no Custos vinculando ao programa (ou classifique-a na lista
-            &ldquo;a classificar&rdquo;) pra anexar aqui as cotações, a nota fiscal e o comprovante.
-          </p>
+          <div className="py-3">
+            <p className="text-[12.5px] text-text-muted">
+              Nenhum pagamento lançado nesse mês ainda. Lance a despesa no Custos — já vinculada ao programa e ao mês — para anexar a nota fiscal e o comprovante.
+            </p>
+            {podeEditar && custosHref && (
+              <a href={custosHref} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-wine-deep px-3.5 py-2 text-[12.5px] font-semibold text-white hover:opacity-90">
+                + Lançar pagamento no Custos
+              </a>
+            )}
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {despesas.map((d) => (
@@ -96,6 +104,9 @@ export function DossieCelula({
               </div>
             ))}
           </div>
+        )}
+        {despesas.length > 0 && podeEditar && custosHref && (
+          <a href={custosHref} className="mt-3 inline-block text-[11.5px] font-medium text-primary-deep underline">+ lançar outro pagamento neste mês</a>
         )}
         {pending && <p className="mt-2 text-[11px] text-text-faint">salvando…</p>}
       </div>

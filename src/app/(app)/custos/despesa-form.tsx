@@ -20,6 +20,8 @@ export function DespesaForm({
   meiosPagamento,
   pessoas,
   programas = [],
+  programaInicial,
+  dataInicial,
 }: {
   /** Programas de fomento/investimento que uma despesa pode comprovar. */
   programas?: { id: string; nome: string }[];
@@ -29,6 +31,9 @@ export function DespesaForm({
   usuarioAtual?: string | null;
   meiosPagamento: MeioPagamento[];
   pessoas: Pessoa[];
+  /** Pré-preenchimento vindo da prestação de contas (clique no mês da rúbrica). */
+  programaInicial?: string;
+  dataInicial?: string;
 }) {
   const [state, formAction, pending] = useActionState(criarLancamento, initialState);
   const formRef = useRef<HTMLFormElement>(null);
@@ -40,7 +45,7 @@ export function DespesaForm({
   const [pagamentoKey, setPagamentoKey] = useState(0);
   const [itensPagamento, setItensPagamento] = useState<ItemPagamento[]>([]);
   const [comprovado, setComprovado] = useState(false);
-  const [dataGasto, setDataGasto] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dataGasto, setDataGasto] = useState(() => dataInicial ?? new Date().toISOString().slice(0, 10));
   const [descricao, setDescricao] = useState("");
   // Leitura de nota com IA (preenche data/valor/descrição e sugere a conta).
   const [lendoNota, setLendoNota] = useState(false);
@@ -63,8 +68,8 @@ export function DespesaForm({
   }
   // Programa que a despesa comprova. Preenchido sozinho quando o pagamento sai da conta específica
   // do programa; depois que a pessoa mexe no campo, a escolha dela prevalece.
-  const [programaId, setProgramaId] = useState("");
-  const [programaTocado, setProgramaTocado] = useState(false);
+  const [programaId, setProgramaId] = useState(programaInicial ?? "");
+  const [programaTocado, setProgramaTocado] = useState(!!programaInicial);
   const aoMudarPagamento = (itens: ItemPagamento[]) => {
     setItensPagamento(itens);
     if (programaTocado) return;
