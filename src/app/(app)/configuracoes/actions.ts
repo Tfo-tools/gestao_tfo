@@ -86,9 +86,15 @@ export async function gerarLinkAcesso(id: string): Promise<{ error: string | nul
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
   const redirectTo = `${siteUrl}/definir-senha`;
 
+  // A tela /definir-senha verifica com token_hash + type (verifyOtp) — é o formato que os e-mails de
+  // convite usam. O action_link padrão (/auth/v1/verify?token=…) cai fora desse fluxo e vira loop,
+  // então montamos o link direto com o hashed_token, apontando pra /definir-senha.
   for (const type of ["recovery", "magiclink"] as const) {
     const { data, error } = await admin.auth.admin.generateLink({ type, email, options: { redirectTo } });
-    if (!error && data?.properties?.action_link) return { error: null, link: data.properties.action_link, email };
+    const hashed = data?.properties?.hashed_token;
+    if (!error && hashed) {
+      return { error: null, link: `${siteUrl}/definir-senha?token_hash=${encodeURIComponent(hashed)}&type=${type}`, email };
+    }
   }
   return { error: "Não consegui gerar o link de acesso — tente de novo em instantes." };
 }
