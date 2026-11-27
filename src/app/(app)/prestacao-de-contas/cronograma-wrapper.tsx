@@ -2,8 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import { carregarCronogramaEntregas } from "@/lib/prestacao-entregas";
 import { carregarOrcamentoTempo } from "@/lib/orcamento-tempo";
 import { carregarPrestacao } from "@/lib/prestacao";
+import { carregarDocumentos } from "@/lib/prestacao-documentos";
 import { CronogramaBarras, type DespesaLivre } from "./cronograma-barras";
 import { OrcamentoControle } from "./orcamento-controle";
+import { DocumentosPainel } from "./documentos-painel";
 import { PainelTabs } from "./painel-tabs";
 
 const fmt0 = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -24,10 +26,11 @@ export async function CronogramaDoPrograma({
   mostrarInternos: boolean;
 }) {
   const supabase = await createClient();
-  const [cron, orc, prestacao, { data: rubricasOpcoes }, { data: livresRaw }] = await Promise.all([
+  const [cron, orc, prestacao, docs, { data: rubricasOpcoes }, { data: livresRaw }] = await Promise.all([
     carregarCronogramaEntregas(supabase, programaId),
     carregarOrcamentoTempo(supabase, programaId),
     carregarPrestacao(supabase, programaId),
+    carregarDocumentos(supabase, programaId),
     supabase.from("programa_rubricas").select("id, nome").eq("programa_id", programaId).order("nome"),
     supabase
       .from("despesas")
@@ -84,6 +87,9 @@ export async function CronogramaDoPrograma({
     ? <OrcamentoControle orcamento={orc} prestacao={prestacao} rubricasOpcoes={rubricasOpcoes ?? []} podeEditar={podeEditar} />
     : <p className="text-[12.5px] text-text-muted">Sem orçamento cadastrado para este programa ainda.</p>;
 
+  const documentos = <DocumentosPainel documentos={docs} podeEditar={podeEditar} />;
+  const pendenciasDoc = docs.rubricas.reduce((s, r) => s + r.pagamentos.filter((p) => !p.boleto || !p.nf || !p.comprovante).length, 0);
+
   const downloadZip = (
     <a
       href="/prestacao-de-contas/export"
@@ -104,7 +110,9 @@ export async function CronogramaDoPrograma({
         cards={cards}
         cronograma={cronograma}
         orcamento={orcamento}
+        documentos={documentos}
         pinCrono={`${cron.entregues}/${cron.totalEntregas}`}
+        pinDoc={pendenciasDoc > 0 ? String(pendenciasDoc) : undefined}
         acaoOrcamento={downloadZip}
       />
     </div>

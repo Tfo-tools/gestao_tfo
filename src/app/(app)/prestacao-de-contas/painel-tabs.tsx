@@ -12,32 +12,38 @@ export function PainelTabs({
   cards,
   cronograma,
   orcamento,
+  documentos,
   pinCrono,
   pinOrc,
+  pinDoc,
   acaoOrcamento,
 }: {
   cards: ReactNode;
   cronograma: ReactNode;
   orcamento: ReactNode;
+  documentos?: ReactNode;
   pinCrono?: string;
   pinOrc?: string;
+  pinDoc?: string;
   acaoOrcamento?: ReactNode;
 }) {
-  const [aba, setAba] = useState<"crono" | "orc">("crono");
+  const [aba, setAba] = useState<"crono" | "orc" | "doc">("crono");
 
   return (
     <div className="flex flex-col gap-5">
       {cards}
 
-      <div className="flex items-end gap-1 border-b border-border">
+      <div className="flex items-end gap-1 overflow-x-auto border-b border-border">
         <TabBtn ativo={aba === "crono"} onClick={() => setAba("crono")} label="Cronograma de atividades" pin={pinCrono} />
         <TabBtn ativo={aba === "orc"} onClick={() => setAba("orc")} label="Orçamento" pin={pinOrc} />
+        {documentos != null && <TabBtn ativo={aba === "doc"} onClick={() => setAba("doc")} label="Documentos" pin={pinDoc} />}
         <div className="flex-1" />
         {aba === "orc" && acaoOrcamento ? <div className="mb-1.5">{acaoOrcamento}</div> : null}
       </div>
 
       <div className={aba === "crono" ? "flex flex-col gap-2" : "hidden"}>{cronograma}</div>
       <div className={aba === "orc" ? "flex flex-col gap-2" : "hidden"}>{orcamento}</div>
+      {documentos != null && <div className={aba === "doc" ? "flex flex-col gap-2" : "hidden"}>{documentos}</div>}
     </div>
   );
 }
