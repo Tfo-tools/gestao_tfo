@@ -6,6 +6,7 @@ import { carregarDocumentos } from "@/lib/prestacao-documentos";
 import { CronogramaBarras, type DespesaLivre } from "./cronograma-barras";
 import { OrcamentoControle } from "./orcamento-controle";
 import { DocumentosPainel } from "./documentos-painel";
+import { DossieBotao } from "./dossie-botao";
 import { PainelTabs } from "./painel-tabs";
 
 const fmt0 = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -101,18 +102,19 @@ export async function CronogramaDoPrograma({
 
   return (
     <div className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-6">
-      <div>
-        <h2 className="font-heading text-sm font-semibold">Execução do programa</h2>
-        <p className="mt-1 text-[11.5px] text-text-muted">Cronograma de atividades e orçamento auditável (rúbrica × mês), com controle de estouro vs. o aprovado pela FAPES.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-sm font-semibold">Execução do programa</h2>
+          <p className="mt-1 text-[11.5px] text-text-muted">Cronograma de atividades e orçamento auditável (rúbrica × mês), com controle de estouro vs. o aprovado pela FAPES.</p>
+        </div>
+        <DossieBotao pendencias={pendenciasDoc}>{documentos}</DossieBotao>
       </div>
 
       <PainelTabs
         cards={cards}
         cronograma={cronograma}
         orcamento={orcamento}
-        documentos={documentos}
         pinCrono={`${cron.entregues}/${cron.totalEntregas}`}
-        pinDoc={pendenciasDoc > 0 ? String(pendenciasDoc) : undefined}
         acaoOrcamento={downloadZip}
       />
     </div>
