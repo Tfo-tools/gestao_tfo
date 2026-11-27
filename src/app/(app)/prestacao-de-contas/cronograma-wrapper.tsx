@@ -81,7 +81,7 @@ export async function CronogramaDoPrograma({
   );
 
   const cronograma = cron.totalEntregas > 0
-    ? <CronogramaBarras cronograma={cron} podeEditar={podeEditar} despesasLivres={despesasLivres} />
+    ? <CronogramaBarras cronograma={cron} programaId={programaId} podeEditar={podeEditar} despesasLivres={despesasLivres} />
     : <p className="text-[12.5px] text-text-muted">Sem atividades no cronograma ainda.</p>;
 
   const orcamento = temOrcamento
@@ -89,7 +89,10 @@ export async function CronogramaDoPrograma({
     : <p className="text-[12.5px] text-text-muted">Sem orçamento cadastrado para este programa ainda.</p>;
 
   const documentos = <DocumentosPainel documentos={docs} podeEditar={podeEditar} />;
-  const pendenciasDoc = docs.rubricas.reduce((s, r) => s + r.pagamentos.filter((p) => !p.boleto || !p.nf || !p.comprovante).length, 0);
+  const pendenciasDoc = docs.rubricas.reduce(
+    (s, r) => s + r.pagamentos.filter((p) => !p.boleto || !p.nf || !p.comprovante).length + r.entregas.filter((e) => !e.entregue).length,
+    0,
+  );
 
   const downloadZip = (
     <a

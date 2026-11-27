@@ -3,7 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { definirExecucao, vincularDespesaEntrega } from "./entregas-actions";
-import type { CronogramaEntregas, EntregaBarra } from "@/lib/prestacao-entregas";
+import { marcarEntrega, removerEntrega, urlEvidenciaEntrega } from "./entregas-evidencia-actions";
+import type { CronogramaEntregas, EntregaBarra, SlotEntrega } from "@/lib/prestacao-entregas";
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmt0 = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -17,10 +18,12 @@ export type DespesaLivre = { id: string; descricao: string; valor: number; dataG
 
 export function CronogramaBarras({
   cronograma,
+  programaId,
   podeEditar,
   despesasLivres,
 }: {
   cronograma: CronogramaEntregas;
+  programaId: string;
   podeEditar: boolean;
   despesasLivres: DespesaLivre[];
 }) {
@@ -75,24 +78,21 @@ export function CronogramaBarras({
             style={{ left: `${planL}%`, width: `${execW}%` }}
           />
         )}
-        {/* ponto entrega prevista (vinho) */}
-        <Ponto cor="bg-wine" left={C(e.fimPrev)} titulo={`Entrega prevista · ${rotuloMes(e.fimPrev.slice(0, 7))}`} />
-        {/* ponto entregue (verde) */}
-        {entregue && (
-          <Ponto cor="bg-success" left={C(e.fimReal!)} titulo={`Entregue · ${rotuloMes(e.fimReal!.slice(0, 7))}`} />
-        )}
+        {/* marcadores por slot: pendente (vinho) no mês previsto, entregue (verde) no mês real */}
+        {slotMarkers(e.slots).map((m, i) => (
+          <Ponto
+            key={i}
+            cor={m.verde ? "bg-success" : "bg-wine opacity-60"}
+            left={C(`${m.mes}-01`)}
+            offsetPx={m.offset * 7}
+            titulo={m.verde
+              ? `Entregue · ${rotuloMes(m.mes)}${m.slot.mesReal !== m.slot.mesPrevisto ? ` (previsto ${rotuloMes(m.slot.mesPrevisto)})` : ""}`
+              : `Entrega prevista · ${rotuloMes(m.mes)} — pendente`}
+          />
+        ))}
         {/* ponto pago (azul) */}
         {e.pago && e.pagoMes && (
-          <Ponto cor="bg-primary" left={C(`${e.pagoMes}-01`)} titulo={`Pago · ${rotuloMes(e.pagoMes)}`} />
-        )}
-        {/* etiqueta antecipou/atrasou */}
-        {entregue && dMes !== 0 && (
-          <span
-            className={`absolute top-0.5 -translate-x-1/2 whitespace-nowrap rounded-full px-1.5 py-px text-[8.5px] font-bold ${dMes > 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger"}`}
-            style={{ left: `${C(e.fimReal!)}%` }}
-          >
-            {dMes > 0 ? `▲ ${dMes}m antes` : `▼ ${-dMes}m depois`}
-          </span>
+          <Ponto cor="bg-primary" left={C(`${e.pagoMes}-01`)} offsetPx={-7} titulo={`Pago · ${rotuloMes(e.pagoMes)}`} />
         )}
       </button>
     );
@@ -171,26 +171,41 @@ export function CronogramaBarras({
       {aberta && (
         <DetalheEntrega
           entrega={aberta}
+          programaId={programaId}
           podeEditar={podeEditar}
           pending={pending}
           despesasLivres={despesasLivres}
           onClose={() => setAbertaId(null)}
           onSalvar={(status, fimReal) => start(async () => { await definirExecucao(aberta.id, status, fimReal); router.refresh(); })}
           onVincular={(despesaId, linhaId) => start(async () => { await vincularDespesaEntrega(despesaId, linhaId); router.refresh(); })}
+          onRefresh={() => router.refresh()}
         />
       )}
     </div>
   );
 }
 
-function Ponto({ cor, left, titulo }: { cor: string; left: number; titulo: string }) {
+function Ponto({ cor, left, titulo, offsetPx = 0 }: { cor: string; left: number; titulo: string; offsetPx?: number }) {
   return (
     <span
       className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[3px] border-2 border-surface shadow-sm ${cor}`}
-      style={{ left: `${left}%` }}
+      style={{ left: `calc(${left}% + ${offsetPx}px)` }}
       title={titulo}
     />
   );
+}
+
+/** Onde cada slot aparece: pendente no mês previsto; entregue (com evidência) no mês real. Empilha
+ * horizontalmente quando mais de um cai no mesmo mês (ex.: entrega antecipada do mês seguinte). */
+function slotMarkers(slots: SlotEntrega[]) {
+  const porMes = new Map<string, number>();
+  return slots.map((slot) => {
+    const verde = slot.temEvidencia && !!slot.mesReal;
+    const mes = verde ? slot.mesReal! : slot.mesPrevisto;
+    const offset = porMes.get(mes) ?? 0;
+    porMes.set(mes, offset + 1);
+    return { slot, mes, verde, offset };
+  });
 }
 
 function mesesDiff(a: string, b: string) {
@@ -201,20 +216,24 @@ function mesesDiff(a: string, b: string) {
 
 function DetalheEntrega({
   entrega,
+  programaId,
   podeEditar,
   pending,
   despesasLivres,
   onClose,
   onSalvar,
   onVincular,
+  onRefresh,
 }: {
   entrega: EntregaBarra;
+  programaId: string;
   podeEditar: boolean;
   pending: boolean;
   despesasLivres: DespesaLivre[];
   onClose: () => void;
   onSalvar: (status: string, fimReal: string | null) => void;
   onVincular: (despesaId: string, linhaId: string | null) => void;
+  onRefresh: () => void;
 }) {
   const [status, setStatus] = useState(entrega.status);
   const [fimReal, setFimReal] = useState(entrega.fimReal ?? "");
@@ -231,6 +250,27 @@ function DetalheEntrega({
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-[16px] leading-none text-text-muted hover:bg-bg">✕</button>
+        </div>
+
+        {/* Entregas por mês: cada mês do período é um slot. Anexar evidência + data real deixa verde
+            e move o marcador para o mês real. Vários por mês são permitidos (antecipar/atrasar). */}
+        <div className="mb-4 rounded-xl border border-border-soft bg-bg/40 p-3">
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Entregas por mês</h4>
+          <div className="flex flex-col gap-1.5">
+            {entrega.slots.map((s) => (
+              <SlotLinha
+                key={s.mesPrevisto}
+                slot={s}
+                programaId={programaId}
+                linhaId={entrega.id}
+                podeEditar={podeEditar}
+                onRefresh={onRefresh}
+              />
+            ))}
+          </div>
+          <p className="mt-2 text-[10.5px] text-text-faint">
+            Pago à medida que o prestador comprova. Sem evidência, fica no mês previsto (pendente); com evidência e data, vira verde no mês real.
+          </p>
         </div>
 
         {podeEditar ? (
@@ -304,6 +344,116 @@ function DetalheEntrega({
         </div>
         {pending && <p className="mt-2 text-[11px] text-text-faint">salvando…</p>}
       </div>
+    </div>
+  );
+}
+
+function SlotLinha({
+  slot,
+  programaId,
+  linhaId,
+  podeEditar,
+  onRefresh,
+}: {
+  slot: SlotEntrega;
+  programaId: string;
+  linhaId: string;
+  podeEditar: boolean;
+  onRefresh: () => void;
+}) {
+  const [abrir, setAbrir] = useState(false);
+  const [data, setData] = useState(`${slot.mesPrevisto}-15`);
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [busy, startBusy] = useTransition();
+  const entregue = slot.temEvidencia && !!slot.mesReal;
+
+  function salvar() {
+    if (!arquivo) { setErro("Anexe a evidência."); return; }
+    if (!data) { setErro("Informe a data da entrega."); return; }
+    setErro(null);
+    const fd = new FormData();
+    fd.set("programaId", programaId);
+    fd.set("linhaId", linhaId);
+    fd.set("mesPrevisto", slot.mesPrevisto);
+    fd.set("dataReal", data);
+    fd.set("arquivo", arquivo);
+    startBusy(async () => {
+      const r = await marcarEntrega(fd);
+      if (r.error) { setErro(r.error); return; }
+      setAbrir(false);
+      setArquivo(null);
+      onRefresh();
+    });
+  }
+
+  async function ver() {
+    if (!slot.entregaId) return;
+    const url = await urlEvidenciaEntrega(slot.entregaId);
+    if (url) window.open(url, "_blank");
+  }
+
+  function remover() {
+    if (!slot.entregaId) return;
+    startBusy(async () => {
+      await removerEntrega(slot.entregaId!);
+      onRefresh();
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-border-soft bg-surface px-2.5 py-1.5">
+      <div className="flex items-center justify-between gap-2 text-[11.5px]">
+        <span className="flex items-center gap-1.5">
+          <span className={`inline-block h-2.5 w-2.5 rotate-45 rounded-[2px] ${entregue ? "bg-success" : "bg-wine opacity-60"}`} />
+          {entregue ? (
+            <span>
+              Entregue em <b>{rotuloMes(slot.mesReal!)}</b>
+              {slot.mesReal !== slot.mesPrevisto && <span className="text-text-faint"> · previsto {rotuloMes(slot.mesPrevisto)}</span>}
+            </span>
+          ) : (
+            <span>Previsto <b>{rotuloMes(slot.mesPrevisto)}</b> <span className="text-wine">· pendente</span></span>
+          )}
+        </span>
+        {podeEditar && (
+          entregue ? (
+            <span className="flex shrink-0 items-center gap-2">
+              <button type="button" onClick={ver} className="text-[10.5px] text-primary-deep underline">ver</button>
+              <button type="button" disabled={busy} onClick={remover} className="text-[10.5px] text-danger underline">remover</button>
+            </span>
+          ) : (
+            <button type="button" onClick={() => setAbrir((v) => !v)} className="shrink-0 text-[10.5px] text-primary-deep underline">
+              {abrir ? "cancelar" : "lançar entrega"}
+            </button>
+          )
+        )}
+      </div>
+
+      {entregue && slot.evidenciaNome && (
+        <p className="mt-1 truncate text-[10.5px] text-text-faint" title={slot.evidenciaNome}>📎 {slot.evidenciaNome}</p>
+      )}
+
+      {abrir && !entregue && podeEditar && (
+        <div className="mt-2 flex flex-col gap-2 border-t border-border-soft pt-2">
+          <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+            Data real da entrega
+            <input type="date" className="input input-compacto" value={data} onChange={(e) => setData(e.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+            Evidência
+            <input type="file" className="text-[11px]" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
+          </label>
+          {erro && <p className="text-[10.5px] text-danger">{erro}</p>}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={salvar}
+            className="rounded-lg bg-success px-3 py-1.5 text-[11.5px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? "salvando…" : "Marcar entregue"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

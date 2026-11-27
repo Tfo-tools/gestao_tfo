@@ -12,9 +12,21 @@
  * frente do físico), e é isso que o painel deixa visível.
  */
 
+import { createAdminClient } from "@/lib/supabase/admin";
+
 export type EntregaStatus = "previsto" | "andamento" | "entregue";
 
 export type DespesaDaEntrega = { id: string; descricao: string; valor: number; dataGasto: string };
+
+/** Um slot de entrega da atividade: um por mês do período. Sem evidência fica no mês previsto
+ * (pendente); com evidência vira "entregue" e mostra no mês real (que pode diferir do previsto). */
+export type SlotEntrega = {
+  mesPrevisto: string; // YYYY-MM
+  entregaId: string | null;
+  mesReal: string | null; // YYYY-MM (mês real da entrega)
+  temEvidencia: boolean;
+  evidenciaNome: string | null;
+};
 
 export type EntregaBarra = {
   id: string; // id da linha do orçamento
@@ -29,6 +41,8 @@ export type EntregaBarra = {
   pagoMes: string | null; // YYYY-MM
   pago: boolean;
   despesas: DespesaDaEntrega[];
+  /** Slots de entrega por mês (marcadores da barra). */
+  slots: SlotEntrega[];
 };
 
 export type RubricaEntregas = { id: string; nome: string; valor: number; entregas: EntregaBarra[] };
@@ -106,16 +120,28 @@ export async function carregarCronogramaEntregas(
     return ((base.data ?? []) as any[]).map((d) => ({ ...d, linha_id: null })) as DespesaRaw[];
   }
 
-  const [{ data: programa }, { data: rubricasRaw }, linhasRaw, despesasRaw] = await Promise.all([
+  // Entregas (slots com evidência) vivem numa tabela de RLS fechada — lidas pelo serviço.
+  async function selEntregas() {
+    const { data } = await createAdminClient()
+      .from("entregas")
+      .select("id, linha_id, mes_previsto, mes_real, evidencia_caminho, evidencia_nome")
+      .eq("programa_id", programaId);
+    return (data ?? []) as { id: string; linha_id: string; mes_previsto: string; mes_real: string | null; evidencia_caminho: string | null; evidencia_nome: string | null }[];
+  }
+
+  const [{ data: programa }, { data: rubricasRaw }, linhasRaw, despesasRaw, entregasRaw] = await Promise.all([
     supabase.from("programas_investimento").select("valor_subvencao, data_inicio_vigencia").eq("id", programaId).maybeSingle(),
     supabase.from("programa_rubricas").select("id, nome").eq("programa_id", programaId).order("nome"),
     selLinhas(),
     selDespesas(),
+    selEntregas(),
   ]);
 
   const rubricas = (rubricasRaw ?? []) as { id: string; nome: string }[];
   const linhas = (linhasRaw as LinhaRaw[]).filter((l) => l.data_inicio && l.data_fim);
   const despesas = despesasRaw as DespesaRaw[];
+  const entregaPorSlot = new Map<string, { id: string; mesReal: string | null; temEvidencia: boolean; evidenciaNome: string | null }>();
+  for (const e of entregasRaw) entregaPorSlot.set(`${e.linha_id}|${e.mes_previsto}`, { id: e.id, mesReal: e.mes_real, temEvidencia: !!e.evidencia_caminho, evidenciaNome: e.evidencia_nome });
 
   // Despesas por atividade (para o ponto de pago) e gasto total do recurso.
   const despPorLinha = new Map<string, DespesaDaEntrega[]>();
@@ -131,6 +157,10 @@ export async function carregarCronogramaEntregas(
     const ds = (despPorLinha.get(l.id) ?? []).sort((a, b) => a.dataGasto.localeCompare(b.dataGasto));
     const pagoMes = ds.length > 0 ? ym(ds[0].dataGasto) : null;
     const status = (l.status === "andamento" || l.status === "entregue" ? l.status : "previsto") as EntregaStatus;
+    const slots: SlotEntrega[] = mesesEntre(l.data_inicio, l.data_fim).map((mp) => {
+      const e = entregaPorSlot.get(`${l.id}|${mp}`);
+      return { mesPrevisto: mp, entregaId: e?.id ?? null, mesReal: e?.mesReal ?? null, temEvidencia: e?.temEvidencia ?? false, evidenciaNome: e?.evidenciaNome ?? null };
+    });
     return {
       id: l.id,
       rubricaId: l.rubrica_id,
@@ -143,6 +173,7 @@ export async function carregarCronogramaEntregas(
       pagoMes,
       pago: ds.length > 0,
       despesas: ds,
+      slots,
     };
   };
 

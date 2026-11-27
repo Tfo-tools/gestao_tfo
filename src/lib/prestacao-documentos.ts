@@ -5,9 +5,20 @@
  * pra onde o prestador é direcionado. Puxa tudo de despesas + anexos_despesa + as linhas do cronograma.
  */
 
+import { createAdminClient } from "@/lib/supabase/admin";
+
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
 export type DocRef = { id: string } | null;
+/** Uma entrega comprovada (ou pendente) de uma atividade da rúbrica, puxada da tabela `entregas`. */
+export type EntregaDoc = {
+  entregaId: string | null;
+  atividade: string;
+  mesPrevisto: string; // YYYY-MM
+  mesReal: string | null; // YYYY-MM
+  entregue: boolean;
+  evidenciaNome: string | null;
+};
 export type PagamentoDoc = {
   despesaId: string;
   mes: string; // YYYY-MM
@@ -29,11 +40,29 @@ export type RubricaDoc = {
   atividade: string | null;
   total: number;
   pagamentos: PagamentoDoc[];
+  /** Entregas por mês das atividades da rúbrica (verde = com evidência; pendente = sem). */
+  entregas: EntregaDoc[];
 };
 export type Documentos = { rubricas: RubricaDoc[] };
 
 type RubRaw = { id: string; nome: string; fonte: string | null };
-type LinhaRaw = { id: string; rubrica_id: string | null; atividade: string | null; valor: number; status: string | null; fim_real: string | null };
+type LinhaRaw = { id: string; rubrica_id: string | null; atividade: string | null; valor: number; status: string | null; fim_real: string | null; data_inicio: string | null; data_fim: string | null };
+type EntregaRaw = { id: string; linha_id: string; mes_previsto: string; mes_real: string | null; evidencia_caminho: string | null; evidencia_nome: string | null };
+
+function mesesEntre(ini: string, fim: string): string[] {
+  const out: string[] = [];
+  let y = Number(ini.slice(0, 4));
+  let m = Number(ini.slice(5, 7));
+  const fy = Number(fim.slice(0, 4));
+  const fm = Number(fim.slice(5, 7));
+  let g = 0;
+  while ((y < fy || (y === fy && m <= fm)) && g++ < 60) {
+    out.push(`${y}-${String(m).padStart(2, "0")}`);
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return out;
+}
 type AnexoRaw = { id: string; tipo: string | null };
 type DespRaw = { id: string; descricao: string | null; valor_total: number; data_gasto: string; rubrica_id: string | null; linha_id: string | null; anexos_despesa?: AnexoRaw[] };
 
@@ -49,11 +78,19 @@ export async function carregarDocumentos(
 ): Promise<Documentos> {
   // Tolerante à migration de execução (status/fim_real/linha_id) ainda não aplicada.
   async function selLinhas(): Promise<LinhaRaw[]> {
-    const full = await supabase.from("programa_linhas_previstas").select("id, rubrica_id, atividade, valor, status, fim_real").eq("programa_id", programaId);
+    const full = await supabase.from("programa_linhas_previstas").select("id, rubrica_id, atividade, valor, status, fim_real, data_inicio, data_fim").eq("programa_id", programaId);
     if (!full.error) return (full.data ?? []) as LinhaRaw[];
-    const base = await supabase.from("programa_linhas_previstas").select("id, rubrica_id, atividade, valor").eq("programa_id", programaId);
+    const base = await supabase.from("programa_linhas_previstas").select("id, rubrica_id, atividade, valor, data_inicio, data_fim").eq("programa_id", programaId);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return ((base.data ?? []) as any[]).map((l) => ({ ...l, status: null, fim_real: null })) as LinhaRaw[];
+  }
+  // Entregas vivem em tabela de RLS fechada — lidas pelo serviço.
+  async function selEntregas(): Promise<EntregaRaw[]> {
+    const { data } = await createAdminClient()
+      .from("entregas")
+      .select("id, linha_id, mes_previsto, mes_real, evidencia_caminho, evidencia_nome")
+      .eq("programa_id", programaId);
+    return (data ?? []) as EntregaRaw[];
   }
   async function selDespesas(): Promise<DespRaw[]> {
     const full = await supabase.from("despesas").select("id, descricao, valor_total, data_gasto, rubrica_id, linha_id, anexos_despesa(id, tipo)").eq("programa_id", programaId);
@@ -63,14 +100,36 @@ export async function carregarDocumentos(
     return ((base.data ?? []) as any[]).map((d) => ({ ...d, linha_id: null })) as DespRaw[];
   }
 
-  const [{ data: rubricasRaw }, linhas, despesas] = await Promise.all([
+  const [{ data: rubricasRaw }, linhas, despesas, entregasRaw] = await Promise.all([
     supabase.from("programa_rubricas").select("id, nome, fonte").eq("programa_id", programaId),
     selLinhas(),
     selDespesas(),
+    selEntregas(),
   ]);
 
   const rubricas = (rubricasRaw ?? []) as RubRaw[];
   const linhaPorId = new Map(linhas.map((l) => [l.id, l]));
+  const entregaPorSlot = new Map<string, EntregaRaw>();
+  for (const e of entregasRaw) entregaPorSlot.set(`${e.linha_id}|${e.mes_previsto}`, e);
+
+  // Entregas por rúbrica: para cada atividade (linha) com período, um slot por mês; o slot vira verde
+  // quando há evidência na tabela `entregas` e exibe o mês real da entrega.
+  const entregasRub = new Map<string, EntregaDoc[]>();
+  for (const l of linhas) {
+    if (!l.rubrica_id || !l.data_inicio || !l.data_fim) continue;
+    const ds: EntregaDoc[] = mesesEntre(l.data_inicio, l.data_fim).map((mp) => {
+      const e = entregaPorSlot.get(`${l.id}|${mp}`);
+      return {
+        entregaId: e?.id ?? null,
+        atividade: l.atividade || "Atividade",
+        mesPrevisto: mp,
+        mesReal: e?.mes_real ?? null,
+        entregue: !!e?.evidencia_caminho,
+        evidenciaNome: e?.evidencia_nome ?? null,
+      };
+    });
+    entregasRub.set(l.rubrica_id, [...(entregasRub.get(l.rubrica_id) ?? []), ...ds]);
+  }
   const totalRub = new Map<string, number>();
   const atividadeRub = new Map<string, string>();
   for (const l of linhas) {
@@ -113,6 +172,7 @@ export async function carregarDocumentos(
         atividade: atividadeRub.get(r.id) ?? null,
         total: totalRub.get(r.id) ?? 0,
         pagamentos,
+        entregas: (entregasRub.get(r.id) ?? []).sort((a, b) => (a.mesReal ?? a.mesPrevisto).localeCompare(b.mesReal ?? b.mesPrevisto)),
       };
     })
     .filter((r) => !/bolsa/i.test(r.nome)) // bolsa não tem comprovação de serviço

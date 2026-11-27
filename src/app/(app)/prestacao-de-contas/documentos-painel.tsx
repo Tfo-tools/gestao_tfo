@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { anexarEvidencia, urlAnexo } from "./planilha-actions";
-import type { Documentos, PagamentoDoc, DocRef } from "@/lib/prestacao-documentos";
+import type { Documentos, PagamentoDoc, DocRef, EntregaDoc } from "@/lib/prestacao-documentos";
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const MES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -103,6 +103,30 @@ export function DocumentosPainel({ documentos, podeEditar }: { documentos: Docum
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {r.entregas.length > 0 && (
+            <div className="border-t border-border-soft px-4 py-3">
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-faint">Entregas comprovadas</div>
+              <div className="flex flex-wrap gap-1.5">
+                {r.entregas.map((e: EntregaDoc, i) => (
+                  <span
+                    key={`${e.mesPrevisto}-${i}`}
+                    title={e.atividade + (e.evidenciaNome ? ` · ${e.evidenciaNome}` : "")}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-medium ${
+                      e.entregue
+                        ? "border-success/40 bg-success-soft text-success"
+                        : "border-wine/30 bg-wine-soft/50 text-wine-deep"
+                    }`}
+                  >
+                    <span className={`inline-block h-2 w-2 rotate-45 rounded-[1px] ${e.entregue ? "bg-success" : "bg-wine opacity-60"}`} />
+                    {e.entregue ? rotuloMes(e.mesReal ?? e.mesPrevisto) : rotuloMes(e.mesPrevisto)}
+                    {e.entregue && e.mesReal && e.mesReal !== e.mesPrevisto && <span className="text-success/70">↔</span>}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[10px] text-text-faint">Verde = evidência anexada (no mês real); vinho = prevista, ainda pendente. Anexe pela atividade no cronograma.</p>
             </div>
           )}
         </section>
