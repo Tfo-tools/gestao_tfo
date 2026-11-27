@@ -55,6 +55,7 @@ export function AgendaManager({
   tarefas,
   contaConectada,
   eventosGoogle,
+  eventosGoogleProximos,
   contaPessoalConectada,
   eventosPessoais,
   eventosPessoaisProximos,
@@ -71,6 +72,9 @@ export function AgendaManager({
   tarefas: TarefaComPrazo[];
   contaConectada: string | null;
   eventosGoogle: EventoGoogle[];
+  /** Só os que ainda não terminaram — pra lista "Compromissos na agenda compartilhada". A grade usa a
+   * lista cheia (inclui o que já passou hoje/na semana); a lista de próximos, só o futuro. */
+  eventosGoogleProximos?: EventoGoogle[];
   contaPessoalConectada: string | null;
   eventosPessoais: EventoGoogle[];
   /** Só os que ainda não terminaram — pra lista "Seus compromissos". Sem isso, usa a lista toda. */
@@ -108,7 +112,7 @@ export function AgendaManager({
         <CompromissosGoogleCard
           titulo="Compromissos na agenda compartilhada"
           explicacao="Tudo que já está marcado nos próximos 30 dias — é contra isso que os horários do agendamento público são calculados. Abra os detalhes de um compromisso pra ver ou adicionar a ata."
-          eventos={eventosGoogle}
+          eventos={eventosGoogleProximos ?? eventosGoogle}
           ataPorEvento={ataPorEvento}
           pessoas={pessoas}
           iaConfigurada={iaConfigurada}

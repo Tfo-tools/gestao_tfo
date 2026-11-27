@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { contaGoogleConectada, listarProximosEventos } from "@/lib/google-calendar";
+import { contaGoogleConectada, listarEventosEntre } from "@/lib/google-calendar";
 import { iaConfigurada } from "@/lib/ia";
 import { AgendaManager, type ReuniaoAgendada } from "./agenda-manager";
 import { lerEventosIcs } from "@/lib/agenda-icloud";
@@ -80,10 +80,15 @@ export default async function AgendaPage() {
   const { data: fathomIntegracao } = await supabase.from("integracoes").select("valor").eq("chave", "fathom_webhook").maybeSingle();
   const fathomWebhook = (fathomIntegracao?.valor as { id?: string; created_at?: string } | null) ?? null;
 
+  // A grade da semana precisa enxergar compromisso de hoje que JÁ passou (e o começo da semana).
+  // Por isso o Google é buscado desde o domingo da semana (igual ao iCloud) e não a partir de agora —
+  // senão evento das 9h sumia às 14h. A lista "próximos" filtra o futuro mais abaixo.
+  const inicioSemanaIso = inicioDaSemanaSP(agora).toISOString();
+  const fimListagemIso = new Date(agora.getTime() + DIAS_A_FRENTE_LISTAGEM * 24 * 60 * 60 * 1000).toISOString();
   // Só busca no Google depois de saber que tem conta conectada — evita uma chamada de API à toa.
   const [eventosGoogle, eventosPessoaisGoogle, eventosIcloud] = await Promise.all([
-    contaConectada ? listarProximosEventos(DIAS_A_FRENTE_LISTAGEM) : Promise.resolve([]),
-    contaPessoalConectada && user ? listarProximosEventos(DIAS_A_FRENTE_LISTAGEM, 20, user.id) : Promise.resolve([]),
+    contaConectada ? listarEventosEntre(inicioSemanaIso, fimListagemIso, null, 100) : Promise.resolve([]),
+    contaPessoalConectada && user ? listarEventosEntre(inicioSemanaIso, fimListagemIso, user.id, 100) : Promise.resolve([]),
     icsPessoalUrl
       ? // Desde o domingo da semana: o calendário mostra a semana inteira, e compromisso de um dia que
         // já passou (inclusive recorrente) sumia. A lista de próximos filtra pelo horário lá embaixo.
@@ -131,6 +136,7 @@ export default async function AgendaPage() {
         tarefas={(tarefasComPrazo ?? []) as TarefaComPrazo[]}
         contaConectada={contaConectada}
         eventosGoogle={eventosGoogle}
+        eventosGoogleProximos={eventosGoogle.filter((e) => new Date(e.fimIso || e.inicioIso).getTime() >= agora.getTime())}
         contaPessoalConectada={contaPessoalConectada}
         eventosPessoais={eventosPessoaisSemDuplicata}
         // A lista de próximos só mostra o que ainda não terminou — o corte usa a hora do servidor, pra
