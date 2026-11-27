@@ -8,6 +8,7 @@ import { UsuariosForm } from "./usuarios-form";
 import { NotificacoesPush } from "./notificacoes-push";
 import { PlanoContasManager } from "./plano-contas-manager";
 import { UsuarioPapelSelect } from "./usuario-papel-select";
+import { UsuarioAcoes } from "./usuario-acoes";
 import { ParametrosTributariosCard } from "./parametros-tributarios";
 import { PreferenciasTarefas } from "./preferencias-tarefas";
 import type { VisaoTarefas } from "./preferencias-tarefas-actions";
@@ -96,12 +97,15 @@ export default async function ConfiguracoesPage() {
               <th className="px-2 py-1.5 font-medium">Convidada em</th>
               <th className="px-2 py-1.5 font-medium">Acesso</th>
               <th className="px-2 py-1.5 text-center font-medium">Status</th>
+              <th className="px-2 py-1.5 text-right font-medium">Ações</th>
             </tr>
           </thead>
           <tbody>
             {usuarios.map((u) => {
               const profile = profileById.get(u.id);
               const confirmado = Boolean(u.email_confirmed_at);
+              const bannedUntil = (u as { banned_until?: string | null }).banned_until;
+              const banido = Boolean(bannedUntil && new Date(bannedUntil) > new Date());
               return (
                 <tr key={u.id} className="border-t border-border-soft">
                   <td className="px-2 py-2.5">{profile?.nome ?? "—"}</td>
@@ -124,11 +128,14 @@ export default async function ConfiguracoesPage() {
                   <td className="px-2 py-2.5 text-center">
                     <span
                       className={`rounded px-2 py-0.5 text-[10.5px] font-semibold ${
-                        confirmado ? "bg-success-soft text-success" : "bg-danger-soft text-danger"
+                        banido ? "bg-bg text-text-muted" : confirmado ? "bg-success-soft text-success" : "bg-danger-soft text-danger"
                       }`}
                     >
-                      {confirmado ? "Ativa" : "Convite pendente"}
+                      {banido ? "Sem acesso" : confirmado ? "Ativa" : "Convite pendente"}
                     </span>
+                  </td>
+                  <td className="px-2 py-2.5 text-right">
+                    <UsuarioAcoes id={u.id} banido={banido} ehVoce={u.id === usuarioAtual?.id} />
                   </td>
                 </tr>
               );

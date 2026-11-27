@@ -69,6 +69,71 @@ export async function definirEscopoInvestidor(id: string, escopoId: string): Pro
 }
 
 
+/** Gera o link de primeiro acesso / redefinição de senha de uma usuária (pra enviar por WhatsApp).
+ * Não envia e-mail — devolve o link pra sócia copiar. Usa a Admin API (recovery → magic link como
+ * reserva), apontando pro /definir-senha, onde ela cria a senha. */
+export async function gerarLinkAcesso(id: string): Promise<{ error: string | null; link?: string; email?: string }> {
+  const me = await createClient();
+  const { data: { user } } = await me.auth.getUser();
+  if (!user) return { error: "Sessão expirada." };
+  const { data: perfilMe } = await me.from("profiles").select("papel").eq("id", user.id).maybeSingle();
+  if ((perfilMe?.papel ?? "socia") !== "socia") return { error: "Só sócia pode gerar link de acesso." };
+
+  const admin = createAdminClient();
+  const { data: alvo } = await admin.auth.admin.getUserById(id);
+  const email = alvo?.user?.email;
+  if (!email) return { error: "Essa usuária não tem e-mail." };
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const redirectTo = `${siteUrl}/definir-senha`;
+
+  for (const type of ["recovery", "magiclink"] as const) {
+    const { data, error } = await admin.auth.admin.generateLink({ type, email, options: { redirectTo } });
+    if (!error && data?.properties?.action_link) return { error: null, link: data.properties.action_link, email };
+  }
+  return { error: "Não consegui gerar o link de acesso — tente de novo em instantes." };
+}
+
+/** Remove o acesso de uma usuária mesmo com tarefas vinculadas (funcionário que saiu): revoga o login
+ * na hora (bane por ~100 anos, sem apagar a conta — preserva o histórico e não quebra referências) e
+ * solta as tarefas ABERTAS dela (tira como responsável e dos participantes → caem em "sem responsável"
+ * no painel de Tarefas, pra reatribuir). Reversível por "reativar acesso". */
+export async function removerUsuaria(id: string): Promise<{ error: string | null; tarefasSoltas?: number }> {
+  const me = await createClient();
+  const { data: { user } } = await me.auth.getUser();
+  if (!user) return { error: "Sessão expirada." };
+  if (user.id === id) return { error: "Você não pode remover a própria conta." };
+  const { data: perfilMe } = await me.from("profiles").select("papel").eq("id", user.id).maybeSingle();
+  if ((perfilMe?.papel ?? "socia") !== "socia") return { error: "Só sócia pode remover usuárias." };
+
+  const admin = createAdminClient();
+  const { error: banErr } = await admin.auth.admin.updateUserById(id, { ban_duration: "876000h" });
+  if (banErr) return { error: `Não consegui revogar o acesso (${banErr.message}).` };
+
+  const { data: soltasRows } = await admin.from("tarefas").update({ responsavel_id: null }).neq("status", "feito").eq("responsavel_id", id).select("id");
+  const { data: comoParticipa } = await admin.from("tarefas").select("id, participantes").neq("status", "feito").contains("participantes", [id]);
+  for (const t of (comoParticipa ?? []) as { id: string; participantes: string[] | null }[]) {
+    await admin.from("tarefas").update({ participantes: (t.participantes ?? []).filter((p) => p !== id) }).eq("id", t.id);
+  }
+  revalidatePath("/configuracoes");
+  revalidatePath("/tarefas");
+  return { error: null, tarefasSoltas: (soltasRows ?? []).length };
+}
+
+/** Devolve o acesso de uma usuária removida (tira o banimento). As tarefas que já foram soltas não
+ * voltam sozinhas — é só reatribuir onde quiser. */
+export async function reativarUsuaria(id: string): Promise<{ error: string | null }> {
+  const me = await createClient();
+  const { data: { user } } = await me.auth.getUser();
+  if (!user) return { error: "Sessão expirada." };
+  const { data: perfilMe } = await me.from("profiles").select("papel").eq("id", user.id).maybeSingle();
+  if ((perfilMe?.papel ?? "socia") !== "socia") return { error: "Só sócia pode reativar usuárias." };
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(id, { ban_duration: "none" });
+  if (error) return { error: `Não consegui reativar (${error.message}).` };
+  revalidatePath("/configuracoes");
+  return { error: null };
+}
+
 /**
  * Migra anexos de tarefa antigos (Storage do Supabase) pro Drive compartilhado, em lotes de 5 por
  * clique (limite de tempo da função). Depois da migração, a Storage fica só com comprovantes,
