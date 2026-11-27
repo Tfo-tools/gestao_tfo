@@ -1,69 +1,66 @@
 /**
- * Cronograma de prestação em BARRAS (previsto × executado), por atividade.
+ * Cronograma de prestação POR ATIVIDADE (não por rúbrica), ancorado na regra FAPES.
  *
- * A "entrega/atividade" é uma linha do orçamento (programa_linhas_previstas): já tem atividade,
- * valor, data_inicio e data_fim — a barra PREVISTA. A EXECUÇÃO vem de duas colunas novas na própria
- * linha (fim_real, status) e do pagamento vinculado (despesas.linha_id → ponto azul).
+ * Conceito (Manual 313/2022):
+ *  - A ATIVIDADE (A-1..A-10, tabela programa_atividades) é a linha do cronograma — tem janela no tempo.
+ *  - Cada atividade é paga por uma ou mais RÚBRICAS (atividade_rubrica); a rúbrica guarda o contrato/cotação.
+ *  - Cada ENTREGA é o fato gerador do pagamento (9.7): paga-se DEPOIS que o prestador comprova (9.9),
+ *    com 1 NF + 1 comprovante (9.2). Sem evidência, o slot fica "pendente" no mês previsto; com evidência
+ *    e data, vira "entregue" (verde) e vai para o mês real (pode antecipar/atrasar).
+ *  - Slots pendentes são COMPUTADOS por mês da atividade; só entregas confirmadas ficam gravadas.
  *
- * Também calcula os dois indicadores que o painel mostra lado a lado:
- *  - execução FÍSICA  = atividades entregues ÷ total de atividades;
- *  - execução ORÇAMENTÁRIA = gasto com o recurso (despesas do programa) ÷ subvenção aprovada.
- * Os dois podem divergir de propósito (atividade cara entregue/paga antes puxa o orçamentário à
- * frente do físico), e é isso que o painel deixa visível.
+ * Também devolve os dois indicadores do painel (físico × orçamentário) e o corte Parcial/Final.
  */
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export type EntregaStatus = "previsto" | "andamento" | "entregue";
-
-export type DespesaDaEntrega = { id: string; descricao: string; valor: number; dataGasto: string };
-
-/** Um slot de entrega da atividade: um por mês do período. Sem evidência fica no mês previsto
- * (pendente); com evidência vira "entregue" e mostra no mês real (que pode diferir do previsto). */
-export type SlotEntrega = {
-  mesPrevisto: string; // YYYY-MM
-  entregaId: string | null;
-  mesReal: string | null; // YYYY-MM (mês real da entrega)
-  temEvidencia: boolean;
+export type EntregaConfirmada = {
+  id: string;
+  mesPrevisto: string; // YYYY-MM (slot que preenche)
+  mesReal: string; // YYYY-MM (onde aparece em verde)
   evidenciaNome: string | null;
+  valor: number | null;
 };
 
-export type EntregaBarra = {
-  id: string; // id da linha do orçamento
-  rubricaId: string | null;
-  atividade: string;
-  valor: number;
+export type RubricaDaAtividade = {
+  rubricaId: string;
+  nome: string;
+  fonte: string;
+  contrapartida: boolean;
+  valorContrato: number; // soma das linhas da rúbrica (teto do contrato)
+  entregas: EntregaConfirmada[];
+};
+
+export type AtividadeBarra = {
+  id: string;
+  codigo: string; // A-1
+  nome: string;
+  responsavel: string | null;
   iniPrev: string; // YYYY-MM-DD
   fimPrev: string; // YYYY-MM-DD
-  fimReal: string | null;
-  status: EntregaStatus;
-  /** Mês do pagamento (menor data_gasto entre as despesas vinculadas), ou null. */
-  pagoMes: string | null; // YYYY-MM
-  pago: boolean;
-  despesas: DespesaDaEntrega[];
-  /** Slots de entrega por mês (marcadores da barra). */
-  slots: SlotEntrega[];
+  meses: string[]; // YYYY-MM da janela
+  pendentes: string[]; // YYYY-MM sem entrega confirmada (marcadores pendentes)
+  rubricas: RubricaDaAtividade[];
+  totalEntregas: number; // entregas confirmadas na atividade
 };
 
-export type RubricaEntregas = { id: string; nome: string; valor: number; entregas: EntregaBarra[] };
+/** Corte Parcial/Final da prestação (fonte: cronograma_prestação de contas.pdf — Termo de Outorga). */
+export type CortePrestacao = { parcialFimMes: string; finalIniMes: string };
 
 export type CronogramaEntregas = {
-  /** Meses do eixo (YYYY-MM), do início da vigência/atividades até a última entrega. */
-  meses: string[];
-  rubricas: RubricaEntregas[];
-  semRubrica: EntregaBarra[];
-  totalEntregas: number;
-  entregues: number;
+  meses: string[]; // eixo completo YYYY-MM
+  atividades: AtividadeBarra[];
+  corte: CortePrestacao;
+  totalSlots: number; // oportunidades de entrega previstas (meses × atividade)
+  entregues: number; // entregas confirmadas
   fisicoPct: number;
   gasto: number;
   teto: number;
   orcamentarioPct: number;
-  /** Atividades entregues antes do previsto — folga para antecipar (indicador interno). */
-  antecipadas: number;
+  antecipadas: number; // entregues antes do mês previsto (indicador interno)
 };
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
-const ym = (iso: string) => iso.slice(0, 7);
 
 function mesesEntre(ini: string, fim: string): string[] {
   const out: string[] = [];
@@ -72,7 +69,7 @@ function mesesEntre(ini: string, fim: string): string[] {
   const fy = Number(fim.slice(0, 4));
   const fm = Number(fim.slice(5, 7));
   let g = 0;
-  while ((y < fy || (y === fy && m <= fm)) && g++ < 60) {
+  while ((y < fy || (y === fy && m <= fm)) && g++ < 120) {
     out.push(`${y}-${String(m).padStart(2, "0")}`);
     m++;
     if (m > 12) { m = 1; y++; }
@@ -80,142 +77,107 @@ function mesesEntre(ini: string, fim: string): string[] {
   return out;
 }
 
-type LinhaRaw = {
-  id: string;
-  rubrica_id: string | null;
-  atividade: string | null;
-  valor: number;
-  data_inicio: string;
-  data_fim: string;
-  fim_real: string | null;
-  status: string | null;
-};
-type DespesaRaw = { id: string; descricao: string | null; valor_total: number; data_gasto: string; linha_id: string | null };
+type AtividadeRaw = { id: string; codigo: string; nome: string; responsavel: string | null; data_inicio: string; data_fim: string; ordem: number | null };
+type VincRaw = { atividade_id: string; rubrica_id: string };
+type RubRaw = { id: string; nome: string; fonte: string | null };
+type LinhaRaw = { rubrica_id: string | null; valor: number };
+type DespesaRaw = { valor_total: number };
+type EntregaRaw = { id: string; atividade_id: string | null; rubrica_id: string | null; mes_previsto: string; mes_real: string | null; evidencia_caminho: string | null; evidencia_nome: string | null; valor: number | null };
+
+// Corte da prestação Centelha III: 1ª Parcial 01/11/2026–30/04/2027, Final 01/05/2027–31/10/2027.
+const CORTE: CortePrestacao = { parcialFimMes: "2027-04", finalIniMes: "2027-05" };
 
 export async function carregarCronogramaEntregas(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   programaId: string,
 ): Promise<CronogramaEntregas> {
-  // Tolerante à migration ainda não aplicada: se fim_real/status/linha_id não existem no banco,
-  // cai no modo base (tudo "previsto", sem vínculo de pagamento) em vez de quebrar a página.
-  async function selLinhas(): Promise<LinhaRaw[]> {
-    const full = await supabase
-      .from("programa_linhas_previstas")
-      .select("id, rubrica_id, atividade, valor, data_inicio, data_fim, fim_real, status")
-      .eq("programa_id", programaId);
-    if (!full.error) return (full.data ?? []) as LinhaRaw[];
-    const base = await supabase
-      .from("programa_linhas_previstas")
-      .select("id, rubrica_id, atividade, valor, data_inicio, data_fim")
-      .eq("programa_id", programaId);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return ((base.data ?? []) as any[]).map((l) => ({ ...l, fim_real: null, status: "previsto" })) as LinhaRaw[];
-  }
-  async function selDespesas(): Promise<DespesaRaw[]> {
-    const full = await supabase.from("despesas").select("id, descricao, valor_total, data_gasto, linha_id").eq("programa_id", programaId);
-    if (!full.error) return (full.data ?? []) as DespesaRaw[];
-    const base = await supabase.from("despesas").select("id, descricao, valor_total, data_gasto").eq("programa_id", programaId);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return ((base.data ?? []) as any[]).map((d) => ({ ...d, linha_id: null })) as DespesaRaw[];
-  }
+  const admin = createAdminClient();
 
-  // Entregas (slots com evidência) vivem numa tabela de RLS fechada — lidas pelo serviço.
-  async function selEntregas() {
-    const { data } = await createAdminClient()
-      .from("entregas")
-      .select("id, linha_id, mes_previsto, mes_real, evidencia_caminho, evidencia_nome")
-      .eq("programa_id", programaId);
-    return (data ?? []) as { id: string; linha_id: string; mes_previsto: string; mes_real: string | null; evidencia_caminho: string | null; evidencia_nome: string | null }[];
-  }
-
-  const [{ data: programa }, { data: rubricasRaw }, linhasRaw, despesasRaw, entregasRaw] = await Promise.all([
+  const [{ data: programa }, atividadesRes, vincRes, { data: rubricasRaw }, { data: linhasRaw }, { data: despesasRaw }, entregasRes] = await Promise.all([
     supabase.from("programas_investimento").select("valor_subvencao, data_inicio_vigencia").eq("id", programaId).maybeSingle(),
-    supabase.from("programa_rubricas").select("id, nome").eq("programa_id", programaId).order("nome"),
-    selLinhas(),
-    selDespesas(),
-    selEntregas(),
+    admin.from("programa_atividades").select("id, codigo, nome, responsavel, data_inicio, data_fim, ordem").eq("programa_id", programaId).order("ordem"),
+    admin.from("atividade_rubrica").select("atividade_id, rubrica_id"),
+    supabase.from("programa_rubricas").select("id, nome, fonte").eq("programa_id", programaId),
+    supabase.from("programa_linhas_previstas").select("rubrica_id, valor").eq("programa_id", programaId),
+    supabase.from("despesas").select("valor_total").eq("programa_id", programaId),
+    admin.from("entregas").select("id, atividade_id, rubrica_id, mes_previsto, mes_real, evidencia_caminho, evidencia_nome, valor").eq("programa_id", programaId),
   ]);
 
-  const rubricas = (rubricasRaw ?? []) as { id: string; nome: string }[];
-  const linhas = (linhasRaw as LinhaRaw[]).filter((l) => l.data_inicio && l.data_fim);
-  const despesas = despesasRaw as DespesaRaw[];
-  const entregaPorSlot = new Map<string, { id: string; mesReal: string | null; temEvidencia: boolean; evidenciaNome: string | null }>();
-  for (const e of entregasRaw) entregaPorSlot.set(`${e.linha_id}|${e.mes_previsto}`, { id: e.id, mesReal: e.mes_real, temEvidencia: !!e.evidencia_caminho, evidenciaNome: e.evidencia_nome });
+  const atividades = (atividadesRes.data ?? []) as AtividadeRaw[];
+  const vinc = (vincRes.data ?? []) as VincRaw[];
+  const rubricas = (rubricasRaw ?? []) as RubRaw[];
+  const linhas = (linhasRaw ?? []) as LinhaRaw[];
+  const despesas = (despesasRaw ?? []) as DespesaRaw[];
+  const entregas = (entregasRes.data ?? []) as EntregaRaw[];
 
-  // Despesas por atividade (para o ponto de pago) e gasto total do recurso.
-  const despPorLinha = new Map<string, DespesaDaEntrega[]>();
-  let gasto = 0;
-  for (const d of despesas) {
-    gasto = r2(gasto + Number(d.valor_total));
-    if (!d.linha_id) continue;
-    const item = { id: d.id, descricao: d.descricao || "—", valor: Number(d.valor_total), dataGasto: d.data_gasto };
-    despPorLinha.set(d.linha_id, [...(despPorLinha.get(d.linha_id) ?? []), item]);
+  const rubById = new Map(rubricas.map((r) => [r.id, r]));
+  // teto do contrato por rúbrica = soma das linhas
+  const valorRub = new Map<string, number>();
+  for (const l of linhas) { if (!l.rubrica_id) continue; valorRub.set(l.rubrica_id, r2((valorRub.get(l.rubrica_id) ?? 0) + Number(l.valor))); }
+  // rúbricas de cada atividade
+  const rubsDaAtiv = new Map<string, string[]>();
+  for (const v of vinc) rubsDaAtiv.set(v.atividade_id, [...(rubsDaAtiv.get(v.atividade_id) ?? []), v.rubrica_id]);
+  // entregas confirmadas por atividade+rúbrica
+  const entregaPorAR = new Map<string, EntregaConfirmada[]>();
+  const entregaMesPrevPorAtiv = new Map<string, Set<string>>(); // atividade -> meses previstos já cobertos
+  let entregues = 0;
+  let antecipadas = 0;
+  for (const e of entregas) {
+    if (!e.atividade_id || !e.evidencia_caminho || !e.mes_real) continue; // só confirmadas
+    entregues++;
+    if (e.mes_real < e.mes_previsto) antecipadas++;
+    const item: EntregaConfirmada = { id: e.id, mesPrevisto: e.mes_previsto, mesReal: e.mes_real, evidenciaNome: e.evidencia_nome, valor: e.valor };
+    const k = `${e.atividade_id}|${e.rubrica_id}`;
+    entregaPorAR.set(k, [...(entregaPorAR.get(k) ?? []), item]);
+    const s = entregaMesPrevPorAtiv.get(e.atividade_id) ?? new Set<string>();
+    s.add(e.mes_previsto); entregaMesPrevPorAtiv.set(e.atividade_id, s);
   }
 
-  const montaEntrega = (l: LinhaRaw): EntregaBarra => {
-    const ds = (despPorLinha.get(l.id) ?? []).sort((a, b) => a.dataGasto.localeCompare(b.dataGasto));
-    const pagoMes = ds.length > 0 ? ym(ds[0].dataGasto) : null;
-    const status = (l.status === "andamento" || l.status === "entregue" ? l.status : "previsto") as EntregaStatus;
-    const slots: SlotEntrega[] = mesesEntre(l.data_inicio, l.data_fim).map((mp) => {
-      const e = entregaPorSlot.get(`${l.id}|${mp}`);
-      return { mesPrevisto: mp, entregaId: e?.id ?? null, mesReal: e?.mesReal ?? null, temEvidencia: e?.temEvidencia ?? false, evidenciaNome: e?.evidenciaNome ?? null };
-    });
+  let totalSlots = 0;
+  const barras: AtividadeBarra[] = atividades.map((a) => {
+    const meses = mesesEntre(a.data_inicio, a.data_fim);
+    totalSlots += meses.length;
+    const cobertos = entregaMesPrevPorAtiv.get(a.id) ?? new Set<string>();
+    const pendentes = meses.filter((m) => !cobertos.has(m));
+    const rubs: RubricaDaAtividade[] = (rubsDaAtiv.get(a.id) ?? []).map((rid) => {
+      const r = rubById.get(rid);
+      const fonte = r?.fonte ?? "subvencao";
+      return {
+        rubricaId: rid,
+        nome: r?.nome ?? "Rúbrica",
+        fonte,
+        contrapartida: fonte === "contrapartida",
+        valorContrato: valorRub.get(rid) ?? 0,
+        entregas: (entregaPorAR.get(`${a.id}|${rid}`) ?? []).sort((x, y) => x.mesReal.localeCompare(y.mesReal)),
+      };
+    }).sort((x, y) => (x.contrapartida === y.contrapartida ? y.valorContrato - x.valorContrato : x.contrapartida ? 1 : -1));
     return {
-      id: l.id,
-      rubricaId: l.rubrica_id,
-      atividade: l.atividade || "Atividade",
-      valor: Number(l.valor),
-      iniPrev: l.data_inicio,
-      fimPrev: l.data_fim,
-      fimReal: l.fim_real,
-      status,
-      pagoMes,
-      pago: ds.length > 0,
-      despesas: ds,
-      slots,
+      id: a.id, codigo: a.codigo, nome: a.nome, responsavel: a.responsavel,
+      iniPrev: a.data_inicio, fimPrev: a.data_fim, meses, pendentes, rubricas: rubs,
+      totalEntregas: rubs.reduce((s, r) => s + r.entregas.length, 0),
     };
-  };
+  });
 
-  const entregas = linhas.map(montaEntrega);
-
-  // Eixo de meses: do início da vigência (ou 1ª atividade) à última data relevante.
-  const inicios = entregas.map((e) => e.iniPrev);
-  const fins = entregas.flatMap((e) => [e.fimPrev, e.fimReal].filter((x): x is string => !!x));
-  const pagos = entregas.map((e) => e.pagoMes).filter((x): x is string => !!x).map((m) => `${m}-01`);
+  // eixo de meses: da 1ª atividade (ou vigência) à última
+  const inicios = barras.map((b) => b.iniPrev);
+  const fins = barras.map((b) => b.fimPrev);
   const vig = programa?.data_inicio_vigencia ?? null;
   const todasIni = [...inicios, ...(vig ? [vig] : [])];
-  const todasFim = [...fins, ...pagos];
   const inicio = todasIni.length ? todasIni.reduce((a, b) => (a < b ? a : b)) : vig || `${new Date().getFullYear()}-01-01`;
-  const fimMax = todasFim.length ? todasFim.reduce((a, b) => (a > b ? a : b)) : inicio;
+  const fimMax = fins.length ? fins.reduce((a, b) => (a > b ? a : b)) : inicio;
   const meses = mesesEntre(inicio, fimMax);
 
-  const porRubrica = new Map<string, EntregaBarra[]>();
-  const semRubrica: EntregaBarra[] = [];
-  for (const e of entregas) {
-    if (!e.rubricaId) { semRubrica.push(e); continue; }
-    porRubrica.set(e.rubricaId, [...(porRubrica.get(e.rubricaId) ?? []), e]);
-  }
-
-  const rubricasEntregas: RubricaEntregas[] = rubricas
-    .map((r) => {
-      const es = (porRubrica.get(r.id) ?? []).sort((a, b) => a.iniPrev.localeCompare(b.iniPrev));
-      return { id: r.id, nome: r.nome, valor: r2(es.reduce((s, e) => s + e.valor, 0)), entregas: es };
-    })
-    .filter((r) => r.entregas.length > 0);
-
-  const totalEntregas = entregas.length;
-  const entregues = entregas.filter((e) => e.status === "entregue").length;
-  const antecipadas = entregas.filter((e) => e.fimReal && e.fimReal < e.fimPrev).length;
+  const gasto = r2(despesas.reduce((s, d) => s + Number(d.valor_total), 0));
   const teto = Number(programa?.valor_subvencao ?? 0);
 
   return {
     meses,
-    rubricas: rubricasEntregas,
-    semRubrica: semRubrica.sort((a, b) => a.iniPrev.localeCompare(b.iniPrev)),
-    totalEntregas,
+    atividades: barras,
+    corte: CORTE,
+    totalSlots,
     entregues,
-    fisicoPct: totalEntregas > 0 ? Math.round((entregues / totalEntregas) * 100) : 0,
+    fisicoPct: totalSlots > 0 ? Math.round((entregues / totalSlots) * 100) : 0,
     gasto,
     teto,
     orcamentarioPct: teto > 0 ? Math.round((gasto / teto) * 100) : 0,

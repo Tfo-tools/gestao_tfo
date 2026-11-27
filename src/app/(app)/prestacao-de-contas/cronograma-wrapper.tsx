@@ -1,21 +1,18 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { carregarCronogramaEntregas } from "@/lib/prestacao-entregas";
 import { carregarOrcamentoTempo } from "@/lib/orcamento-tempo";
 import { carregarPrestacao } from "@/lib/prestacao";
-import { carregarDocumentos } from "@/lib/prestacao-documentos";
-import { CronogramaBarras, type DespesaLivre } from "./cronograma-barras";
+import { CronogramaBarras } from "./cronograma-barras";
 import { OrcamentoControle } from "./orcamento-controle";
-import { DocumentosPainel } from "./documentos-painel";
-import { DossieBotao } from "./dossie-botao";
 import { PainelTabs } from "./painel-tabs";
 
 const fmt0 = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 
 /**
  * Painel de execução de um programa: cards (físico, orçamentário, projeção, saldo) e, abaixo, duas
- * abas — "Cronograma de atividades" (barras) e "Orçamento" (uma tabela só, por rúbrica × mês, com a
- * comprovação por clique na célula). Projeção/saldo/estouro vivem nos cards; a contrapartida aparece
- * marcada na tabela de orçamento. Cards de planejamento (internos) só p/ sócia.
+ * abas — "Cronograma de atividades" (atividade ▸ rúbrica ▸ entrega) e "Orçamento" (rúbrica × mês). O
+ * dossiê consolidado abre numa tela própria (ícone acima dos cards). Cards internos só p/ sócia.
  */
 export async function CronogramaDoPrograma({
   programaId,
@@ -27,32 +24,22 @@ export async function CronogramaDoPrograma({
   mostrarInternos: boolean;
 }) {
   const supabase = await createClient();
-  const [cron, orc, prestacao, docs, { data: rubricasOpcoes }, { data: livresRaw }] = await Promise.all([
+  const [cron, orc, prestacao, { data: rubricasOpcoes }] = await Promise.all([
     carregarCronogramaEntregas(supabase, programaId),
     carregarOrcamentoTempo(supabase, programaId),
     carregarPrestacao(supabase, programaId),
-    carregarDocumentos(supabase, programaId),
     supabase.from("programa_rubricas").select("id, nome").eq("programa_id", programaId).order("nome"),
-    supabase
-      .from("despesas")
-      .select("id, descricao, valor_total, data_gasto")
-      .eq("programa_id", programaId)
-      .is("linha_id", null)
-      .order("data_gasto", { ascending: false }),
   ]);
 
   const temOrcamento = prestacao.rubricas.length > 0 || prestacao.contrapartida.length > 0 || prestacao.bolsa.length > 0;
-  if (cron.totalEntregas === 0 && orc.linhas.length === 0 && !temOrcamento) return null;
-
-  const despesasLivres: DespesaLivre[] = ((livresRaw ?? []) as { id: string; descricao: string | null; valor_total: number; data_gasto: string }[]).map((d) => ({
-    id: d.id, descricao: d.descricao || "—", valor: Number(d.valor_total), dataGasto: d.data_gasto,
-  }));
+  if (cron.atividades.length === 0 && orc.linhas.length === 0 && !temOrcamento) return null;
 
   const estoura = orc.saldo < 0;
+  const pendentesEntrega = cron.atividades.reduce((s, a) => s + a.pendentes.length, 0);
 
   const cards = (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      <CardPct label="Execução física" pct={cron.fisicoPct} cor="var(--color-primary-fill)" foot={`${cron.entregues} de ${cron.totalEntregas} atividades entregues`} />
+      <CardPct label="Execução física" pct={cron.fisicoPct} cor="var(--color-primary-fill)" foot={`${cron.entregues} de ${cron.totalSlots} entregas comprovadas`} />
       <CardPct label="Execução orçamentária" pct={orc.orcamentariaPct} cor="var(--color-wine)" foot={`realizado ${fmt0(orc.realizadoTotal)} de ${fmt0(orc.teto)}`} />
       <div className="rounded-xl border border-border bg-surface px-4 py-3.5">
         <div className="text-[10.5px] font-medium uppercase tracking-wide text-text-muted">Projeção</div>
@@ -74,25 +61,19 @@ export async function CronogramaDoPrograma({
             <span className="rounded bg-wine-soft px-1.5 py-px text-[8.5px] font-bold text-wine">INTERNO</span>
           </div>
           <div className="mt-2 font-heading text-[19px] font-semibold">{cron.antecipadas}</div>
-          <div className="mt-1 text-[11px] text-text-muted">{cron.antecipadas === 1 ? "atividade entregue antes do previsto" : "atividades entregues antes do previsto"}</div>
+          <div className="mt-1 text-[11px] text-text-muted">{cron.antecipadas === 1 ? "entrega antes do previsto" : "entregas antes do previsto"}</div>
         </div>
       )}
     </div>
   );
 
-  const cronograma = cron.totalEntregas > 0
-    ? <CronogramaBarras cronograma={cron} programaId={programaId} podeEditar={podeEditar} despesasLivres={despesasLivres} />
+  const cronograma = cron.atividades.length > 0
+    ? <CronogramaBarras cronograma={cron} programaId={programaId} podeEditar={podeEditar} />
     : <p className="text-[12.5px] text-text-muted">Sem atividades no cronograma ainda.</p>;
 
   const orcamento = temOrcamento
     ? <OrcamentoControle orcamento={orc} prestacao={prestacao} rubricasOpcoes={rubricasOpcoes ?? []} podeEditar={podeEditar} />
     : <p className="text-[12.5px] text-text-muted">Sem orçamento cadastrado para este programa ainda.</p>;
-
-  const documentos = <DocumentosPainel documentos={docs} podeEditar={podeEditar} />;
-  const pendenciasDoc = docs.rubricas.reduce(
-    (s, r) => s + r.pagamentos.filter((p) => !p.boleto || !p.nf || !p.comprovante).length + r.entregas.filter((e) => !e.entregue).length,
-    0,
-  );
 
   const downloadZip = (
     <a
@@ -108,16 +89,23 @@ export async function CronogramaDoPrograma({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-heading text-sm font-semibold">Execução do programa</h2>
-          <p className="mt-1 text-[11.5px] text-text-muted">Cronograma de atividades e orçamento auditável (rúbrica × mês), com controle de estouro vs. o aprovado pela FAPES.</p>
+          <p className="mt-1 text-[11.5px] text-text-muted">Cronograma por atividade e orçamento auditável (rúbrica × mês), com controle de estouro vs. o aprovado pela FAPES.</p>
         </div>
-        <DossieBotao pendencias={pendenciasDoc}>{documentos}</DossieBotao>
+        <Link
+          href={`/prestacao-de-contas/dossie?programa=${programaId}`}
+          title="Abrir o dossiê de comprovação (tela consolidada)"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-wine/40 bg-wine-soft/40 px-3 py-1.5 text-[12px] font-medium text-wine-deep hover:bg-wine-soft"
+        >
+          <span aria-hidden>📋</span> Dossiê
+          {pendentesEntrega > 0 ? <span className="rounded-full bg-danger px-1.5 text-[10px] font-bold text-white">{pendentesEntrega}</span> : null}
+        </Link>
       </div>
 
       <PainelTabs
         cards={cards}
         cronograma={cronograma}
         orcamento={orcamento}
-        pinCrono={`${cron.entregues}/${cron.totalEntregas}`}
+        pinCrono={`${cron.entregues}/${cron.totalSlots}`}
         acaoOrcamento={downloadZip}
       />
     </div>

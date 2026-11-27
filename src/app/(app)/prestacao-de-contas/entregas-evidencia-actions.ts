@@ -19,18 +19,22 @@ async function exigirEquipe(supabase: any): Promise<string | null> {
 }
 
 /**
- * Marca uma entrega como feita: anexa a evidência e informa a DATA REAL da entrega (que pode ser
- * antes ou depois do mês previsto). Um slot por mês da atividade (chave linha_id + mês previsto): o
- * marcador fica verde e vai pro mês real. Reenviar substitui a evidência do mesmo slot.
+ * Marca uma entrega como feita (fato gerador do pagamento): anexa a evidência e informa a DATA REAL
+ * da entrega — que pode cair antes ou depois do mês previsto. O slot é (atividade, rúbrica, mês
+ * previsto): o marcador fica verde e vai pro mês real. Vários no mesmo mês são permitidos.
  */
 export async function marcarEntrega(formData: FormData): Promise<{ error: string | null }> {
   const programaId = String(formData.get("programaId") || "");
-  const linhaId = String(formData.get("linhaId") || "");
+  const atividadeId = String(formData.get("atividadeId") || "");
+  const rubricaId = String(formData.get("rubricaId") || "");
   const mesPrevisto = String(formData.get("mesPrevisto") || ""); // YYYY-MM
   const dataReal = String(formData.get("dataReal") || ""); // YYYY-MM-DD
+  const valorRaw = String(formData.get("valor") || "").replace(/\./g, "").replace(",", ".");
+  const valor = valorRaw ? Number(valorRaw) : null;
   const file = formData.get("arquivo") as File | null;
-  if (!programaId || !linhaId || !/^\d{4}-\d{2}$/.test(mesPrevisto)) return { error: "Dados da entrega incompletos." };
+  if (!programaId || !atividadeId || !rubricaId || !/^\d{4}-\d{2}$/.test(mesPrevisto)) return { error: "Dados da entrega incompletos." };
   if (!dataReal) return { error: "Informe a data real da entrega." };
+  if (valor !== null && (Number.isNaN(valor) || valor < 0)) return { error: "Valor inválido." };
   if (!file || file.size === 0) return { error: "Anexe a evidência da entrega." };
   if (file.size > 25 * 1024 * 1024) return { error: "Arquivo acima de 25 MB." };
 
@@ -41,23 +45,22 @@ export async function marcarEntrega(formData: FormData): Promise<{ error: string
   const admin = createAdminClient();
   const { data: { user } } = await supabase.auth.getUser();
   const nome = nomeArquivoSeguro(file.name || "evidencia");
-  const caminho = `entregas/${linhaId}/${Date.now()}-${nome}`;
+  const caminho = `entregas/${atividadeId}/${rubricaId}/${Date.now()}-${nome}`;
   const { error: upErro } = await admin.storage.from(BUCKET).upload(caminho, file, { contentType: file.type || "application/octet-stream" });
   if (upErro) return { error: "Não consegui subir a evidência." };
 
-  const { error } = await admin.from("entregas").upsert(
-    {
-      programa_id: programaId,
-      linha_id: linhaId,
-      mes_previsto: mesPrevisto,
-      mes_real: dataReal.slice(0, 7),
-      evidencia_caminho: caminho,
-      evidencia_nome: nome,
-      evidencia_mime: file.type || null,
-      criado_por: user?.id ?? null,
-    },
-    { onConflict: "linha_id,mes_previsto" },
-  );
+  const { error } = await admin.from("entregas").insert({
+    programa_id: programaId,
+    atividade_id: atividadeId,
+    rubrica_id: rubricaId,
+    mes_previsto: mesPrevisto,
+    mes_real: dataReal.slice(0, 7),
+    valor,
+    evidencia_caminho: caminho,
+    evidencia_nome: nome,
+    evidencia_mime: file.type || null,
+    criado_por: user?.id ?? null,
+  });
   if (error) {
     await admin.storage.from(BUCKET).remove([caminho]);
     return { error: "Subi a evidência mas não consegui registrar a entrega." };
